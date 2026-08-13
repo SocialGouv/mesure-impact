@@ -151,9 +151,11 @@ function build(visits) {
   // Compte les visites réellement retenues, pour distinguer « tout a été filtré à
   // raison » (fenêtre creuse, préprod sans trafic réel) de « le schéma Matomo a
   // changé et plus rien n'est reconnu ». Le premier cas est normal, le second non.
-  let retenues = 0;
+  let retenues = 0;   // dans la fenêtre demandée
+  let reelles = 0;    // hors visites de simulation, toutes dates confondues
   for (const v of visits) {
     if (((v.visitorId || v.idVisitor || '') + '').toLowerCase().includes(SIM_VID)) continue;
+    reelles += 1;
     const day = v.serverDate; if (!day || day < FROM || day > TO) continue;
     retenues += 1;
     const dev = DEVICE(v.deviceType);
@@ -214,7 +216,7 @@ function build(visits) {
     for (const m of modes.filter((x) => x.day === day && x.device !== 'tous')) { const mk = m.mode; const cur = mAgg[mk] || { s_arrivee: 0, s_recherche: 0, s_resultats: 0, s_contact: 0 }; cur.s_arrivee += m.s_arrivee; cur.s_recherche += m.s_recherche; cur.s_resultats += m.s_resultats; cur.s_contact += m.s_contact; mAgg[mk] = cur; }
     for (const [mode, cur] of Object.entries(mAgg)) modes.push({ mode_id: `${day}|tous|${mode}`, day, date: dayTs(day), device: 'tous', mode, ...cur });
   }
-  return { sessions, events, modes, indic, days: [...days].sort(), retenues };
+  return { sessions, events, modes, indic, days: [...days].sort(), retenues, reelles };
 }
 
 async function main() {
@@ -243,7 +245,7 @@ async function main() {
     );
   }
   const arr = visits;
-  const { sessions, events, modes, indic, days, retenues } = build(arr);
+  const { sessions, events, modes, indic, days, retenues, reelles } = build(arr);
 
   // Des visites brutes ne garantissent PAS des lignes exploitables : build() écarte
   // les visites de simulation et celles hors fenêtre, et un champ Matomo renommé
@@ -253,12 +255,13 @@ async function main() {
   // préprod ne portant que des visites de simulation) : on le signale sans échouer.
   // Des visites retenues qui ne produisent aucune ligne, en revanche, ne peut venir
   // que d'un schéma Matomo qui a changé sous nos pieds.
-  if (arr.length && !retenues) {
-    console.warn(`⚠ ${arr.length} visites reçues, toutes écartées (simulation ou hors fenêtre ${FROM} → ${TO}).`);
-  }
-  if (retenues && !sessions.length) {
+  // Matomo a été interrogé sur exactement [FROM, TO] : des visites réelles qui
+  // n'atterrissent dans aucun jour de cette fenêtre ne peut venir que d'une date
+  // illisible — un champ renommé, typiquement. Une fenêtre sans trafic, elle, ne
+  // renvoie tout simplement rien (arr vide), ce qui est normal et ne lève pas.
+  if (reelles && !retenues) {
     throw new Error(
-      `Anomalie : ${retenues} visites retenues mais 0 ligne construite — ` +
+      `Anomalie : ${reelles} visites réelles reçues pour ${FROM} → ${TO}, mais aucune date exploitable — ` +
       `le schéma Matomo a probablement changé (champ serverDate absent ?).`
     );
   }
@@ -266,6 +269,11 @@ async function main() {
   // Le reset ne vide qu'APRÈS une extraction qui a produit de quoi repeupler.
   if (RESET) {
     if (!sessions.length) throw new Error('--reset refusé : aucune ligne construite, les tables seraient vidées sans rien pour les repeupler.');
+    // clearTable vide la table entière : borner la fenêtre supprimerait l'historique
+    // situé hors de [FROM, TO] sans le dire, et le garde ci-dessus n'y verrait rien.
+    if (process.argv.includes('--from') || process.argv.includes('--to')) {
+      throw new Error('--reset refusé avec --from/--to : il vide les tables entières, il effacerait tout l\'historique hors de la fenêtre demandée.');
+    }
     console.log('\n2b) Reset');
     for (const t of ['Sessions', 'Events', 'Modes', 'Indicateurs', 'Extractions']) console.log(`  ✗ ${t} : ${await clearTable(t)} lignes`);
   }
@@ -276,6 +284,12 @@ async function main() {
   const nE = await upsert('Events', events, ['event_id']);
   const nM = await upsert('Modes', modes, ['mode_id']);
   const nI = await upsert('Indicateurs', indic, ['ind_id']);
+  if (!days.length) {
+    throw new Error(
+      `Aucune journée collectée sur ${FROM} → ${TO} (${arr.length} visites reçues). ` +
+      `L'horodatage d'extraction n'est pas rafraîchi : le tableau de bord doit vieillir visiblement.`
+    );
+  }
   const stamp = new Date().toISOString();
   await upsert('Extractions', [{
     run_id: RUN_ID, extracted_at: stamp, source: `Matomo réel, site ${SITE}`,

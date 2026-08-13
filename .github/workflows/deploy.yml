@@ -107,6 +107,29 @@ jobs:
             --atomic --timeout 5m
 
       - name: Rollout status
+        shell: bash
         run: |
-          kubectl -n "mesure-impact-$ENVIRONMENT" rollout status deploy/mesure-impact-web --timeout=3m
-          kubectl -n "mesure-impact-$ENVIRONMENT" get cronjob,deploy,ing
+          set -euo pipefail
+          ns="mesure-impact-$ENVIRONMENT"
+          kubectl -n "$ns" rollout status deploy/mesure-impact-web --timeout=3m
+          kubectl -n "$ns" get cronjob,deploy,ing,networkpolicy
+
+          # Helm n'a encore jamais retiré de ressource sur cette release : vérifier que
+          # le CronJob mono-produit a bien disparu, plutôt que de l'imprimer sans le lire.
+          if kubectl -n "$ns" get cronjob mesure-impact-collect >/dev/null 2>&1; then
+            echo "::error::le CronJob mono-produit mesure-impact-collect survit comme orphelin"
+            exit 1
+          fi
+
+      # La NetworkPolicy ferme l'ingress et Helm l'applique AVANT le Deployment. Les
+      # sondes venant du kubelet, un blocage du chemin d'entrée laisserait le pod Ready :
+      # ni `--atomic` ni `rollout status` ne verraient un site injoignable.
+      - name: Le site répond vraiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          host=$(kubectl -n "mesure-impact-$ENVIRONMENT" get ing mesure-impact-web \
+                   -o jsonpath='{.spec.rules[0].host}')
+          echo "GET https://$host/"
+          curl -fsS -o /dev/null --retry 5 --retry-delay 5 --max-time 20 "https://$host/"
+          echo "200 OK"
