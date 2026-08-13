@@ -1,4 +1,6 @@
-{{- if and .Values.alerts.enabled .Values.produits }}
+{{- $inv := .Values.produits }}
+{{- if ne (.Values.produitsInventaire | toString) (.Values.environment | toString) }}{{- $inv = (index .Values.produitsCatalogue (.Values.environment | toString)) | default list }}{{- end }}
+{{- if and .Values.alerts.enabled $inv }}
 {{/*
 Le Prometheus du cluster sélectionne les PrometheusRule de tous les namespaces
 (ruleSelector vide). Le mode d'échec qui compte ici est silencieux : une collecte

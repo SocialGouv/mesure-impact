@@ -51,8 +51,10 @@ jobs:
           }
           # Exiger la BONNE raison : sans ça, n'importe quelle erreur helm (values
           # absent, template cassé) ferait passer ce test pour vert.
+          # L'inventaire de dev ne doit jamais servir à la prod : le chart doit le
+          # refuser en nommant l'env, pas échouer pour une raison quelconque.
           case "$sortie" in
-            *"inventaire des produits absent ou pour le mauvais env"*)
+            *'inventaire'*'"prod"'*)
               echo "refus confirmé, pour la bonne raison" ;;
             *)
               echo "::error::refus obtenu, mais pas pour la raison attendue :"; echo "$sortie"

@@ -70,6 +70,18 @@ jobs:
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
 
+      # Le catalogue est embarqué à la publication : le dépôt de déploiement n'a
+      # ainsi rien à dupliquer des produits, et ne peut pas dériver de leur source.
+      - name: Embarquer le catalogue des produits
+        run: |
+          set -eu
+          for env in dev prod; do
+            ./scripts/produits-values.sh "$env" > "$RUNNER_TEMP/inv-$env.yaml"
+            ENVNOM="$env" INV="$RUNNER_TEMP/inv-$env.yaml" \
+              yq -i '.produitsCatalogue[strenv(ENVNOM)] = load(env(INV)).produits' chart/values.yaml
+          done
+          yq '.produitsCatalogue' chart/values.yaml
+
       - name: Package et push
         run: |
           set -eu
