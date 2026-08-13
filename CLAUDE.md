@@ -51,9 +51,25 @@ Le secret de repo `KUBECONFIG` contient, **en base64**, le kubeconfig d'un bot R
 - deux `projectRoleTemplateBinding` sur `c-m-97jxtvnv:p-mrmrt` :
   `project-member` et `rt-c7bjb` (rôle `sealed-secrets`, CRUD sur `bitnami.com/sealedsecrets`).
 
-Le bot ne peut donc écrire que dans les namespaces du projet `mesure-impact`. Vérifié :
-`create deployments` → `yes` dans `mesure-impact-dev`/`-prod`, `no` dans `cattle-system`,
-`default`, `carnets-preprod`.
+Périmètre exact, dérivé des bindings RBAC réels et confirmé par `SubjectAccessReview` :
+
+- écriture **uniquement** dans `mesure-impact-dev` et `mesure-impact-prod` ;
+- lecture cluster en `get/list/watch` seulement : `nodes`, `persistentvolumes`,
+  `storageclasses`, `apiservices`, `clusterrepos`, `navlinks` — l'empreinte standard d'un
+  `project-member` Rancher ;
+- `create namespaces` à l'échelle du cluster (ClusterRole `create-ns`, posé par Rancher).
+  Droit de création seul : le bot n'a ni `get`, ni `patch`, ni `delete` sur un namespace
+  hors de ses deux, et ne peut pas rapatrier un namespace existant dans son projet
+  (`patch` refusé sur tout namespace étranger). Il peut donc créer un namespace vide
+  inutilisable — nuisance, pas accès ;
+- aucune escalade : `clusterroles`, `clusterrolebindings`, `roles`, `rolebindings`,
+  `escalate`, `bind`, `impersonate`, CSR, webhooks d'admission, CRD, ClusterPolicy Kyverno
+  → tous refusés ;
+- aucune lecture transverse : `list secrets|configmaps|pods|serviceaccounts` cluster-wide
+  → refusés ;
+- aucun `globalRoleBinding` ni `clusterRoleTemplateBinding` côté Rancher, et **zéro binding
+  sur le cluster `ovh-prod`** : un kubeconfig `ovh-prod` frappé avec ce compte
+  s'authentifierait mais n'autoriserait rien.
 
 Le token n'expire pas : le cluster a `kubeconfig-default-token-ttl-minutes=0` et
 `auth-token-max-ttl-minutes=0`.
