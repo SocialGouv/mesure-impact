@@ -19,6 +19,8 @@ spec:
         {{- include "mesure-impact.labels" . | nindent 8 }}
         app.kubernetes.io/component: web
     spec:
+      # Aucun appel à l'API Kubernetes : pas de token de SA monté.
+      automountServiceAccountToken: false
       securityContext:
         {{- toYaml .Values.web.podSecurityContext | nindent 8 }}
       containers:

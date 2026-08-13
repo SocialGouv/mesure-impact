@@ -41,6 +41,8 @@ spec:
             mesure-impact/produit: {{ $nom }}
         spec:
           restartPolicy: OnFailure
+          # Aucun appel à l'API Kubernetes : pas de token de SA monté.
+          automountServiceAccountToken: false
           securityContext:
             {{- toYaml $.Values.podSecurityContext | nindent 12 }}
           containers:

@@ -28,11 +28,24 @@ spec:
               Le job {{ `{{ $labels.job_name }}` }} du namespace {{ .Release.Namespace }}
               a échoué. Le tableau de bord concerné n'est plus alimenté.
 
+        # kube_cronjob_status_last_successful_time n'est PAS exporté tant qu'un
+        # CronJob n'a jamais réussi. La seule expression « trop vieux » serait donc
+        # aveugle au cas le plus grave : celui qui n'a jamais collecté. D'où la
+        # seconde branche, qui repère les CronJobs connus et sans succès, en
+        # excluant ceux qu'on a délibérément suspendus.
         - alert: MesureImpactCollecteMuette
           expr: |
-            time() - max by (cronjob) (
-              kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
-            ) > {{ .Values.alerts.silenceMaxSeconds }}
+            (
+              time() - max by (cronjob) (
+                kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
+              ) > {{ .Values.alerts.silenceMaxSeconds }}
+            )
+            or
+            (
+              max by (cronjob) (kube_cronjob_info{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
+              unless on (cronjob) kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}"}
+              unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
+            )
           for: 30m
           labels:
             severity: warning

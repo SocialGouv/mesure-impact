@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main]
 
+# La CI ne fait que lire le dépôt et construire des images en local.
+permissions:
+  contents: read
+
 jobs:
   checks:
     name: Portes de qualité
@@ -11,12 +15,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Échoue si un produit.yaml est incomplet : mieux vaut casser la PR que
-      # déployer un CronJob qui plantera au premier run sur une config absente.
       - uses: azure/setup-helm@v4
       # Échoue si un produit.yaml est incomplet pour un env qu'il déclare cibler :
       # mieux vaut casser la PR que déployer un CronJob qui plantera au premier run.
       - name: Inventaire et rendu du chart, pour chaque env
+        # `shell: bash` apporte -o pipefail. Sans lui, le shell par défaut est
+        # `bash -e {0}` et le `| tee` ci-dessous avalerait le code de sortie du
+        # générateur : un produit.yaml incomplet passerait la PR en vert.
+        shell: bash
         run: |
           set -eu
           for env in dev prod; do
@@ -33,6 +39,7 @@ jobs:
 
       # Un inventaire de dev passé à la prod doit être refusé par le chart.
       - name: Le garde-fou d'inventaire refuse le mauvais env
+        shell: bash
         run: |
           set -eu
           if helm template mesure-impact chart/ \
@@ -86,7 +93,8 @@ jobs:
           user=$(docker image inspect mesure-impact-${{ matrix.component }}:pr --format '{{.Config.User}}')
           echo "USER = '$user'"
           case "$user" in
-            "")   echo "::error::aucun USER dans l'image, elle tournerait en root"; exit 1 ;;
-            0|root) echo "::error::l'image tourne en root"; exit 1 ;;
+            "")       echo "::error::aucun USER dans l'image, elle tournerait en root"; exit 1 ;;
             *[!0-9]*) echo "::error::USER '$user' n'est pas numérique — runAsNonRoot fera échouer le pod"; exit 1 ;;
           esac
+          # Comparaison numérique : `USER 00` est numérique et vaut pourtant root.
+          [ "$((user))" -ne 0 ] || { echo "::error::l'image tourne en root (uid $((user)))"; exit 1; }

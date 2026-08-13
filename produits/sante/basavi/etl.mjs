@@ -215,12 +215,29 @@ async function main() {
   await ensureTable('Indicateurs', INDIC_COLS);
   await ensureTable('Extractions', EXTRACT_COLS);
 
-  if (RESET) { console.log('\n2) Reset'); for (const t of ['Sessions', 'Events', 'Modes', 'Indicateurs', 'Extractions']) console.log(`  ✗ ${t} : ${await clearTable(t)} lignes`); }
-
-  console.log(`\n3) Extraction Matomo (site ${SITE}, ${FROM} → ${TO}) + push`);
+  console.log(`\n2) Extraction Matomo (site ${SITE}, ${FROM} → ${TO})`);
   const visits = await mapi('Live.getLastVisitsDetails', { period: 'range', date: `${FROM},${TO}`, filter_limit: '-1' });
-  const arr = Array.isArray(visits) ? visits : [];
+  // Une réponse qui n'est pas un tableau est une PANNE (erreur Matomo, page de
+  // proxy, réponse tronquée). La traiter comme « zéro visite » ferait réussir le
+  // job, rafraîchirait l'horodatage d'extraction et laisserait les alertes vertes
+  // au-dessus de données périmées : exactement la panne silencieuse qu'on traque.
+  if (!Array.isArray(visits)) {
+    throw new Error(
+      `Réponse Matomo inattendue (${typeof visits}) : ` + JSON.stringify(visits).slice(0, 300)
+    );
+  }
+  const arr = visits;
   const { sessions, events, modes, indic, days } = build(arr);
+
+  // Le reset ne vide qu'APRÈS une extraction réussie et non vide : purger d'abord
+  // puis échouer sur Matomo perdait définitivement les 5 tables.
+  if (RESET) {
+    if (!arr.length) throw new Error('--reset refusé : Matomo n\'a renvoyé aucune visite, les tables seraient vidées sans rien pour les repeupler.');
+    console.log('\n2b) Reset');
+    for (const t of ['Sessions', 'Events', 'Modes', 'Indicateurs', 'Extractions']) console.log(`  ✗ ${t} : ${await clearTable(t)} lignes`);
+  }
+
+  console.log('\n3) Push');
 
   const nS = await upsert('Sessions', sessions, ['sess_id']);
   const nE = await upsert('Events', events, ['event_id']);

@@ -67,6 +67,7 @@ tasks:
         --namespace {{.NAME}}-$ENV
         --values envs/$ENV/values.yaml
         --values {{.PRODUITS_VALUES}}-$ENV
+        --set image.tag=sha-$(git rev-parse HEAD)
         --atomic --timeout 5m
 
   secrets:apply:
@@ -106,7 +107,7 @@ tasks:
           --from-literal=MATOMO_TOKEN_AUTH="$MATOMO_TOKEN_AUTH" \
           --from-literal=GRIST_API_KEY="$GRIST_API_KEY" \
           --dry-run=client -o yaml \
-        | kubeseal --cert {{.KUBESEAL_CERT}} -o yaml --scope cluster-wide \
+        | kubeseal --cert {{.KUBESEAL_CERT}} -o yaml \
         > "produits/$PRODUIT/secrets/$ENV.sealedsecret.yaml"
         echo "écrit: produits/$PRODUIT/secrets/$ENV.sealedsecret.yaml"
 

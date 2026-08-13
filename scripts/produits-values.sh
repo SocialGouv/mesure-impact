@@ -21,18 +21,51 @@ manifests=$(find "$racine/produits" -mindepth 3 -maxdepth 3 -name produit.yaml |
 # Marqueur : atteste que l'inventaire a été généré, et pour QUEL env. Le chart
 # refuse de rendre si ce marqueur ne correspond pas à l'env déployé — ça attrape
 # aussi bien un `-f` oublié qu'un inventaire de dev passé à la prod.
-echo "produitsInventaire: \"$env\""
+ENVNOM="$env" yq -n '{"produitsInventaire": strenv(ENVNOM)}'
 echo "produits:"
 
-for manifeste in $manifests; do
+vus=""
+
+while IFS= read -r manifeste; do
+  [ -n "$manifeste" ] || continue
   dossier=$(dirname "$manifeste")
   nom=$(basename "$dossier")
   departement=$(basename "$(dirname "$dossier")")
   slug="$departement/$nom"
 
+  # Le chemin devient un nom de ressource Kubernetes : il doit être un label DNS.
+  # Sans ce contrôle, `produits/Santé/BASAVI` passe Helm et se fait rejeter par l'API.
+  case "$departement$nom" in
+    *[!a-z0-9-]* | "" )
+      echo "$slug : le dossier doit être en minuscules, chiffres et tirets" >&2; exit 1 ;;
+  esac
+
+  # `mesure-impact-` + <dept>-<nom> + `-collect` doit tenir sous les 52 caractères
+  # d'un nom de CronJob. Dépasser ne casse qu'au déploiement, après le build des images.
+  if [ ${#departement} -gt 0 ] && [ $(( ${#departement} + ${#nom} + 1 )) -gt 30 ]; then
+    echo "$slug : <departement>-<nom> dépasse 30 caractères, le CronJob serait rejeté" >&2; exit 1
+  fi
+
+  # Deux chemins distincts peuvent s'aplatir sur le même nom (a-b/c et a/b-c) :
+  # même CronJob, même Secret, le dernier appliqué gagne en silence.
+  aplati="$departement-$nom"
+  case " $vus " in
+    *" $aplati "*) echo "$slug : collision de nom avec un autre produit ($aplati)" >&2; exit 1 ;;
+  esac
+  vus="$vus $aplati"
+
+  # `envs` doit être une liste d'envs connus. Sans ce contrôle, `envs: dev` (chaîne),
+  # une clé absente ou une typo `prd` sortent le produit de l'inventaire en silence —
+  # et `helm upgrade` supprime alors son CronJob sans que rien ne le signale.
+  yq -e '.envs | tag == "!!seq"' "$manifeste" >/dev/null 2>&1 || {
+    echo "$slug : le champ envs doit être une liste, ex. envs: [dev]" >&2; exit 1; }
+  inconnus=$(yq -r '[.envs[] | select(. != "dev" and . != "prod")] | join(", ")' "$manifeste")
+  [ -z "$inconnus" ] || {
+    echo "$slug : env inconnu dans envs -> $inconnus (attendu: dev, prod)" >&2; exit 1; }
+
   # ENVCIBLE traverse yq par strenv() : l'env n'est jamais concaténé dans
   # l'expression, donc jamais interprété comme du yq.
-  cible=$(ENVCIBLE="$env" yq -r '[.envs[]? | select(. == strenv(ENVCIBLE))] | length' "$manifeste")
+  cible=$(ENVCIBLE="$env" yq -r '[.envs[] | select(. == strenv(ENVCIBLE))] | length' "$manifeste")
   [ "$cible" != "0" ] || { echo "  # $slug : non collecté en $env" >&2; continue; }
 
   # Chaque champ est obligatoire : un produit mal décrit doit casser le rendu,
@@ -42,6 +75,14 @@ for manifeste in $manifests; do
     valeur=$(ENVCIBLE="$env" yq -r "$1 // \"\"" "$manifeste")
     [ -n "$valeur" ] && [ "$valeur" != "null" ] || {
       echo "$slug : champ obligatoire absent de produit.yaml pour l'env $env -> $1" >&2; exit 1; }
+    # Ces valeurs deviennent des variables d'environnement d'un conteneur : un
+    # saut de ligne ou un guillemet n'y a rien à faire, et signale une tentative
+    # d'injection plutôt qu'une faute de frappe.
+    case "$valeur" in
+      *[!A-Za-z0-9./:_-]*)
+        echo "$slug : caractère interdit dans $1 (attendu: lettres, chiffres, . / : _ -)" >&2
+        exit 1 ;;
+    esac
     printf '%s' "$valeur"
   }
 
@@ -52,14 +93,25 @@ for manifeste in $manifests; do
   # Optionnel : le chart applique son schedule par défaut si absent.
   schedule=$(yq -r '.collecte.schedule // ""' "$manifeste")
 
-  cat <<EOF
-  - slug: "$slug"
-    nom: "$nom"
-    departement: "$departement"
-    matomoUrl: "$matomo_url"
-    matomoSiteId: "$matomo_site"
-    gristUrl: "$grist_url"
-    gristDocId: "$grist_doc"
+  # L'entrée est construite par yq, jamais par concaténation : les valeurs passent
+  # par strenv() et sont échappées par l'émetteur YAML. Un heredoc laisserait un
+  # guillemet ou un saut de ligne dans produit.yaml injecter des clés arbitraires
+  # dans l'inventaire — Helm garde la dernière clé dupliquée, en silence.
+  SLUG="$slug" NOM="$nom" DEPT="$departement" \
+  MURL="$matomo_url" MSITE="$matomo_site" GURL="$grist_url" GDOC="$grist_doc" \
+  SCHED="$schedule" \
+  yq -n '
+    {
+      "slug": strenv(SLUG),
+      "nom": strenv(NOM),
+      "departement": strenv(DEPT),
+      "matomoUrl": strenv(MURL),
+      "matomoSiteId": strenv(MSITE),
+      "gristUrl": strenv(GURL),
+      "gristDocId": strenv(GDOC)
+    }
+    | (select(strenv(SCHED) != "") | .schedule = strenv(SCHED)) // .
+  ' | yq -P '[.]' | sed 's/^/  /'
+done <<EOF
+$manifests
 EOF
-  [ -z "$schedule" ] || echo "    schedule: \"$schedule\""
-done

@@ -61,6 +61,12 @@ jobs:
     # Rattache le job à l'environnement GitHub du même nom : c'est là que se
     # posent les règles de protection (relecteurs requis avant un déploiement prod).
     environment: ${{ github.event.inputs.environment || 'dev' }}
+    # Ceinture, en plus des règles de l'environnement GitHub : `workflow_dispatch`
+    # part de n'importe quelle branche AVEC le workflow de cette branche, donc la
+    # protection d'environnement seule pourrait être retirée dans le même commit.
+    if: >-
+      github.event.inputs.environment != 'prod'
+      || github.ref == 'refs/heads/main'
     env:
       ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
     steps:
@@ -70,8 +76,10 @@ jobs:
       - uses: azure/setup-helm@v4
 
       - name: Extract kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
         run: |
-          echo -n "${{ secrets.KUBECONFIG }}" | base64 --decode > "$RUNNER_TEMP/kubeconfig"
+          printf '%s' "$KUBECONFIG_B64" | base64 --decode > "$RUNNER_TEMP/kubeconfig"
           chmod 600 "$RUNNER_TEMP/kubeconfig"
           echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
 
