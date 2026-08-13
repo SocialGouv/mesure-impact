@@ -11,9 +11,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Échoue si un produit.yaml est incomplet : mieux vaut casser la PR que
+      # déployer un CronJob qui plantera au premier run sur une config absente.
+      - name: Inventaire des produits
+        run: |
+          ./scripts/produits-values.sh | tee "$RUNNER_TEMP/produits.values.yaml"
+
       - uses: azure/setup-helm@v4
-      - name: Lint du chart Helm
-        run: helm lint chart/ --values envs/dev/values.yaml
+      - name: Lint et rendu du chart, pour chaque env
+        run: |
+          set -eu
+          for env in dev prod; do
+            helm lint chart/ --values "envs/$env/values.yaml" \
+              --values "$RUNNER_TEMP/produits.values.yaml"
+            helm template mesure-impact chart/ \
+              --namespace "mesure-impact-$env" \
+              --values "envs/$env/values.yaml" \
+              --values "$RUNNER_TEMP/produits.values.yaml" > /dev/null
+          done
 
       - uses: actions/setup-node@v4
         with:

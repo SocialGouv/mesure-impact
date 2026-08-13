@@ -5,6 +5,7 @@ vars:
   CONTEXT: ovh-dev
   KUBESEAL_CERT: https://kubeseal.ovh.fabrique.social.gouv.fr/v1/cert.pem
   RANCHER_PROJECT_ID: c-m-97jxtvnv:p-mrmrt
+  PRODUITS_VALUES: /tmp/mesure-impact-produits.values.yaml
 
 env:
   ENV: '{{.ENV | default "dev"}}'
@@ -20,73 +21,108 @@ tasks:
     silent: true
     cmd: echo "{{.NAME}}-$ENV"
 
+  produits:
+    desc: Liste les produits découverts dans produits/
+    silent: true
+    cmd: ./scripts/produits-values.sh
+
+  produits:values:
+    internal: true
+    cmd: ./scripts/produits-values.sh > {{.PRODUITS_VALUES}}
+
   lint:
     desc: Lint du chart Helm
-    cmd: helm lint chart/ --values envs/$ENV/values.yaml
+    deps: [produits:values]
+    cmd: >
+      helm lint chart/
+      --values envs/$ENV/values.yaml
+      --values {{.PRODUITS_VALUES}}
 
   template:
     desc: Rend le chart pour l'env (ENV=dev|prod)
+    deps: [produits:values]
     cmd: >
       helm template {{.NAME}} chart/
       --namespace {{.NAME}}-$ENV
       --values envs/$ENV/values.yaml
+      --values {{.PRODUITS_VALUES}}
 
   dry-run:
     desc: Rend le chart et le valide côté serveur
+    deps: [produits:values]
     cmd: >
       helm template {{.NAME}} chart/
       --namespace {{.NAME}}-$ENV
       --values envs/$ENV/values.yaml
+      --values {{.PRODUITS_VALUES}}
       | kubectl --context {{.CONTEXT}} apply --dry-run=server -f -
 
   deploy:
     desc: Déploie l'env depuis le poste (kubeconfig local)
+    deps: [produits:values]
     cmds:
-      - |
-        kubectl --context {{.CONTEXT}} apply -n {{.NAME}}-$ENV \
-          -f envs/$ENV/sealed-secrets/ 2>/dev/null || true
+      - task: secrets:apply
       - >
         helm --kube-context {{.CONTEXT}} upgrade --install {{.NAME}} chart/
         --namespace {{.NAME}}-$ENV
         --values envs/$ENV/values.yaml
+        --values {{.PRODUITS_VALUES}}
         --atomic --timeout 5m
 
-  seal:
-    desc: >
-      Scelle les tokens Matomo/Grist pour l'env. Les valeurs viennent de
-      l'environnement — jamais de la ligne de commande, jamais d'un fichier en clair.
-      Requiert MATOMO_URL MATOMO_TOKEN_AUTH MATOMO_SITE_ID GRIST_URL GRIST_API_KEY GRIST_DOC_ID.
+  secrets:apply:
+    desc: Applique les SealedSecrets de tous les produits pour l'env
     cmds:
       - |
         set -eu
-        for v in MATOMO_URL MATOMO_TOKEN_AUTH MATOMO_SITE_ID GRIST_URL GRIST_API_KEY GRIST_DOC_ID; do
+        trouves=$(find produits -path "*/secrets/$ENV.sealedsecret.yaml")
+        if [ -z "$trouves" ]; then
+          echo "aucun secret scellé pour ENV=$ENV — les CronJobs resteront inopérants" >&2
+          exit 0
+        fi
+        for f in $trouves; do
+          echo "apply $f"
+          kubectl --context {{.CONTEXT}} apply -n {{.NAME}}-$ENV -f "$f"
+        done
+
+  seal:
+    desc: >
+      Scelle les tokens d'un produit pour un env.
+      Usage : PRODUIT=sante/basavi ENV=dev MATOMO_TOKEN_AUTH=... GRIST_API_KEY=... task seal
+      Les valeurs viennent de l'environnement — jamais de la ligne de commande, jamais d'un
+      fichier en clair. La config non secrète vit dans produit.yaml, pas ici.
+    cmds:
+      - |
+        set -eu
+        [ -n "${PRODUIT:-}" ] || { echo "ERREUR: PRODUIT non défini (ex. PRODUIT=sante/basavi)" >&2; exit 1; }
+        [ -f "produits/$PRODUIT/produit.yaml" ] || { echo "ERREUR: produits/$PRODUIT/produit.yaml introuvable" >&2; exit 1; }
+        for v in MATOMO_TOKEN_AUTH GRIST_API_KEY; do
           eval "value=\${$v:-}"
           [ -n "$value" ] || { echo "ERREUR: $v non défini dans l'environnement" >&2; exit 1; }
         done
-        mkdir -p envs/$ENV/sealed-secrets
-        kubectl create secret generic {{.NAME}}-tokens \
+        dept=$(dirname "$PRODUIT"); nom=$(basename "$PRODUIT")
+        mkdir -p "produits/$PRODUIT/secrets"
+        kubectl create secret generic "{{.NAME}}-$dept-$nom-tokens" \
           --namespace {{.NAME}}-$ENV \
-          --from-literal=MATOMO_URL="$MATOMO_URL" \
           --from-literal=MATOMO_TOKEN_AUTH="$MATOMO_TOKEN_AUTH" \
-          --from-literal=MATOMO_SITE_ID="$MATOMO_SITE_ID" \
-          --from-literal=GRIST_URL="$GRIST_URL" \
           --from-literal=GRIST_API_KEY="$GRIST_API_KEY" \
-          --from-literal=GRIST_DOC_ID="$GRIST_DOC_ID" \
           --dry-run=client -o yaml \
         | kubeseal --cert {{.KUBESEAL_CERT}} -o yaml --scope cluster-wide \
-        > envs/$ENV/sealed-secrets/tokens.sealedsecret.yaml
-        echo "écrit: envs/$ENV/sealed-secrets/tokens.sealedsecret.yaml"
+        > "produits/$PRODUIT/secrets/$ENV.sealedsecret.yaml"
+        echo "écrit: produits/$PRODUIT/secrets/$ENV.sealedsecret.yaml"
 
   run:cron:
-    desc: Déclenche le CronJob à la main
+    desc: Déclenche la collecte d'un produit à la main (PRODUIT=sante/basavi)
     cmds:
-      - >
-        kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV
-        create job {{.NAME}}-collect-manual-$(date +%s)
-        --from=cronjob/{{.NAME}}-collect
-      - >
-        kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV
-        wait --for=condition=complete --timeout=5m job -l app.kubernetes.io/component=collect || true
+      - |
+        set -eu
+        [ -n "${PRODUIT:-}" ] || { echo "ERREUR: PRODUIT non défini (ex. PRODUIT=sante/basavi)" >&2; exit 1; }
+        dept=$(dirname "$PRODUIT"); nom=$(basename "$PRODUIT")
+        job="{{.NAME}}-$dept-$nom-manuel-$(date +%s)"
+        kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV \
+          create job "$job" --from="cronjob/{{.NAME}}-$dept-$nom-collect"
+        kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV \
+          wait --for=condition=complete --timeout=5m "job/$job" || true
+        kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV logs "job/$job" --tail=50
 
   logs:
     desc: Logs des pods de l'env
@@ -99,16 +135,21 @@ tasks:
     cmd: kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV get cronjob,deploy,pod,ing,sealedsecret
 
   url:
-    desc: Vérifie que le site répond
+    desc: Vérifie que le site et chaque dashboard répondent
     silent: true
     cmd: |
+      set -eu
       host=$(yq '.web.host' envs/$ENV/values.yaml)
-      echo "https://$host"
-      curl -sI "https://$host" | head -1
+      printf '%-60s %s\n' "https://$host/" "$(curl -so /dev/null -w '%{http_code}' "https://$host/")"
+      for m in $(find produits -mindepth 3 -maxdepth 3 -name produit.yaml); do
+        d=$(dirname "$m"); chemin="$(basename "$(dirname "$d")")/$(basename "$d")"
+        printf '%-60s %s\n' "https://$host/$chemin/" \
+          "$(curl -so /dev/null -w '%{http_code}' "https://$host/$chemin/")"
+      done
 
   kubeconfig:regen:
     desc: >
       Regénère le kubeconfig du bot Rancher et le repousse en secret GitHub.
-      Requiert un token Rancher admin dans RANCHER_ADMIN_TOKEN et le mot de passe
-      du bot dans RANCHER_BOT_PASSWORD (ou reset préalable côté Rancher).
+      Requiert le mot de passe du bot dans RANCHER_BOT_PASSWORD (ou reset préalable
+      côté Rancher, cf. l'en-tête du script).
     cmd: ./scripts/regen-kubeconfig.sh

@@ -72,21 +72,30 @@ jobs:
           chmod 600 "$RUNNER_TEMP/kubeconfig"
           echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
 
+      # Un CronJob par produit : la liste est dérivée des produit.yaml, jamais écrite à la main.
+      - name: Inventaire des produits
+        run: |
+          ./scripts/produits-values.sh > "$RUNNER_TEMP/produits.values.yaml"
+          cat "$RUNNER_TEMP/produits.values.yaml"
+
       - name: Apply sealed secrets
         run: |
-          dir="envs/$ENVIRONMENT/sealed-secrets"
-          files=$(find "$dir" -name '*.sealedsecret.yaml' 2>/dev/null || true)
+          files=$(find produits -path "*/secrets/$ENVIRONMENT.sealedsecret.yaml")
           if [ -z "$files" ]; then
-            echo "::warning::aucun sealed secret dans $dir — le CronJob restera inopérant"
+            echo "::warning::aucun secret scellé pour $ENVIRONMENT — les CronJobs resteront inopérants"
             exit 0
           fi
-          kubectl apply -n "mesure-impact-$ENVIRONMENT" -f "$dir"
+          for f in $files; do
+            echo "apply $f"
+            kubectl apply -n "mesure-impact-$ENVIRONMENT" -f "$f"
+          done
 
       - name: Helm upgrade
         run: |
           helm upgrade --install mesure-impact chart/ \
             --namespace "mesure-impact-$ENVIRONMENT" \
             --values "envs/$ENVIRONMENT/values.yaml" \
+            --values "$RUNNER_TEMP/produits.values.yaml" \
             --set "image.tag=sha-${{ github.sha }}" \
             --atomic --timeout 5m
 

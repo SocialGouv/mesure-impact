@@ -1,5 +1,6 @@
 # Fiche produit BASAVI — identifiants PUBLICS et critères. Aucun secret ici.
-# Les tokens (Matomo, Grist) sont scellés dans envs/<env>/sealed-secrets/tokens.sealedsecret.yaml.
+# Lu par le socle : scripts/produits-values.sh en dérive le CronJob et ses variables.
+# Les deux tokens sont scellés à part, dans secrets/<env>.sealedsecret.yaml.
 nom: BASAVI
 departement: Santé
 description: >
@@ -15,6 +16,9 @@ chaine:
     doc_id: 1kb1wHNCjAns    # « Preprod - BASAVI »
     tables: [Sessions, Events, Modes, Indicateurs, Extractions]
   grain: jour × device      # device natif Matomo (mobile / desktop / tous)
+
+collecte:
+  schedule: "0 6 * * *"     # cadence du CronJob ; à défaut celle du chart
 
 front:
   fichier: dashboard.html

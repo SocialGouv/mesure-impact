@@ -31,11 +31,12 @@ node produits/sante/basavi/etl.mjs --from 2026-08-06
 Depuis la racine du dépôt, avec les valeurs dans l'environnement :
 
 ```bash
-task seal ENV=dev
+export MATOMO_TOKEN_AUTH=... GRIST_API_KEY=...
+PRODUIT=sante/basavi ENV=dev task seal
 ```
 
-Produit `envs/dev/sealed-secrets/tokens.sealedsecret.yaml` (chiffré, commitable) — un secret
-unique et partagé, tant que le chart n'est pas multitenant. Voir `doc/conventions.md`.
+Produit `secrets/dev.sealedsecret.yaml` (chiffré, commitable). Seuls les deux tokens y sont ;
+le site Matomo et le doc Grist restent en clair dans `produit.yaml`. Voir `doc/conventions.md`.
 
 ## État
 
