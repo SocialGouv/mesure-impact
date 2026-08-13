@@ -1,0 +1,34 @@
+# Fiche produit BASAVI — identifiants PUBLICS et critères. Aucun secret ici.
+# Les tokens (Matomo, Grist) sont scellés dans envs/<env>/sealed-secrets/tokens.sealedsecret.yaml.
+nom: BASAVI
+departement: Santé
+description: >
+  Annuaire des structures d'aide aux femmes victimes de violences.
+  Tableau de bord d'usage : recherches lancées, mises en relation, abandon.
+
+chaine:
+  matomo:
+    url: https://matomo.fabrique.social.gouv.fr
+    site_id: 168            # préprod ; la prod aura un nouveau site
+  grist:
+    url: https://grist.numerique.gouv.fr
+    doc_id: 1kb1wHNCjAns    # « Preprod - BASAVI »
+    tables: [Sessions, Events, Modes, Indicateurs, Extractions]
+  grain: jour × device      # device natif Matomo (mobile / desktop / tous)
+
+front:
+  fichier: dashboard.html
+  mode: widget embarqué dans le doc Grist   # données via l'API plugin Grist, aucun token dans la page
+
+# Variables injectées par le Secret déscellé (envFrom). Les non-secrètes reprennent
+# les valeurs ci-dessus ; seules les deux dernières sont sensibles (donc scellées).
+secrets_requis:
+  - MATOMO_TOKEN_AUTH       # token API Matomo, lecture du site
+  - GRIST_API_KEY           # clé API Grist, écriture sur le doc
+
+# « C'est fini/sain quand… » — critères vérifiables, servent de portes de qualité.
+criteres_achevement:
+  - La collecte se termine sans variable manquante ni erreur d'API.
+  - Les 5 tables (Sessions, Events, Modes, Indicateurs, Extractions) sont peuplées sur la période.
+  - La table Indicateurs calcule les ratios (formules Grist) sans erreur.
+  - La page dashboard.html s'affiche dans le doc Grist et lit les vraies données.
