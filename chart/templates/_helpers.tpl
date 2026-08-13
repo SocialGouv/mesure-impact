@@ -15,5 +15,9 @@ app.kubernetes.io/version: {{ .Values.image.tag | quote }}
 {{- end -}}
 
 {{- define "mesure-impact.image" -}}
-{{- printf "%s/%s-%s:%s" .root.Values.image.registry (include "mesure-impact.name" .root) .component .root.Values.image.tag -}}
+{{/* Le tag vient de appVersion, que la CI fixe au sha du commit en publiant le
+     chart : chart et image sont ainsi épinglés par une seule version. `image.tag`
+     ne reste qu'une échappatoire de déploiement local. */}}
+{{- $tag := .root.Values.image.tag | default .root.Chart.AppVersion -}}
+{{- printf "%s/%s-%s:%s" .root.Values.image.registry (include "mesure-impact.name" .root) .component $tag -}}
 {{- end -}}

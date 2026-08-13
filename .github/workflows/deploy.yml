@@ -54,6 +54,36 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.component }}
           cache-to: type=gha,mode=max,scope=${{ matrix.component }}
 
+  # Le dépôt GitOps consomme le chart comme artefact OCI versionné, jamais le
+  # répertoire de travail : la version épingle à la fois le chart et l'image.
+  chart:
+    name: Publier le chart en OCI
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Connexion à ghcr
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Package et push
+        run: |
+          set -eu
+          sha8=$(echo "${{ github.sha }}" | cut -c1-8)
+          # appVersion = tag d'image immuable : un seul sha pilote le chart ET l'image,
+          # donc le GitOps n'a jamais à préciser image.tag.
+          helm package chart/ \
+            --version "0.0.0-sha.$sha8" \
+            --app-version "sha-${{ github.sha }}" \
+            --destination "$RUNNER_TEMP"
+          helm push "$RUNNER_TEMP/mesure-impact-0.0.0-sha.$sha8.tgz" \
+            oci://ghcr.io/socialgouv/mesure-impact/charts
+          echo "chart publié : 0.0.0-sha.$sha8"
+
   deploy:
     name: Deploy ${{ github.event.inputs.environment || 'dev' }}
     runs-on: ubuntu-latest
