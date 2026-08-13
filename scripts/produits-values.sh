@@ -8,6 +8,9 @@
 #
 # Usage : scripts/produits-values.sh <env> > /tmp/produits.values.yaml
 set -euo pipefail
+# Collation POSIX : sous une locale UTF-8, les classes de caractères laissent
+# passer un millier de codepoints exotiques.
+export LC_ALL=C
 
 env=${1:-}
 [ -n "$env" ] || { echo "usage: $0 <env>" >&2; exit 1; }
@@ -35,9 +38,11 @@ while IFS= read -r manifeste; do
 
   # Le chemin devient un nom de ressource Kubernetes : il doit être un label DNS.
   # Sans ce contrôle, `produits/Santé/BASAVI` passe Helm et se fait rejeter par l'API.
-  case "$departement$nom" in
-    *[!a-z0-9-]* | "" )
-      echo "$slug : le dossier doit être en minuscules, chiffres et tirets" >&2; exit 1 ;;
+  # Le chemin sert aussi de VALEUR de label (mesure-impact/produit), qui ne tolère
+  # pas de tiret en tête ni en queue — un nom de CronJob valide n'y suffit pas.
+  case "$departement-$nom" in
+    *[!a-z0-9-]* | -* | *- | "" )
+      echo "$slug : dossier en minuscules, chiffres et tirets, sans tiret en tête ni en queue" >&2; exit 1 ;;
   esac
 
   # `mesure-impact-` + <dept>-<nom> + `-collect` doit tenir sous les 52 caractères
@@ -90,6 +95,19 @@ while IFS= read -r manifeste; do
   matomo_site=$(lire '.chaine.matomo.site_id[strenv(ENVCIBLE)]')
   grist_url=$(lire '.chaine.grist.url')
   grist_doc=$(lire '.chaine.grist.doc_id[strenv(ENVCIBLE)]')
+  # Un copier-coller de dev vers prod ferait collecter la préprod en prod sans un
+  # mot — précisément ce que la séparation par env existe pour empêcher.
+  autre=dev; [ "$env" = dev ] && autre=prod
+  if AUTRE="$autre" yq -e '[.envs[] | select(. == strenv(AUTRE))] | length > 0' "$manifeste" >/dev/null 2>&1; then
+    for champ in .chaine.matomo.site_id .chaine.grist.doc_id; do
+      ici=$(ENVCIBLE="$env" yq -r "$champ[strenv(ENVCIBLE)] // \"\"" "$manifeste")
+      la=$(AUTRE="$autre" yq -r "$champ[strenv(AUTRE)] // \"\"" "$manifeste")
+      [ "$ici" != "$la" ] || {
+        echo "$slug : $champ identique en $env et $autre ($ici) — les deux envs viseraient la même source" >&2
+        exit 1; }
+    done
+  fi
+
   # Optionnel : le chart applique son schedule par défaut si absent.
   schedule=$(yq -r '.collecte.schedule // ""' "$manifeste")
 

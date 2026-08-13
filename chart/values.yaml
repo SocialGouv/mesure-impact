@@ -67,6 +67,9 @@ alerts:
   # Au-delà de ce délai sans collecte réussie, on considère la chaîne muette.
   # Large devant la cadence quotidienne, pour ne pas alerter sur un retard normal.
   silenceMaxSeconds: 172800 # 48 h
+  # Un Job en échec reste en cluster jusqu'à rotation de l'historique : sans cette
+  # fenêtre, un échec isolé laisserait l'alerte rouge indéfiniment.
+  echecRecentSeconds: 86400 # 24 h
 
 # Appliqué au pod du CronJob.
 podSecurityContext:

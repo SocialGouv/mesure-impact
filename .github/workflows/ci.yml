@@ -97,4 +97,4 @@ jobs:
             *[!0-9]*) echo "::error::USER '$user' n'est pas numérique — runAsNonRoot fera échouer le pod"; exit 1 ;;
           esac
           # Comparaison numérique : `USER 00` est numérique et vaut pourtant root.
-          [ "$((user))" -ne 0 ] || { echo "::error::l'image tourne en root (uid $((user)))"; exit 1; }
+          [ "$((10#$user))" -ne 0 ] || { echo "::error::l'image tourne en root (uid $((10#$user)))"; exit 1; }

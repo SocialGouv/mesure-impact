@@ -40,6 +40,10 @@ const arg = (k, d) => { const i = process.argv.indexOf(k); return i > -1 ? proce
 const FROM = arg('--from', cfg.COLLECT_FROM || '2026-08-06');
 const TO = arg('--to', new Date().toISOString().slice(0, 10));
 
+// Le token Matomo ne doit jamais atterrir dans un log : les messages d'erreur
+// recopient des réponses amont dont on ne maîtrise pas le contenu.
+const redact = (s) => (MTOKEN ? String(s).split(MTOKEN).join('***') : String(s));
+
 const MISSING = ['MATOMO_URL', 'MATOMO_TOKEN_AUTH', 'MATOMO_SITE_ID', 'GRIST_URL', 'GRIST_API_KEY', 'GRIST_DOC_ID'].filter((k) => !cfg[k]);
 if (MISSING.length) throw new Error('Variables d\'environnement manquantes : ' + MISSING.join(', '));
 
@@ -222,17 +226,29 @@ async function main() {
   // job, rafraîchirait l'horodatage d'extraction et laisserait les alertes vertes
   // au-dessus de données périmées : exactement la panne silencieuse qu'on traque.
   if (!Array.isArray(visits)) {
+    // La réponse est recopiée pour diagnostiquer, mais un amont (WAF, proxy,
+    // rate-limiter) peut y réverbérer la requête — donc le token_auth.
     throw new Error(
-      `Réponse Matomo inattendue (${typeof visits}) : ` + JSON.stringify(visits).slice(0, 300)
+      redact(`Réponse Matomo inattendue (${typeof visits}) : ` + JSON.stringify(visits).slice(0, 300))
     );
   }
   const arr = visits;
   const { sessions, events, modes, indic, days } = build(arr);
 
-  // Le reset ne vide qu'APRÈS une extraction réussie et non vide : purger d'abord
-  // puis échouer sur Matomo perdait définitivement les 5 tables.
+  // Des visites brutes ne garantissent PAS des lignes exploitables : build() écarte
+  // les visites de simulation et celles hors fenêtre, et un champ Matomo renommé
+  // les écarterait toutes. Compter les visites laisserait donc vider les tables
+  // puis les repeupler avec rien.
+  if (arr.length && !sessions.length) {
+    throw new Error(
+      `Anomalie : ${arr.length} visites Matomo mais 0 ligne construite ` +
+      `(filtre simulation, fenêtre ${FROM} → ${TO}, ou champ serverDate absent ?).`
+    );
+  }
+
+  // Le reset ne vide qu'APRÈS une extraction qui a produit de quoi repeupler.
   if (RESET) {
-    if (!arr.length) throw new Error('--reset refusé : Matomo n\'a renvoyé aucune visite, les tables seraient vidées sans rien pour les repeupler.');
+    if (!sessions.length) throw new Error('--reset refusé : aucune ligne construite, les tables seraient vidées sans rien pour les repeupler.');
     console.log('\n2b) Reset');
     for (const t of ['Sessions', 'Events', 'Modes', 'Indicateurs', 'Extractions']) console.log(`  ✗ ${t} : ${await clearTable(t)} lignes`);
   }

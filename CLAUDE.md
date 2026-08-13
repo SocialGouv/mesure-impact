@@ -92,8 +92,11 @@ Seuls `MATOMO_TOKEN_AUTH` et `GRIST_API_KEY` sont scellés. Les quatre pointeurs
 (`MATOMO_URL`, `MATOMO_SITE_ID`, `GRIST_URL`, `GRIST_DOC_ID`) viennent de `produit.yaml` et
 sont injectés en clair : corriger un site ou un doc doit rester une PR relisible.
 
-Scellés avec `--scope cluster-wide` (portable d'un namespace à l'autre), contre
-`https://kubeseal.ovh.fabrique.social.gouv.fr/v1/cert.pem`.
+Scellés en scope **strict** — liés au couple namespace + nom — contre
+`https://kubeseal.ovh.fabrique.social.gouv.fr/v1/cert.pem`. Un fichier chiffré n'est donc
+déscellable que là où il a été scellé : recopier `dev.sealedsecret.yaml` en
+`prod.sealedsecret.yaml` ne marche pas, il faut re-sceller pour chaque env. C'est le prix de
+ne pas laisser un co-locataire du cluster déchiffrer un fichier public.
 
 Une variable manquante fait échouer le job bruyamment, elle n'est jamais compensée par une
 valeur par défaut. Une fois les secrets en place, repasser `cron.suspend` à `false` dans

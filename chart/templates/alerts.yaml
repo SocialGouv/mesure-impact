@@ -16,8 +16,12 @@ spec:
     - name: mesure-impact-collecte
       rules:
         - alert: MesureImpactCollecteEnEchec
+          # Borné à la fenêtre récente : `kube_job_status_failed > 0` reste vrai tant
+          # que l'objet Job existe, et failedJobsHistoryLimit le conserve jusqu'à trois
+          # échecs suivants — l'alerte ne se résoudrait jamais après un échec isolé.
           expr: |
             kube_job_status_failed{namespace="{{ .Release.Namespace }}", job_name=~"mesure-impact-.*"} > 0
+            and on (namespace, job_name) (time() - kube_job_created < {{ .Values.alerts.echecRecentSeconds }})
           for: 15m
           labels:
             severity: warning
@@ -39,12 +43,17 @@ spec:
               time() - max by (cronjob) (
                 kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
               ) > {{ .Values.alerts.silenceMaxSeconds }}
+              unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
             )
             or
             (
               max by (cronjob) (kube_cronjob_info{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
               unless on (cronjob) kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}"}
               unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
+              and on (cronjob) (
+                time() - max by (cronjob) (kube_cronjob_created{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
+                > {{ .Values.alerts.silenceMaxSeconds }}
+              )
             )
           for: 30m
           labels:
