@@ -19,9 +19,17 @@ spec:
           # Borné à la fenêtre récente : `kube_job_status_failed > 0` reste vrai tant
           # que l'objet Job existe, et failedJobsHistoryLimit le conserve jusqu'à trois
           # échecs suivants — l'alerte ne se résoudrait jamais après un échec isolé.
+          # `max by` déduplique : plusieurs exportateurs publient la même métrique
+          # (kube-state-metrics, kubernetes-pods, kubecost…), soit autant d'alertes
+          # identiques pour un seul job en échec.
           expr: |
-            kube_job_status_failed{namespace="{{ .Release.Namespace }}", job_name=~"mesure-impact-.*"} > 0
-            and on (namespace, job_name) (time() - kube_job_created < {{ .Values.alerts.echecRecentSeconds }})
+            max by (namespace, job_name) (
+              kube_job_status_failed{namespace="{{ .Release.Namespace }}", job_name=~"mesure-impact-.*"}
+            ) > 0
+            and on (namespace, job_name) (
+              time() - max by (namespace, job_name) (kube_job_created{namespace="{{ .Release.Namespace }}"})
+              < {{ .Values.alerts.echecRecentSeconds }}
+            )
           for: 15m
           labels:
             severity: warning

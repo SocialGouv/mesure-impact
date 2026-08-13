@@ -40,9 +40,11 @@ const arg = (k, d) => { const i = process.argv.indexOf(k); return i > -1 ? proce
 const FROM = arg('--from', cfg.COLLECT_FROM || '2026-08-06');
 const TO = arg('--to', new Date().toISOString().slice(0, 10));
 
-// Le token Matomo ne doit jamais atterrir dans un log : les messages d'erreur
-// recopient des réponses amont dont on ne maîtrise pas le contenu.
-const redact = (s) => (MTOKEN ? String(s).split(MTOKEN).join('***') : String(s));
+// Aucun des deux tokens ne doit atterrir dans un log : les messages d'erreur
+// recopient des réponses amont (WAF, proxy, rate-limiter) dont on ne maîtrise pas
+// le contenu, et qui réverbèrent parfois la requête ou ses en-têtes.
+const redact = (v) => [MTOKEN, GKEY].filter(Boolean)
+  .reduce((acc, t) => acc.split(t).join('***'), String(v));
 
 const MISSING = ['MATOMO_URL', 'MATOMO_TOKEN_AUTH', 'MATOMO_SITE_ID', 'GRIST_URL', 'GRIST_API_KEY', 'GRIST_DOC_ID'].filter((k) => !cfg[k]);
 if (MISSING.length) throw new Error('Variables d\'environnement manquantes : ' + MISSING.join(', '));
@@ -54,7 +56,7 @@ async function greq(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const t = await r.text(); let j; try { j = t ? JSON.parse(t) : null; } catch { j = t; }
-  if (!r.ok) throw new Error(`${method} ${path} → HTTP ${r.status} : ${typeof j === 'string' ? j : JSON.stringify(j)}`);
+  if (!r.ok) throw new Error(redact(`${method} ${path} → HTTP ${r.status} : ${typeof j === 'string' ? j : JSON.stringify(j)}`));
   return j;
 }
 const getTables = () => greq('GET', '/tables').then((d) => d.tables.map((t) => t.id));
@@ -88,8 +90,11 @@ async function clearTable(table) {
 async function mapi(method, extra = {}) {
   const body = new URLSearchParams({ module: 'API', method, idSite: String(SITE), format: 'json', token_auth: MTOKEN, ...extra });
   const r = await fetch(`${MURL}/index.php`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  // Un amont en erreur peut renvoyer un corps JSON parfaitement valide — souvent
+  // un tableau vide. Sans ce contrôle, une panne se lit comme « zéro visite ».
+  if (!r.ok) throw new Error(redact(`${method} → HTTP ${r.status} : ${(await r.text()).slice(0, 300)}`));
   const j = await r.json();
-  if (j && j.result === 'error') throw new Error(method + ': ' + j.message);
+  if (j && j.result === 'error') throw new Error(redact(method + ': ' + j.message));
   return j;
 }
 
@@ -143,9 +148,14 @@ function build(visits) {
   // Le plugin RGPD DataSubjects n'est pas installé sur l'instance → on écarte ces visites ici pour
   // ne garder que de vraies navigations. À retirer quand les visites seront purgées côté Matomo.
   const SIM_VID = 'ba5a51';
+  // Compte les visites réellement retenues, pour distinguer « tout a été filtré à
+  // raison » (fenêtre creuse, préprod sans trafic réel) de « le schéma Matomo a
+  // changé et plus rien n'est reconnu ». Le premier cas est normal, le second non.
+  let retenues = 0;
   for (const v of visits) {
     if (((v.visitorId || v.idVisitor || '') + '').toLowerCase().includes(SIM_VID)) continue;
     const day = v.serverDate; if (!day || day < FROM || day > TO) continue;
+    retenues += 1;
     const dev = DEVICE(v.deviceType);
     const acts = v.actionDetails || [];
     // signaux de visite
@@ -196,15 +206,15 @@ function build(visits) {
     sessions.push({ sess_id: `${day}|tous`, day, date: dayTs(day), device: 'tous', visites: vt, s_recherche: sum('s_recherche'), s_resultats: sum('s_resultats'), s_contact: sum('s_contact'), s_tel: sum('s_tel'), s_copie: sum('s_copie'), part_alv_pct: vt ? Math.round(alvw / vt * 10) / 10 : 0 });
     indic.push({ ind_id: `${day}|tous`, day, date: dayTs(day), device: 'tous' });
     // Events 'tous' = somme par (cat,action,name)
-    const agg = {};
+    const agg = Object.create(null);
     for (const e of events.filter((x) => x.day === day && x.device !== 'tous')) { const kk = `${e.category}|${e.action}|${e.name}`; agg[kk] = (agg[kk] || 0) + e.count; }
     for (const [kk, c] of Object.entries(agg)) { const [category, action, name] = kk.split('|'); events.push({ event_id: `${day}|tous|${category}|${action}|${name}`, day, date: dayTs(day), device: 'tous', category, action, name, count: c }); }
     // Modes 'tous' = somme par mode
-    const mAgg = {};
+    const mAgg = Object.create(null);
     for (const m of modes.filter((x) => x.day === day && x.device !== 'tous')) { const mk = m.mode; const cur = mAgg[mk] || { s_arrivee: 0, s_recherche: 0, s_resultats: 0, s_contact: 0 }; cur.s_arrivee += m.s_arrivee; cur.s_recherche += m.s_recherche; cur.s_resultats += m.s_resultats; cur.s_contact += m.s_contact; mAgg[mk] = cur; }
     for (const [mode, cur] of Object.entries(mAgg)) modes.push({ mode_id: `${day}|tous|${mode}`, day, date: dayTs(day), device: 'tous', mode, ...cur });
   }
-  return { sessions, events, modes, indic, days: [...days].sort() };
+  return { sessions, events, modes, indic, days: [...days].sort(), retenues };
 }
 
 async function main() {
@@ -233,16 +243,23 @@ async function main() {
     );
   }
   const arr = visits;
-  const { sessions, events, modes, indic, days } = build(arr);
+  const { sessions, events, modes, indic, days, retenues } = build(arr);
 
   // Des visites brutes ne garantissent PAS des lignes exploitables : build() écarte
   // les visites de simulation et celles hors fenêtre, et un champ Matomo renommé
   // les écarterait toutes. Compter les visites laisserait donc vider les tables
   // puis les repeupler avec rien.
-  if (arr.length && !sessions.length) {
+  // Des visites reçues mais toutes écartées est un cas NORMAL (fenêtre creuse,
+  // préprod ne portant que des visites de simulation) : on le signale sans échouer.
+  // Des visites retenues qui ne produisent aucune ligne, en revanche, ne peut venir
+  // que d'un schéma Matomo qui a changé sous nos pieds.
+  if (arr.length && !retenues) {
+    console.warn(`⚠ ${arr.length} visites reçues, toutes écartées (simulation ou hors fenêtre ${FROM} → ${TO}).`);
+  }
+  if (retenues && !sessions.length) {
     throw new Error(
-      `Anomalie : ${arr.length} visites Matomo mais 0 ligne construite ` +
-      `(filtre simulation, fenêtre ${FROM} → ${TO}, ou champ serverDate absent ?).`
+      `Anomalie : ${retenues} visites retenues mais 0 ligne construite — ` +
+      `le schéma Matomo a probablement changé (champ serverDate absent ?).`
     );
   }
 

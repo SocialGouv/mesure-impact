@@ -95,17 +95,21 @@ while IFS= read -r manifeste; do
   matomo_site=$(lire '.chaine.matomo.site_id[strenv(ENVCIBLE)]')
   grist_url=$(lire '.chaine.grist.url')
   grist_doc=$(lire '.chaine.grist.doc_id[strenv(ENVCIBLE)]')
-  # Un copier-coller de dev vers prod ferait collecter la préprod en prod sans un
-  # mot — précisément ce que la séparation par env existe pour empêcher.
+  # Le doc Grist est ÉCRIT : le partager entre dev et prod fait polluer la prod par
+  # la préprod, c'est l'accident que la séparation par env existe pour empêcher.
+  # Le site Matomo, lui, est seulement LU : mesurer un même site depuis deux envs
+  # est légitime, on se contente de le signaler.
   autre=dev; [ "$env" = dev ] && autre=prod
   if AUTRE="$autre" yq -e '[.envs[] | select(. == strenv(AUTRE))] | length > 0' "$manifeste" >/dev/null 2>&1; then
-    for champ in .chaine.matomo.site_id .chaine.grist.doc_id; do
-      ici=$(ENVCIBLE="$env" yq -r "$champ[strenv(ENVCIBLE)] // \"\"" "$manifeste")
-      la=$(AUTRE="$autre" yq -r "$champ[strenv(AUTRE)] // \"\"" "$manifeste")
-      [ "$ici" != "$la" ] || {
-        echo "$slug : $champ identique en $env et $autre ($ici) — les deux envs viseraient la même source" >&2
-        exit 1; }
-    done
+    doc_ici=$(ENVCIBLE="$env" yq -r '.chaine.grist.doc_id[strenv(ENVCIBLE)] // ""' "$manifeste")
+    doc_la=$(AUTRE="$autre" yq -r '.chaine.grist.doc_id[strenv(AUTRE)] // ""' "$manifeste")
+    [ "$doc_ici" != "$doc_la" ] || {
+      echo "$slug : le doc Grist est le même en $env et $autre ($doc_ici) — les deux envs écriraient au même endroit" >&2
+      exit 1; }
+    site_ici=$(ENVCIBLE="$env" yq -r '.chaine.matomo.site_id[strenv(ENVCIBLE)] // ""' "$manifeste")
+    site_la=$(AUTRE="$autre" yq -r '.chaine.matomo.site_id[strenv(AUTRE)] // ""' "$manifeste")
+    [ "$site_ici" != "$site_la" ] || \
+      echo "$slug : note — $env et $autre lisent le même site Matomo ($site_ici)" >&2
   fi
 
   # Optionnel : le chart applique son schedule par défaut si absent.
