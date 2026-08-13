@@ -19,7 +19,9 @@ ENV_CIBLE=${ENV_CIBLE:-dev}
 BOT_USERNAME=${BOT_USERNAME:-rancherbot-ci-mesure-impact-$ENV_CIBLE}
 REPO=${REPO:-SocialGouv/mesure-impact}
 
-: "${RANCHER_BOT_PASSWORD:?RANCHER_BOT_PASSWORD non défini — voir l'en-tête de ce script}"
+# Pas d'apostrophe dans ce message : dans ${VAR:?mot}, le mot subit le traitement
+# des quotes et une apostrophe isolée ouvre une chaîne qui ne se referme jamais.
+: "${RANCHER_BOT_PASSWORD:?RANCHER_BOT_PASSWORD non defini, voir len-tete de ce script}"
 
 umask 077
 tmp=$(mktemp -d)
