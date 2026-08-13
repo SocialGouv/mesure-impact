@@ -3,7 +3,8 @@
 image:
   registry: ghcr.io/socialgouv
   # Tag commun aux deux images, positionné par la CI (sha-<gitsha>).
-  tag: edge
+  # Vide par défaut : le tag vient de appVersion (sha du commit).
+  tag: ""
   pullPolicy: IfNotPresent
 
 # Liste des produits, un CronJob chacun. Jamais écrite à la main : elle est générée

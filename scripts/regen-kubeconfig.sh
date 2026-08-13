@@ -7,15 +7,21 @@
 #       curl -sX POST -H "Authorization: Bearer $RANCHER_ADMIN_TOKEN" \
 #         -H 'content-type: application/json' \
 #         -d '{"newPassword":"<nouveau>"}' \
-#         "$RANCHER_URL/v3/users/u-h4dmz?action=setpassword"
+#         "$RANCHER_URL/v3/users/<u-h4dmz pour dev, u-7nzxq pour prod>?action=setpassword"
+#
+# Usage : ENV_CIBLE=prod RANCHER_BOT_PASSWORD=... ./scripts/regen-kubeconfig.sh
 set -euo pipefail
 
 RANCHER_URL=${RANCHER_URL:-https://rancher.fabrique.social.gouv.fr}
 CLUSTER_ID=${CLUSTER_ID:-c-m-97jxtvnv}
-BOT_USERNAME=${BOT_USERNAME:-rancherbot-ci-mesure-impact}
+# Un bot par environnement, chacun cloisonné à son namespace.
+ENV_CIBLE=${ENV_CIBLE:-dev}
+BOT_USERNAME=${BOT_USERNAME:-rancherbot-ci-mesure-impact-$ENV_CIBLE}
 REPO=${REPO:-SocialGouv/mesure-impact}
 
-: "${RANCHER_BOT_PASSWORD:?RANCHER_BOT_PASSWORD non défini — voir l'en-tête de ce script}"
+# Pas d'apostrophe dans ce message : dans ${VAR:?mot}, le mot subit le traitement
+# des quotes et une apostrophe isolée ouvre une chaîne qui ne se referme jamais.
+: "${RANCHER_BOT_PASSWORD:?RANCHER_BOT_PASSWORD non defini, voir len-tete de ce script}"
 
 umask 077
 tmp=$(mktemp -d)
@@ -36,5 +42,7 @@ curl -sf -X POST -H "Authorization: Bearer $token" -H 'content-type: application
 
 KUBECONFIG="$tmp/kubeconfig" kubectl config get-contexts
 
-base64 -w0 "$tmp/kubeconfig" | gh secret set KUBECONFIG --repo "$REPO"
-echo "secret KUBECONFIG mis à jour sur $REPO"
+# Secret d'ENVIRONNEMENT, pas de dépôt : c'est ce qui empêche le job dev de lire
+# le kubeconfig de prod.
+base64 -w0 "$tmp/kubeconfig" | gh secret set KUBECONFIG --env "$ENV_CIBLE" --repo "$REPO"
+echo "secret KUBECONFIG de l'environnement $ENV_CIBLE mis à jour sur $REPO"
