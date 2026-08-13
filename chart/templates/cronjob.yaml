@@ -4,11 +4,17 @@ scripts/produits-values.sh <env>. Le marqueur atteste qu'il a bien été passé,
 pour le bon env — sans ce contrôle, un `-f` oublié déploierait zéro CronJob sans
 un mot, et l'inventaire de dev passé à la prod ferait collecter la préprod.
 */}}
-{{- if ne (.Values.produitsInventaire | toString) (.Values.environment | toString) }}
-{{- fail (printf "inventaire des produits absent ou pour le mauvais env (marqueur=%q, env déployé=%q). Passe `scripts/produits-values.sh %s` avec -f." (.Values.produitsInventaire | toString) (.Values.environment | toString) (.Values.environment | toString)) }}
+{{- $env := .Values.environment | toString }}
+{{- $inventaire := .Values.produits }}
+{{- if ne (.Values.produitsInventaire | toString) $env }}
+  {{/* Rien de passé explicitement : se rabattre sur le catalogue embarqué. */}}
+  {{- if not (hasKey .Values.produitsCatalogue $env) }}
+    {{- fail (printf "aucun inventaire de produits pour l'env %q : ni `produits`+`produitsInventaire` passés en values, ni entrée dans le catalogue embarqué (%v). Passe `scripts/produits-values.sh %s` avec -f, ou republie le chart." $env (keys .Values.produitsCatalogue) $env) }}
+  {{- end }}
+  {{- $inventaire = index .Values.produitsCatalogue $env }}
 {{- end }}
 {{- if .Values.cron.enabled }}
-{{- range $p := .Values.produits }}
+{{- range $p := $inventaire }}
 {{- $nom := printf "%s-%s" $p.departement $p.nom }}
 ---
 apiVersion: batch/v1

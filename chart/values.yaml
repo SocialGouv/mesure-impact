@@ -10,8 +10,15 @@ image:
 # Liste des produits, un CronJob chacun. Jamais écrite à la main : elle est générée
 # depuis les produits/<dept>/<nom>/produit.yaml par `scripts/produits-values.sh <env>`
 # et passée en `-f`. Le marqueur doit valoir l'env déployé, sinon le rendu échoue.
+# Deux façons de fournir l'inventaire, dans cet ordre de priorité :
+#  1. `produits` + `produitsInventaire` passés explicitement (déploiement direct
+#     depuis le dépôt, et cible du modèle GitOps le jour où les pointeurs par env
+#     migreront dans le dépôt de déploiement) ;
+#  2. à défaut, le catalogue embarqué dans le chart au packaging, indexé par env.
+# Sans l'un ni l'autre, le rendu échoue : un chart muet ne se déploie pas en silence.
 produitsInventaire: ""
 produits: []
+produitsCatalogue: {}
 
 cron:
   enabled: true
