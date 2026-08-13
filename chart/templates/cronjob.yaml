@@ -1,53 +1,87 @@
+{{/*
+L'inventaire des produits n'est jamais écrit à la main : il vient de
+scripts/produits-values.sh <env>. Le marqueur atteste qu'il a bien été passé, et
+pour le bon env — sans ce contrôle, un `-f` oublié déploierait zéro CronJob sans
+un mot, et l'inventaire de dev passé à la prod ferait collecter la préprod.
+*/}}
+{{- if ne (.Values.produitsInventaire | toString) (.Values.environment | toString) }}
+{{- fail (printf "inventaire des produits absent ou pour le mauvais env (marqueur=%q, env déployé=%q). Passe `scripts/produits-values.sh %s` avec -f." (.Values.produitsInventaire | toString) (.Values.environment | toString) (.Values.environment | toString)) }}
+{{- end }}
 {{- if .Values.cron.enabled }}
+{{- range $p := .Values.produits }}
+{{- $nom := printf "%s-%s" $p.departement $p.nom }}
+---
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ include "mesure-impact.name" . }}-collect
+  name: {{ include "mesure-impact.name" $ }}-{{ $nom }}-collect
   labels:
-    {{- include "mesure-impact.labels" . | nindent 4 }}
+    {{- include "mesure-impact.labels" $ | nindent 4 }}
     app.kubernetes.io/component: collect
+    mesure-impact/produit: {{ $nom }}
 spec:
-  schedule: {{ .Values.cron.schedule | quote }}
-  timeZone: {{ .Values.cron.timeZone | quote }}
-  suspend: {{ .Values.cron.suspend }}
-  concurrencyPolicy: {{ .Values.cron.concurrencyPolicy }}
-  successfulJobsHistoryLimit: {{ .Values.cron.successfulJobsHistoryLimit }}
-  failedJobsHistoryLimit: {{ .Values.cron.failedJobsHistoryLimit }}
+  schedule: {{ $p.schedule | default $.Values.cron.schedule | quote }}
+  timeZone: {{ $.Values.cron.timeZone | quote }}
+  suspend: {{ $.Values.cron.suspend }}
+  concurrencyPolicy: {{ $.Values.cron.concurrencyPolicy }}
+  # Sans cette borne, un contrôleur indisponible plusieurs heures accumule les
+  # démarrages manqués ; passé 100, le CronJob cesse définitivement d'être planifié.
+  startingDeadlineSeconds: {{ $.Values.cron.startingDeadlineSeconds }}
+  successfulJobsHistoryLimit: {{ $.Values.cron.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ $.Values.cron.failedJobsHistoryLimit }}
   jobTemplate:
     spec:
-      backoffLimit: {{ .Values.cron.backoffLimit }}
-      activeDeadlineSeconds: {{ .Values.cron.activeDeadlineSeconds }}
+      backoffLimit: {{ $.Values.cron.backoffLimit }}
+      activeDeadlineSeconds: {{ $.Values.cron.activeDeadlineSeconds }}
       template:
         metadata:
           labels:
-            {{- include "mesure-impact.labels" . | nindent 12 }}
+            {{- include "mesure-impact.labels" $ | nindent 12 }}
             app.kubernetes.io/component: collect
+            mesure-impact/produit: {{ $nom }}
         spec:
           restartPolicy: OnFailure
+          # Aucun appel à l'API Kubernetes : pas de token de SA monté.
+          automountServiceAccountToken: false
           securityContext:
-            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+            {{- toYaml $.Values.podSecurityContext | nindent 12 }}
           containers:
             - name: collect
-              image: {{ include "mesure-impact.image" (dict "root" . "component" "cron") }}
-              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              image: {{ include "mesure-impact.image" (dict "root" $ "component" "cron") }}
+              imagePullPolicy: {{ $.Values.image.pullPolicy }}
               securityContext:
-                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+                {{- toYaml $.Values.containerSecurityContext | nindent 16 }}
+              # Les deux seuls vrais secrets : tokens Matomo et Grist du produit.
               envFrom:
                 - secretRef:
-                    name: {{ .Values.secretName }}
+                    name: {{ include "mesure-impact.secretName" (dict "root" $ "produit" $p) }}
+              # Config non sensible : elle vient de produit.yaml, relisible en PR.
               env:
+                - name: PRODUIT
+                  value: {{ $p.slug | quote }}
                 - name: ENVIRONMENT
-                  value: {{ .Values.environment | quote }}
-                {{- range $k, $v := .Values.cron.env }}
+                  value: {{ $.Values.environment | quote }}
+                - name: RUN_ID
+                  value: {{ $p.nom | quote }}
+                - name: MATOMO_URL
+                  value: {{ $p.matomoUrl | quote }}
+                - name: MATOMO_SITE_ID
+                  value: {{ $p.matomoSiteId | quote }}
+                - name: GRIST_URL
+                  value: {{ $p.gristUrl | quote }}
+                - name: GRIST_DOC_ID
+                  value: {{ $p.gristDocId | quote }}
+                {{- range $k, $v := $.Values.cron.env }}
                 - name: {{ $k }}
                   value: {{ $v | quote }}
                 {{- end }}
               resources:
-                {{- toYaml .Values.cron.resources | nindent 16 }}
+                {{- toYaml $.Values.cron.resources | nindent 16 }}
               volumeMounts:
                 - name: tmp
                   mountPath: /tmp
           volumes:
             - name: tmp
               emptyDir: {}
+{{- end }}
 {{- end }}

@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [main]
 
+# La CI ne fait que lire le dépôt et construire des images en local.
+permissions:
+  contents: read
+
 jobs:
   checks:
     name: Portes de qualité
@@ -12,8 +16,48 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: azure/setup-helm@v4
-      - name: Lint du chart Helm
-        run: helm lint chart/ --values envs/dev/values.yaml
+      # Échoue si un produit.yaml est incomplet pour un env qu'il déclare cibler :
+      # mieux vaut casser la PR que déployer un CronJob qui plantera au premier run.
+      - name: Inventaire et rendu du chart, pour chaque env
+        # `shell: bash` apporte -o pipefail. Sans lui, le shell par défaut est
+        # `bash -e {0}` et le `| tee` ci-dessous avalerait le code de sortie du
+        # générateur : un produit.yaml incomplet passerait la PR en vert.
+        shell: bash
+        run: |
+          set -eu
+          for env in dev prod; do
+            echo "::group::$env"
+            ./scripts/produits-values.sh "$env" | tee "$RUNNER_TEMP/produits-$env.yaml"
+            helm lint chart/ --values "envs/$env/values.yaml" \
+              --values "$RUNNER_TEMP/produits-$env.yaml"
+            helm template mesure-impact chart/ \
+              --namespace "mesure-impact-$env" \
+              --values "envs/$env/values.yaml" \
+              --values "$RUNNER_TEMP/produits-$env.yaml" > /dev/null
+            echo "::endgroup::"
+          done
+
+      # Un inventaire de dev passé à la prod doit être refusé par le chart.
+      - name: Le garde-fou d'inventaire refuse le mauvais env
+        shell: bash
+        run: |
+          set -eu
+          sortie=$(helm template mesure-impact chart/ \
+               --namespace mesure-impact-prod \
+               --values envs/prod/values.yaml \
+               --values "$RUNNER_TEMP/produits-dev.yaml" 2>&1) && {
+            echo "::error::le chart a accepté l'inventaire de dev pour la prod"
+            exit 1
+          }
+          # Exiger la BONNE raison : sans ça, n'importe quelle erreur helm (values
+          # absent, template cassé) ferait passer ce test pour vert.
+          case "$sortie" in
+            *"inventaire des produits absent ou pour le mauvais env"*)
+              echo "refus confirmé, pour la bonne raison" ;;
+            *)
+              echo "::error::refus obtenu, mais pas pour la raison attendue :"; echo "$sortie"
+              exit 1 ;;
+          esac
 
       - uses: actions/setup-node@v4
         with:
@@ -57,7 +101,8 @@ jobs:
           user=$(docker image inspect mesure-impact-${{ matrix.component }}:pr --format '{{.Config.User}}')
           echo "USER = '$user'"
           case "$user" in
-            "")   echo "::error::aucun USER dans l'image, elle tournerait en root"; exit 1 ;;
-            0|root) echo "::error::l'image tourne en root"; exit 1 ;;
+            "")       echo "::error::aucun USER dans l'image, elle tournerait en root"; exit 1 ;;
             *[!0-9]*) echo "::error::USER '$user' n'est pas numérique — runAsNonRoot fera échouer le pod"; exit 1 ;;
           esac
+          # Comparaison numérique : `USER 00` est numérique et vaut pourtant root.
+          [ "$((10#$user))" -ne 0 ] || { echo "::error::l'image tourne en root (uid $((10#$user)))"; exit 1; }

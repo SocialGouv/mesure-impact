@@ -1,0 +1,76 @@
+{{- if and .Values.alerts.enabled .Values.produits }}
+{{/*
+Le Prometheus du cluster sélectionne les PrometheusRule de tous les namespaces
+(ruleSelector vide). Le mode d'échec qui compte ici est silencieux : une collecte
+qui s'arrête ne casse aucune page, le tableau de bord se contente de vieillir.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "mesure-impact.name" . }}-collecte
+  labels:
+    {{- include "mesure-impact.labels" . | nindent 4 }}
+    prometheus/rules: infra
+spec:
+  groups:
+    - name: mesure-impact-collecte
+      rules:
+        - alert: MesureImpactCollecteEnEchec
+          # Borné à la fenêtre récente : `kube_job_status_failed > 0` reste vrai tant
+          # que l'objet Job existe, et failedJobsHistoryLimit le conserve jusqu'à trois
+          # échecs suivants — l'alerte ne se résoudrait jamais après un échec isolé.
+          # `max by` déduplique : plusieurs exportateurs publient la même métrique
+          # (kube-state-metrics, kubernetes-pods, kubecost…), soit autant d'alertes
+          # identiques pour un seul job en échec.
+          expr: |
+            max by (namespace, job_name) (
+              kube_job_status_failed{namespace="{{ .Release.Namespace }}", job_name=~"mesure-impact-.*"}
+            ) > 0
+            and on (namespace, job_name) (
+              time() - max by (namespace, job_name) (kube_job_created{namespace="{{ .Release.Namespace }}"})
+              < {{ .Values.alerts.echecRecentSeconds }}
+            )
+          for: 15m
+          labels:
+            severity: warning
+            environnement: {{ .Values.environment | quote }}
+          annotations:
+            summary: "Collecte {{ `{{ $labels.job_name }}` }} en échec"
+            description: >-
+              Le job {{ `{{ $labels.job_name }}` }} du namespace {{ .Release.Namespace }}
+              a échoué. Le tableau de bord concerné n'est plus alimenté.
+
+        # kube_cronjob_status_last_successful_time n'est PAS exporté tant qu'un
+        # CronJob n'a jamais réussi. La seule expression « trop vieux » serait donc
+        # aveugle au cas le plus grave : celui qui n'a jamais collecté. D'où la
+        # seconde branche, qui repère les CronJobs connus et sans succès, en
+        # excluant ceux qu'on a délibérément suspendus.
+        - alert: MesureImpactCollecteMuette
+          expr: |
+            (
+              time() - max by (cronjob) (
+                kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
+              ) > {{ .Values.alerts.silenceMaxSeconds }}
+              unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
+            )
+            or
+            (
+              max by (cronjob) (kube_cronjob_info{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
+              unless on (cronjob) kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}"}
+              unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
+              and on (cronjob) (
+                time() - max by (cronjob) (kube_cronjob_created{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
+                > {{ .Values.alerts.silenceMaxSeconds }}
+              )
+            )
+          for: 30m
+          labels:
+            severity: warning
+            environnement: {{ .Values.environment | quote }}
+          annotations:
+            summary: "Collecte {{ `{{ $labels.cronjob }}` }} sans succès depuis trop longtemps"
+            description: >-
+              Aucune collecte réussie pour {{ `{{ $labels.cronjob }}` }} depuis plus de
+              {{ div .Values.alerts.silenceMaxSeconds 3600 }} h. Panne silencieuse probable :
+              les données affichées vieillissent sans que rien ne casse.
+{{- end }}

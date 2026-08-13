@@ -1,0 +1,14 @@
+# Le contexte de build est la racine du dépôt et `docker/cron` copie tout `produits/`.
+# Sans ces exclusions, un .env de développement local finit cuit dans une image
+# publiée sur un registre public.
+**/.env
+**/.env.*
+**/secrets/
+.git
+.github
+.devbox
+.direnv
+doc
+envs
+chart
+*.md

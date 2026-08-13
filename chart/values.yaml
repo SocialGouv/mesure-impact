@@ -6,17 +6,23 @@ image:
   tag: edge
   pullPolicy: IfNotPresent
 
-# Nom du Secret déscellé par sealed-secrets, monté en envFrom dans le CronJob.
-# Voir envs/<env>/sealed-secrets/.
-secretName: mesure-impact-tokens
+# Liste des produits, un CronJob chacun. Jamais écrite à la main : elle est générée
+# depuis les produits/<dept>/<nom>/produit.yaml par `scripts/produits-values.sh <env>`
+# et passée en `-f`. Le marqueur doit valoir l'env déployé, sinon le rendu échoue.
+produitsInventaire: ""
+produits: []
 
 cron:
   enabled: true
-  # Tant que les tokens Matomo/Grist ne sont pas scellés, le CronJob reste suspendu.
+  # Tant que les tokens Matomo/Grist ne sont pas scellés, les CronJobs restent suspendus.
   suspend: true
+  # Défaut, surchargeable par produit via `collecte.schedule` dans produit.yaml.
   schedule: "0 6 * * *"
   timeZone: Europe/Paris
   concurrencyPolicy: Forbid
+  # Fenêtre de rattrapage d'un démarrage manqué. Borne aussi le compteur de
+  # démarrages ratés, qui gèlerait la planification au bout de 100.
+  startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   backoffLimit: 2
@@ -52,6 +58,18 @@ web:
     fsGroup: 101
     seccompProfile:
       type: RuntimeDefault
+
+networkPolicy:
+  enabled: true
+
+alerts:
+  enabled: true
+  # Au-delà de ce délai sans collecte réussie, on considère la chaîne muette.
+  # Large devant la cadence quotidienne, pour ne pas alerter sur un retard normal.
+  silenceMaxSeconds: 172800 # 48 h
+  # Un Job en échec reste en cluster jusqu'à rotation de l'historique : sans cette
+  # fenêtre, un échec isolé laisserait l'alerte rouge indéfiniment.
+  echecRecentSeconds: 86400 # 24 h
 
 # Appliqué au pod du CronJob.
 podSecurityContext:

@@ -17,14 +17,18 @@ adapter `etl.mjs`, poser `dashboard.html`, sceller les tokens, mettre à jour `d
 
 ## Sceller un secret
 
+Seuls les **deux tokens** sont scellés, et par produit. Le reste de la config (URLs, site
+Matomo, doc Grist) vit en clair dans `produit.yaml` : la changer doit rester une PR relisible.
+
 ```bash
 # Poser les valeurs dans l'environnement (jamais en clair sur la ligne de commande)
-export MATOMO_URL=... MATOMO_SITE_ID=... MATOMO_TOKEN_AUTH=...
-export GRIST_URL=... GRIST_DOC_ID=... GRIST_API_KEY=...
-task seal ENV=dev     # produit envs/dev/sealed-secrets/tokens.sealedsecret.yaml (chiffré)
+export MATOMO_TOKEN_AUTH=... GRIST_API_KEY=...
+PRODUIT=sante/basavi ENV=dev task seal
+# -> produits/sante/basavi/secrets/dev.sealedsecret.yaml (chiffré)
 ```
 
-Seul le fichier **chiffré** est commité. Renouveler une clé = re-sceller + commiter.
+Seul le fichier **chiffré** est commité. Renouveler une clé = re-sceller + commiter. Un token
+qui fuit ou qu'on révoque n'affecte que son produit.
 
 ## Critères d'achèvement
 

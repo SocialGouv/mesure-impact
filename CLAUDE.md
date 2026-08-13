@@ -8,13 +8,13 @@ par GitHub Actions.
 
 ## État
 
-Un seul produit est câblé : **BASAVI**. `docker/cron/collect.mjs` importe son ETL
-(`produits/sante/basavi/etl.mjs`), qui collecte Matomo et pousse dans Grist. Le CronJob reste
-déployé avec `suspend: true` tant que les tokens ne sont pas scellés.
+Le socle est **multitenant** : chaque `produits/<dept>/<nom>/` reçoit son CronJob, son
+SealedSecret et son URL de dashboard. Un seul produit est câblé à ce jour, **BASAVI**. Les
+CronJobs restent déployés avec `suspend: true` tant que les tokens ne sont pas scellés.
 
-Le chart n'est pas encore multitenant : il déploie un CronJob unique alimenté par un secret
-unique et partagé. Boucler sur `produits/` avec un jeu de secrets par produit est le chantier
-suivant — voir `doc/architecture.md` → « État de la multitenance ».
+`produit.yaml` déclare ses `envs` et un `site_id`/`doc_id` par env. BASAVI ne cible que `dev` :
+la prod ne reçoit donc aucun CronJob tant que son site Matomo et son doc Grist n'existent pas.
+C'est voulu — mieux vaut zéro collecte qu'une prod qui collecte la préprod.
 
 ## Cible de déploiement
 
@@ -83,19 +83,24 @@ reset admin `POST /v3/users/u-h4dmz?action=setpassword`.
 
 ## Secrets applicatifs — SealedSecrets
 
-Les tokens Matomo et Grist ne transitent jamais en clair : `task seal ENV=dev` lit les valeurs
-depuis l'environnement, produit `envs/<env>/sealed-secrets/tokens.sealedsecret.yaml`, et c'est
-ce fichier chiffré qui est commité. **Le dépôt est public** — rien d'autre qu'un SealedSecret
-ne doit y figurer.
+**Un secret par produit et par env.** `PRODUIT=<dept>/<nom> ENV=<env> task seal` lit les deux
+tokens depuis l'environnement et produit
+`produits/<dept>/<nom>/secrets/<env>.sealedsecret.yaml` — c'est ce fichier chiffré qui est
+commité. **Le dépôt est public** : rien d'autre qu'un SealedSecret ne doit y figurer.
 
-Scellés avec `--scope cluster-wide` (portable d'un namespace à l'autre), contre
-`https://kubeseal.ovh.fabrique.social.gouv.fr/v1/cert.pem`.
+Seuls `MATOMO_TOKEN_AUTH` et `GRIST_API_KEY` sont scellés. Les quatre pointeurs
+(`MATOMO_URL`, `MATOMO_SITE_ID`, `GRIST_URL`, `GRIST_DOC_ID`) viennent de `produit.yaml` et
+sont injectés en clair : corriger un site ou un doc doit rester une PR relisible.
 
-Le CronJob consomme le Secret déscellé via `envFrom` : `MATOMO_URL`, `MATOMO_TOKEN_AUTH`,
-`MATOMO_SITE_ID`, `GRIST_URL`, `GRIST_API_KEY`, `GRIST_DOC_ID`. Une variable manquante fait
-échouer le job bruyamment, elle n'est jamais compensée par une valeur par défaut.
+Scellés en scope **strict** — liés au couple namespace + nom — contre
+`https://kubeseal.ovh.fabrique.social.gouv.fr/v1/cert.pem`. Un fichier chiffré n'est donc
+déscellable que là où il a été scellé : recopier `dev.sealedsecret.yaml` en
+`prod.sealedsecret.yaml` ne marche pas, il faut re-sceller pour chaque env. C'est le prix de
+ne pas laisser un co-locataire du cluster déchiffrer un fichier public.
 
-Une fois les secrets en place, repasser `cron.suspend` à `false` dans `envs/<env>/values.yaml`.
+Une variable manquante fait échouer le job bruyamment, elle n'est jamais compensée par une
+valeur par défaut. Une fois les secrets en place, repasser `cron.suspend` à `false` dans
+`envs/<env>/values.yaml`.
 
 ## Images
 
@@ -104,7 +109,13 @@ privé, il faut créer un secret `ghcr-pull` dans chaque namespace (c'est ce que
 namespaces `*-debug-demo` du cluster).
 
 `docker/web` part de `nginx-unprivileged` : uid 101, écoute sur 8080, `/tmp` et
-`/var/cache/nginx` montés en `emptyDir` pour rester compatible `readOnlyRootFilesystem`.
+`/var/cache/nginx` montés en `emptyDir` pour rester compatible `readOnlyRootFilesystem`. Une
+étape de build publie chaque `produits/*/*/dashboard.html` sous `/<dept>/<nom>/` — c'est
+l'URL que le doc Grist charge comme widget.
+
+Les deux images doivent déclarer un `USER` **numérique** non-root : avec `runAsNonRoot`, le
+kubelet doit pouvoir constater que l'utilisateur n'est pas root sans résoudre `/etc/passwd`.
+La CI le vérifie et casse la PR sinon.
 
 ## CI
 

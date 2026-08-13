@@ -263,7 +263,10 @@ function srcBadge(txt){ return `<span class="srcbadge">source : ${txt}</span>`; 
 function rcStatus(key, v){ const c=RC[key], ok = c.op==='>'? v>c.t : v<c.t;
   return { ok, cls: ok?'ok':'ko', cible:`Cible ${c.op} ${c.t} %`, label: ok?'atteinte':'non atteinte' }; }
 function rcPill(key, v){ const st=rcStatus(key,v); return `<div class="rc ${st.cls}">${st.ok?'✓':'⚠'} ${st.cible} · ${st.label}</div>`; }
-function barList(items, max){ const m=max||100; return `<div class="bl">`+items.map(i=>`<div class="bl-row"><span>${i.n}</span><span class="bl-tr"><span class="bl-tf" style="width:${Math.round(i.p/m*100)}%"></span></span><span class="bl-v">${i.p}%</span></div>`).join('')+`</div>`; }
+// Les libellés viennent de Matomo, dont l'endpoint de tracking est public : ils sont
+// hostiles par défaut et ne doivent jamais atteindre innerHTML tels quels.
+function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function barList(items, max){ const m=max||100; return `<div class="bl">`+items.map(i=>`<div class="bl-row"><span>${esc(i.n)}</span><span class="bl-tr"><span class="bl-tf" style="width:${Math.round(i.p/m*100)}%"></span></span><span class="bl-v">${i.p}%</span></div>`).join('')+`</div>`; }
 
 /* --- graphe d'évolution (SVG inline, pas de lib) — séries réelles depuis Grist --- */
 function xLabels(n){ return [...Array(n)].map((_,i)=>`J-${n-1-i}`); }
@@ -459,7 +462,7 @@ function renderBanner(){
   if(!META){ el.hidden=true; return; }
   const d=(META.extracted_at||'').slice(0,10).split('-').reverse().join('/');
   el.hidden=false;
-  el.innerHTML=`<span class="dot"></span><span><b>${META.source||'Données Grist'}</b>${META.days?' · '+META.days:''}${META.jours?' · '+META.jours+' jours':''}${d?' · extraction du '+d:''}</span>`;
+  el.innerHTML=`<span class="dot"></span><span><b>${esc(META.source||'Données Grist')}</b>${META.days?' · '+esc(META.days):''}${META.jours?' · '+esc(META.jours)+' jours':''}${d?' · extraction du '+esc(d):''}</span>`;
 }
 function renderPiliers(){ renderUtilisable(); renderUtilise(); renderUtile(); }
 function renderAll(){ buildPeriod(); renderBanner(); const pl=document.getElementById('prevlbl'); if(pl) pl.textContent = prevDays().length? 'vs période précédente' : 'pas d’historique'; renderSynthese(); renderPiliers(); renderImpactant(); }

@@ -25,7 +25,15 @@ On ne touche jamais aux autres produits ni au socle. La référence, c'est le do
 | `etl.mjs` | collecte Matomo → Grist | non |
 | `dashboard.html` | le front (widget Grist) | non |
 | `README.md` | à quoi sert le tableau de bord | non |
-| `secrets/` | réservé aux tokens par produit — vide tant que le chart n'est pas multitenant | **chiffré** |
+| `secrets/<env>.sealedsecret.yaml` | les 2 tokens Matomo + Grist du produit | **chiffré** |
 
-Aujourd'hui les tokens Matomo et Grist vivent dans un secret unique et partagé,
-`envs/<env>/sealed-secrets/tokens.sealedsecret.yaml`, produit par `task seal ENV=<env>`.
+Le `produit.yaml` est lu par le socle : `scripts/produits-values.sh <env>` en dérive le
+CronJob, ses variables et l'URL du dashboard. Un champ obligatoire absent fait échouer la CI.
+Le **chemin du dossier** fait autorité pour l'identité du produit (`sante/basavi` → CronJob
+`mesure-impact-sante-basavi-collect`, URL `/sante/basavi/`) : `nom` et `departement` du YAML
+sont de l'affichage.
+
+Le champ `envs` liste les environnements où le produit est **collecté**, et
+`chaine.matomo.site_id` / `chaine.grist.doc_id` portent une valeur par env. Un produit qui ne
+déclare pas `prod` n'y reçoit aucun CronJob : c'est le garde-fou qui empêche la prod de
+collecter la source de préprod. Le dashboard, lui, est servi dans tous les envs.

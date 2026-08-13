@@ -1,0 +1,29 @@
+{{- if .Values.networkPolicy.enabled }}
+{{/*
+Ingress fermé par défaut : seuls les pods du namespace, le contrôleur d'ingress et
+le monitoring peuvent entrer. Les labels network-policy/source sont posés sur les
+namespaces du cluster (ingress-nginx, traefik, prometheus-operator…).
+La sortie n'est pas filtrée : la collecte doit joindre Matomo et Grist sur internet.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "mesure-impact.name" . }}-ingress
+  labels:
+    {{- include "mesure-impact.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network-policy/source: ingress-controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network-policy/source: monitoring
+{{- end }}

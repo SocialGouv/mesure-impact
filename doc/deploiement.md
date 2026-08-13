@@ -40,22 +40,35 @@ Ce qui change, concrètement :
 2. **Destination Grist** : un `GRIST_DOC_ID` différent (un doc prod séparé, pour que les tests
    de préprod ne polluent jamais la prod), dans l'espace d'équipe durable, avec le compte de
    service en éditeur.
-3. **Scellement** : `task seal ENV=prod` avec les 6 valeurs de prod → `envs/prod/sealed-secrets/`.
+3. **Scellement** : `PRODUIT=<dept>/<nom> ENV=prod task seal` avec les deux tokens de prod
+   → `produits/<dept>/<nom>/secrets/prod.sealedsecret.yaml`.
 4. **Déploiement** : manuel et volontaire (`workflow_dispatch` env=prod), puis réveil du
    CronJob prod.
 5. **Repointage** du widget du doc prod vers l'URL fabrique de prod.
 
-Le secret scellé d'un env porte les **6 variables** (voir `architecture.md`), donc c'est lui
-qui « pointe » vers le site et le doc de cet env. Sceller `dev` vs `prod` = pointer vers les
-ressources de préprod vs de prod.
+`produit.yaml` porte un `site_id` et un `doc_id` **par env**, et la liste `envs` des envs où
+le produit est collecté. Un produit qui ne déclare pas `prod` ne reçoit aucun CronJob de prod :
+c'est ce qui empêche la prod de collecter la source de préprod tant que la vraie source
+n'existe pas. Ouvrir la prod d'un produit = créer le site Matomo et le doc Grist, renseigner
+leurs identifiants, puis ajouter `prod` à `envs`.
 
 ## Points à connaître (état actuel)
 
-- **Emplacement des secrets** : `task seal` écrit dans `envs/<env>/sealed-secrets/` (un secret
-  par env). Le dossier `produits/<produit>/secrets/` est la cible propre (un secret par produit),
-  effective une fois la multitenance du chart faite (chantier socle).
-- **Cadence** : défaut quotidien (`0 6 * * *`). Réglable par env (plus fréquent en préprod
-  pendant les tests).
-- **Split config/secret** : aujourd'hui les 4 pointeurs non sensibles (site, doc, URLs) sont
-  scellés avec les 2 vrais secrets. Les séparer (pointeurs en clair, tokens seuls scellés) est
-  une amélioration à discuter avec le socle.
+- **Emplacement des secrets** : un secret scellé par produit et par env, dans
+  `produits/<dept>/<nom>/secrets/<env>.sealedsecret.yaml`. Il ne porte que
+  `MATOMO_TOKEN_AUTH` et `GRIST_API_KEY`.
+- **Cadence** : défaut quotidien (`0 6 * * *`), surchargeable par produit via
+  `collecte.schedule` dans `produit.yaml`, et par env via `envs/<env>/values.yaml`.
+- **Un CronJob par produit** : nommé `mesure-impact-<dept>-<nom>-collect`. Un ETL qui échoue
+  n'empêche pas les autres de collecter.
+
+## Garde-fous
+
+- **Marqueur d'inventaire** : le chart refuse de rendre si l'inventaire des produits n'a pas
+  été passé, ou s'il a été généré pour un autre env. Un `-f` oublié déploierait sinon zéro
+  CronJob sans un mot ; un inventaire de dev passé à la prod ferait collecter la préprod.
+- **Déploiement prod protégé** : le job est rattaché à l'environnement GitHub `prod`, où se
+  posent les règles de protection (relecteurs requis).
+- **Alertes** : deux `PrometheusRule` par env — collecte en échec, et collecte muette depuis
+  plus de 48 h. La panne qui compte ici est silencieuse : rien ne casse, les données vieillissent.
+- **Réseau** : ingress fermé par défaut, ouvert au seul contrôleur d'ingress et au monitoring.
