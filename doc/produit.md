@@ -33,6 +33,7 @@ par produit sous `produits/`.
 
 ## Où trouver quoi
 
-- La logique technique et la chaîne de déploiement : `doc/architecture.md`.
+- La logique technique et la chaîne : `doc/architecture.md`.
+- Le déploiement, les environnements préprod/prod : `doc/deploiement.md`.
 - Comment ajouter un produit, les règles de contribution : `doc/conventions.md`.
 - Les choix structurants et leur raison : `doc/decisions/`.
