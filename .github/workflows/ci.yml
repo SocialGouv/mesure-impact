@@ -26,3 +26,38 @@ jobs:
             echo "node --check $f"
             node --check "$f"
           done
+
+  images:
+    name: Build des images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [cron, web]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      # Build sans push : `deploy.yml` construit ces mêmes images au merge, un
+      # Dockerfile cassé doit être vu ici et pas une fois sur main.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/${{ matrix.component }}/Dockerfile
+          push: false
+          load: true
+          tags: mesure-impact-${{ matrix.component }}:pr
+          cache-from: type=gha,scope=${{ matrix.component }}
+
+      # Le chart impose runAsNonRoot : le kubelet doit pouvoir constater que
+      # l'utilisateur n'est pas root sans résoudre /etc/passwd.
+      - name: L'image tourne sous un uid non-root numérique
+        run: |
+          set -eu
+          user=$(docker image inspect mesure-impact-${{ matrix.component }}:pr --format '{{.Config.User}}')
+          echo "USER = '$user'"
+          case "$user" in
+            "")   echo "::error::aucun USER dans l'image, elle tournerait en root"; exit 1 ;;
+            0|root) echo "::error::l'image tourne en root"; exit 1 ;;
+            *[!0-9]*) echo "::error::USER '$user' n'est pas numérique — runAsNonRoot fera échouer le pod"; exit 1 ;;
+          esac

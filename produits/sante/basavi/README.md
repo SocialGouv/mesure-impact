@@ -34,7 +34,8 @@ Depuis la racine du dépôt, avec les valeurs dans l'environnement :
 task seal ENV=dev
 ```
 
-Produit `secrets/dev.sealedsecret.yaml` (chiffré, commitable). Voir `doc/conventions.md`.
+Produit `envs/dev/sealed-secrets/tokens.sealedsecret.yaml` (chiffré, commitable) — un secret
+unique et partagé, tant que le chart n'est pas multitenant. Voir `doc/conventions.md`.
 
 ## État
 
