@@ -15,7 +15,9 @@ Matomo (site 168) ──> etl.mjs ──> doc Grist « Preprod - BASAVI » ─�
 - **`dashboard.html`** : le front DSFR, embarqué comme widget dans le doc Grist (il lit les
   données via l'API plugin Grist, aucun token dans la page).
 - **`produit.yaml`** : les identifiants publics et les critères d'achèvement.
-- **`secrets/`** : les tokens Matomo et Grist, **scellés** (chiffrés), jamais en clair.
+- Les tokens Matomo et Grist sont **scellés** (chiffrés), jamais en clair. Aujourd'hui
+  `task seal` les écrit dans `envs/<env>/sealed-secrets/` ; le dossier `secrets/` de ce produit
+  est la cible (un secret par produit), effective avec la multitenance du chart.
 
 ## Lancer la collecte en local (dev)
 
@@ -34,7 +36,8 @@ Depuis la racine du dépôt, avec les valeurs dans l'environnement :
 task seal ENV=dev
 ```
 
-Produit `secrets/dev.sealedsecret.yaml` (chiffré, commitable). Voir `doc/conventions.md`.
+Produit `envs/dev/sealed-secrets/tokens.sealedsecret.yaml` (chiffré, commitable). Voir
+`doc/conventions.md`.
 
 ## État
 

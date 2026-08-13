@@ -8,10 +8,9 @@ par GitHub Actions.
 
 ## État
 
-Le code métier de collecte n'est **pas encore intégré** : `docker/cron/collect.sh` est un
-placeholder qui vérifie la présence des variables, la joignabilité de Matomo et de Grist,
-puis sort. Le CronJob est déployé avec `suspend: true` tant que les tokens ne sont pas
-scellés.
+L'ETL du produit pilote **BASAVI est intégré** : `docker/cron/collect.mjs` lance
+`produits/sante/basavi/etl.mjs` (le placeholder `collect.sh` a été retiré). Le CronJob est
+déployé avec `suspend: true` tant que les tokens ne sont pas scellés.
 
 ## Cible de déploiement
 
@@ -124,5 +123,6 @@ La doc du dépôt vit dans [doc/](doc/) : `produit.md` (fonctionnel), `architect
 
 Les tableaux de bord vivent dans `produits/<département>/<produit>/` (un dossier par produit,
 cf. [produits/README.md](produits/README.md)). Le collecteur du CronJob est
-`docker/cron/collect.mjs`, qui lance les ETL des produits (Node pur, contrat de variables
-commun décrit dans `doc/architecture.md`).
+`docker/cron/collect.mjs`, qui lance pour l'instant l'ETL du seul produit pilote (BASAVI) ; la
+généralisation à N produits est le chantier multitenance. Node pur, contrat de variables
+commun décrit dans `doc/architecture.md`.

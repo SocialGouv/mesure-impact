@@ -25,4 +25,4 @@ On ne touche jamais aux autres produits ni au socle. La référence, c'est le do
 | `etl.mjs` | collecte Matomo → Grist | non |
 | `dashboard.html` | le front (widget Grist) | non |
 | `README.md` | à quoi sert le tableau de bord | non |
-| `secrets/<env>.sealedsecret.yaml` | tokens Matomo + Grist | **chiffré** |
+| `secrets/` (cible) | tokens Matomo + Grist, **chiffrés** | aujourd'hui `task seal` écrit dans `envs/<env>/sealed-secrets/` |

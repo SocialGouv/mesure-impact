@@ -1,5 +1,6 @@
 # Fiche produit BASAVI — identifiants PUBLICS et critères. Aucun secret ici.
-# Les tokens (Matomo, Grist) sont scellés dans secrets/<env>.sealedsecret.yaml.
+# Les tokens (Matomo, Grist) sont scellés. Aujourd'hui `task seal` les écrit dans
+# envs/<env>/sealed-secrets/ ; l'emplacement par produit est la cible (multitenance du chart).
 nom: BASAVI
 departement: Santé
 description: >
