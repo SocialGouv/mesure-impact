@@ -1,0 +1,46 @@
+{{- if and .Values.alerts.enabled .Values.produits }}
+{{/*
+Le Prometheus du cluster sélectionne les PrometheusRule de tous les namespaces
+(ruleSelector vide). Le mode d'échec qui compte ici est silencieux : une collecte
+qui s'arrête ne casse aucune page, le tableau de bord se contente de vieillir.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "mesure-impact.name" . }}-collecte
+  labels:
+    {{- include "mesure-impact.labels" . | nindent 4 }}
+    prometheus/rules: infra
+spec:
+  groups:
+    - name: mesure-impact-collecte
+      rules:
+        - alert: MesureImpactCollecteEnEchec
+          expr: |
+            kube_job_status_failed{namespace="{{ .Release.Namespace }}", job_name=~"mesure-impact-.*"} > 0
+          for: 15m
+          labels:
+            severity: warning
+            environnement: {{ .Values.environment | quote }}
+          annotations:
+            summary: "Collecte {{ `{{ $labels.job_name }}` }} en échec"
+            description: >-
+              Le job {{ `{{ $labels.job_name }}` }} du namespace {{ .Release.Namespace }}
+              a échoué. Le tableau de bord concerné n'est plus alimenté.
+
+        - alert: MesureImpactCollecteMuette
+          expr: |
+            time() - max by (cronjob) (
+              kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
+            ) > {{ .Values.alerts.silenceMaxSeconds }}
+          for: 30m
+          labels:
+            severity: warning
+            environnement: {{ .Values.environment | quote }}
+          annotations:
+            summary: "Collecte {{ `{{ $labels.cronjob }}` }} sans succès depuis trop longtemps"
+            description: >-
+              Aucune collecte réussie pour {{ `{{ $labels.cronjob }}` }} depuis plus de
+              {{ div .Values.alerts.silenceMaxSeconds 3600 }} h. Panne silencieuse probable :
+              les données affichées vieillissent sans que rien ne casse.
+{{- end }}

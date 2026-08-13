@@ -29,9 +29,9 @@ Taskfile) et à chaque `etl.mjs`, mais les variables n'arrivent pas par le même
 | Variable | Rôle | Origine |
 |---|---|---|
 | `MATOMO_URL` | instance Matomo | `produit.yaml`, en clair (`env:`) |
-| `MATOMO_SITE_ID` | site du produit | `produit.yaml`, en clair (`env:`) |
+| `MATOMO_SITE_ID` | site du produit, **par env** | `produit.yaml`, en clair (`env:`) |
 | `GRIST_URL` | instance Grist | `produit.yaml`, en clair (`env:`) |
-| `GRIST_DOC_ID` | doc cible du produit | `produit.yaml`, en clair (`env:`) |
+| `GRIST_DOC_ID` | doc cible du produit, **par env** | `produit.yaml`, en clair (`env:`) |
 | `MATOMO_TOKEN_AUTH` | token de lecture Matomo | **SealedSecret** du produit (`envFrom`) |
 | `GRIST_API_KEY` | clé d'écriture Grist | **SealedSecret** du produit (`envFrom`) |
 
@@ -61,11 +61,16 @@ tableaux de bord publiés, générée au build de l'image.
 ## Multitenance
 
 Le chart est conscient de `produits/`. La liste n'est jamais écrite à la main :
-`scripts/produits-values.sh` parcourt les `produits/<dept>/<nom>/produit.yaml` et émet les
-valeurs Helm ; le Taskfile et les deux workflows la passent en `-f`. **Le chemin du dossier
+`scripts/produits-values.sh <env>` parcourt les `produits/<dept>/<nom>/produit.yaml` et émet
+les valeurs Helm ; le Taskfile et les deux workflows la passent en `-f`. **Le chemin du dossier
 fait autorité** pour l'identité d'un produit — `nom` et `departement` du YAML sont de
 l'affichage. Un `produit.yaml` incomplet fait échouer la CI plutôt que de produire un CronJob
 qui planterait au premier run.
+
+L'inventaire est **par env** : un produit n'est collecté que dans les envs listés dans son
+`envs`, avec le `site_id` et le `doc_id` de cet env. L'inventaire porte un marqueur que le
+chart compare à l'env déployé — un `-f` oublié ou un inventaire de dev passé à la prod fait
+échouer le rendu au lieu de déployer silencieusement à côté.
 
 Chaque produit reçoit :
 

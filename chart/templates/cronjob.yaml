@@ -1,7 +1,13 @@
-{{- if .Values.cron.enabled }}
-{{- if not .Values.produits }}
-{{- fail "aucun produit : `produits` est vide. Passe le rendu de scripts/produits-values.sh avec -f." }}
+{{/*
+L'inventaire des produits n'est jamais écrit à la main : il vient de
+scripts/produits-values.sh <env>. Le marqueur atteste qu'il a bien été passé, et
+pour le bon env — sans ce contrôle, un `-f` oublié déploierait zéro CronJob sans
+un mot, et l'inventaire de dev passé à la prod ferait collecter la préprod.
+*/}}
+{{- if ne (.Values.produitsInventaire | toString) (.Values.environment | toString) }}
+{{- fail (printf "inventaire des produits absent ou pour le mauvais env (marqueur=%q, env déployé=%q). Passe `scripts/produits-values.sh %s` avec -f." (.Values.produitsInventaire | toString) (.Values.environment | toString) (.Values.environment | toString)) }}
 {{- end }}
+{{- if .Values.cron.enabled }}
 {{- range $p := .Values.produits }}
 {{- $nom := printf "%s-%s" $p.departement $p.nom }}
 ---
@@ -18,6 +24,9 @@ spec:
   timeZone: {{ $.Values.cron.timeZone | quote }}
   suspend: {{ $.Values.cron.suspend }}
   concurrencyPolicy: {{ $.Values.cron.concurrencyPolicy }}
+  # Sans cette borne, un contrôleur indisponible plusieurs heures accumule les
+  # démarrages manqués ; passé 100, le CronJob cesse définitivement d'être planifié.
+  startingDeadlineSeconds: {{ $.Values.cron.startingDeadlineSeconds }}
   successfulJobsHistoryLimit: {{ $.Values.cron.successfulJobsHistoryLimit }}
   failedJobsHistoryLimit: {{ $.Values.cron.failedJobsHistoryLimit }}
   jobTemplate:

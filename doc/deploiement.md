@@ -46,9 +46,11 @@ Ce qui change, concrètement :
    CronJob prod.
 5. **Repointage** du widget du doc prod vers l'URL fabrique de prod.
 
-Attention à ce qui distingue réellement les deux envs : le `MATOMO_SITE_ID` et le
-`GRIST_DOC_ID` vivent dans `produit.yaml`, donc **en une seule version**. Viser un site ou un
-doc différent en prod suppose de les rendre dépendants de l'env — voir « Reste à faire ».
+`produit.yaml` porte un `site_id` et un `doc_id` **par env**, et la liste `envs` des envs où
+le produit est collecté. Un produit qui ne déclare pas `prod` ne reçoit aucun CronJob de prod :
+c'est ce qui empêche la prod de collecter la source de préprod tant que la vraie source
+n'existe pas. Ouvrir la prod d'un produit = créer le site Matomo et le doc Grist, renseigner
+leurs identifiants, puis ajouter `prod` à `envs`.
 
 ## Points à connaître (état actuel)
 
@@ -60,8 +62,13 @@ doc différent en prod suppose de les rendre dépendants de l'env — voir « Re
 - **Un CronJob par produit** : nommé `mesure-impact-<dept>-<nom>-collect`. Un ETL qui échoue
   n'empêche pas les autres de collecter.
 
-## Reste à faire
+## Garde-fous
 
-- **Pointeurs par env** : `produit.yaml` ne décrit qu'un jeu de site/doc. Tant qu'on ne l'a
-  pas rendu conscient de l'env, dev et prod collectent la même source vers la même
-  destination. À traiter avant d'ouvrir la prod.
+- **Marqueur d'inventaire** : le chart refuse de rendre si l'inventaire des produits n'a pas
+  été passé, ou s'il a été généré pour un autre env. Un `-f` oublié déploierait sinon zéro
+  CronJob sans un mot ; un inventaire de dev passé à la prod ferait collecter la préprod.
+- **Déploiement prod protégé** : le job est rattaché à l'environnement GitHub `prod`, où se
+  posent les règles de protection (relecteurs requis).
+- **Alertes** : deux `PrometheusRule` par env — collecte en échec, et collecte muette depuis
+  plus de 48 h. La panne qui compte ici est silencieuse : rien ne casse, les données vieillissent.
+- **Réseau** : ingress fermé par défaut, ouvert au seul contrôleur d'ingress et au monitoring.

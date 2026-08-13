@@ -7,13 +7,21 @@ description: >
   Annuaire des structures d'aide aux femmes victimes de violences.
   Tableau de bord d'usage : recherches lancées, mises en relation, abandon.
 
+# Envs où ce produit est collecté. Un env absent d'ici ne reçoit aucun CronJob :
+# c'est ainsi qu'on empêche la prod de collecter la source de préprod par défaut.
+envs: [dev]
+
 chaine:
   matomo:
     url: https://matomo.fabrique.social.gouv.fr
-    site_id: 168            # préprod ; la prod aura un nouveau site
+    site_id:
+      dev: 168              # site de préprod
+      # prod: <à créer>     # ajouter l'env à `envs` en même temps que le site
   grist:
     url: https://grist.numerique.gouv.fr
-    doc_id: 1kb1wHNCjAns    # « Preprod - BASAVI »
+    doc_id:
+      dev: 1kb1wHNCjAns     # « Preprod - BASAVI »
+      # prod: <à créer>     # doc prod séparé, pour que la préprod ne pollue jamais la prod
     tables: [Sessions, Events, Modes, Indicateurs, Extractions]
   grain: jour × device      # device natif Matomo (mobile / desktop / tous)
 

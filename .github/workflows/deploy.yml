@@ -58,6 +58,9 @@ jobs:
     needs: build
     permissions:
       contents: read
+    # Rattache le job à l'environnement GitHub du même nom : c'est là que se
+    # posent les règles de protection (relecteurs requis avant un déploiement prod).
+    environment: ${{ github.event.inputs.environment || 'dev' }}
     env:
       ENVIRONMENT: ${{ github.event.inputs.environment || 'dev' }}
     steps:
@@ -75,7 +78,7 @@ jobs:
       # Un CronJob par produit : la liste est dérivée des produit.yaml, jamais écrite à la main.
       - name: Inventaire des produits
         run: |
-          ./scripts/produits-values.sh > "$RUNNER_TEMP/produits.values.yaml"
+          ./scripts/produits-values.sh "$ENVIRONMENT" > "$RUNNER_TEMP/produits.values.yaml"
           cat "$RUNNER_TEMP/produits.values.yaml"
 
       - name: Apply sealed secrets

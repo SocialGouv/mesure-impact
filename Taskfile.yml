@@ -24,11 +24,11 @@ tasks:
   produits:
     desc: Liste les produits découverts dans produits/
     silent: true
-    cmd: ./scripts/produits-values.sh
+    cmd: ./scripts/produits-values.sh $ENV
 
   produits:values:
     internal: true
-    cmd: ./scripts/produits-values.sh > {{.PRODUITS_VALUES}}
+    cmd: ./scripts/produits-values.sh $ENV > {{.PRODUITS_VALUES}}-$ENV
 
   lint:
     desc: Lint du chart Helm
@@ -36,7 +36,7 @@ tasks:
     cmd: >
       helm lint chart/
       --values envs/$ENV/values.yaml
-      --values {{.PRODUITS_VALUES}}
+      --values {{.PRODUITS_VALUES}}-$ENV
 
   template:
     desc: Rend le chart pour l'env (ENV=dev|prod)
@@ -45,7 +45,7 @@ tasks:
       helm template {{.NAME}} chart/
       --namespace {{.NAME}}-$ENV
       --values envs/$ENV/values.yaml
-      --values {{.PRODUITS_VALUES}}
+      --values {{.PRODUITS_VALUES}}-$ENV
 
   dry-run:
     desc: Rend le chart et le valide côté serveur
@@ -54,7 +54,7 @@ tasks:
       helm template {{.NAME}} chart/
       --namespace {{.NAME}}-$ENV
       --values envs/$ENV/values.yaml
-      --values {{.PRODUITS_VALUES}}
+      --values {{.PRODUITS_VALUES}}-$ENV
       | kubectl --context {{.CONTEXT}} apply --dry-run=server -f -
 
   deploy:
@@ -66,7 +66,7 @@ tasks:
         helm --kube-context {{.CONTEXT}} upgrade --install {{.NAME}} chart/
         --namespace {{.NAME}}-$ENV
         --values envs/$ENV/values.yaml
-        --values {{.PRODUITS_VALUES}}
+        --values {{.PRODUITS_VALUES}}-$ENV
         --atomic --timeout 5m
 
   secrets:apply:
@@ -140,10 +140,12 @@ tasks:
     cmd: |
       set -eu
       host=$(yq '.web.host' envs/$ENV/values.yaml)
-      printf '%-60s %s\n' "https://$host/" "$(curl -so /dev/null -w '%{http_code}' "https://$host/")"
+      printf '%-62s %s\n' "https://$host/" "$(curl -so /dev/null -w '%{http_code}' "https://$host/")"
+      # Les dashboards sont servis pour tous les produits, y compris ceux qui ne
+      # sont pas collectés dans cet env : c'est le front, pas la collecte.
       for m in $(find produits -mindepth 3 -maxdepth 3 -name produit.yaml); do
         d=$(dirname "$m"); chemin="$(basename "$(dirname "$d")")/$(basename "$d")"
-        printf '%-60s %s\n' "https://$host/$chemin/" \
+        printf '%-62s %s\n' "https://$host/$chemin/" \
           "$(curl -so /dev/null -w '%{http_code}' "https://$host/$chemin/")"
       done
 

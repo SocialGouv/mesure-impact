@@ -13,22 +13,36 @@ jobs:
 
       # Échoue si un produit.yaml est incomplet : mieux vaut casser la PR que
       # déployer un CronJob qui plantera au premier run sur une config absente.
-      - name: Inventaire des produits
-        run: |
-          ./scripts/produits-values.sh | tee "$RUNNER_TEMP/produits.values.yaml"
-
       - uses: azure/setup-helm@v4
-      - name: Lint et rendu du chart, pour chaque env
+      # Échoue si un produit.yaml est incomplet pour un env qu'il déclare cibler :
+      # mieux vaut casser la PR que déployer un CronJob qui plantera au premier run.
+      - name: Inventaire et rendu du chart, pour chaque env
         run: |
           set -eu
           for env in dev prod; do
+            echo "::group::$env"
+            ./scripts/produits-values.sh "$env" | tee "$RUNNER_TEMP/produits-$env.yaml"
             helm lint chart/ --values "envs/$env/values.yaml" \
-              --values "$RUNNER_TEMP/produits.values.yaml"
+              --values "$RUNNER_TEMP/produits-$env.yaml"
             helm template mesure-impact chart/ \
               --namespace "mesure-impact-$env" \
               --values "envs/$env/values.yaml" \
-              --values "$RUNNER_TEMP/produits.values.yaml" > /dev/null
+              --values "$RUNNER_TEMP/produits-$env.yaml" > /dev/null
+            echo "::endgroup::"
           done
+
+      # Un inventaire de dev passé à la prod doit être refusé par le chart.
+      - name: Le garde-fou d'inventaire refuse le mauvais env
+        run: |
+          set -eu
+          if helm template mesure-impact chart/ \
+               --namespace mesure-impact-prod \
+               --values envs/prod/values.yaml \
+               --values "$RUNNER_TEMP/produits-dev.yaml" >/dev/null 2>&1; then
+            echo "::error::le chart a accepté l'inventaire de dev pour la prod"
+            exit 1
+          fi
+          echo "refus confirmé"
 
       - uses: actions/setup-node@v4
         with:

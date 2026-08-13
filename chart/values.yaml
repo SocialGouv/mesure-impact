@@ -7,8 +7,9 @@ image:
   pullPolicy: IfNotPresent
 
 # Liste des produits, un CronJob chacun. Jamais écrite à la main : elle est générée
-# depuis les produits/<dept>/<nom>/produit.yaml par scripts/produits-values.sh et
-# passée en `-f`. Le rendu échoue si elle est vide, pour ne pas déployer un chart muet.
+# depuis les produits/<dept>/<nom>/produit.yaml par `scripts/produits-values.sh <env>`
+# et passée en `-f`. Le marqueur doit valoir l'env déployé, sinon le rendu échoue.
+produitsInventaire: ""
 produits: []
 
 cron:
@@ -19,6 +20,9 @@ cron:
   schedule: "0 6 * * *"
   timeZone: Europe/Paris
   concurrencyPolicy: Forbid
+  # Fenêtre de rattrapage d'un démarrage manqué. Borne aussi le compteur de
+  # démarrages ratés, qui gèlerait la planification au bout de 100.
+  startingDeadlineSeconds: 3600
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   backoffLimit: 2
@@ -54,6 +58,15 @@ web:
     fsGroup: 101
     seccompProfile:
       type: RuntimeDefault
+
+networkPolicy:
+  enabled: true
+
+alerts:
+  enabled: true
+  # Au-delà de ce délai sans collecte réussie, on considère la chaîne muette.
+  # Large devant la cadence quotidienne, pour ne pas alerter sur un retard normal.
+  silenceMaxSeconds: 172800 # 48 h
 
 # Appliqué au pod du CronJob.
 podSecurityContext:

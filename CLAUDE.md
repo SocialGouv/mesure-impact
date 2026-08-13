@@ -12,9 +12,9 @@ Le socle est **multitenant** : chaque `produits/<dept>/<nom>/` reçoit son CronJ
 SealedSecret et son URL de dashboard. Un seul produit est câblé à ce jour, **BASAVI**. Les
 CronJobs restent déployés avec `suspend: true` tant que les tokens ne sont pas scellés.
 
-Limite connue : `produit.yaml` ne décrit qu'un jeu `site_id`/`doc_id`, donc dev et prod
-collectent aujourd'hui la même source vers la même destination. À traiter avant d'ouvrir la
-prod — voir `doc/deploiement.md` → « Reste à faire ».
+`produit.yaml` déclare ses `envs` et un `site_id`/`doc_id` par env. BASAVI ne cible que `dev` :
+la prod ne reçoit donc aucun CronJob tant que son site Matomo et son doc Grist n'existent pas.
+C'est voulu — mieux vaut zéro collecte qu'une prod qui collecte la préprod.
 
 ## Cible de déploiement
 
