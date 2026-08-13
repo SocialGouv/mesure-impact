@@ -1,0 +1,6 @@
+apiVersion: v2
+name: mesure-impact
+description: CronJob de collecte Matomo → Grist et tableau de bord statique
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

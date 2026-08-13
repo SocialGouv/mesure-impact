@@ -1,0 +1,10 @@
+environment: prod
+
+web:
+  host: mesure-impact.ovh.fabrique.social.gouv.fr
+  replicas: 2
+
+cron:
+  # Repasser à false une fois envs/prod/sealed-secrets/tokens.sealedsecret.yaml en place.
+  suspend: true
+  schedule: "0 6 * * *"

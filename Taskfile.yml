@@ -1,0 +1,114 @@
+version: "3"
+
+vars:
+  NAME: mesure-impact
+  CONTEXT: ovh-dev
+  KUBESEAL_CERT: https://kubeseal.ovh.fabrique.social.gouv.fr/v1/cert.pem
+  RANCHER_PROJECT_ID: c-m-97jxtvnv:p-mrmrt
+
+env:
+  ENV: '{{.ENV | default "dev"}}'
+
+tasks:
+  default:
+    desc: Liste les commandes
+    silent: true
+    cmd: task --list
+
+  ns:
+    desc: Affiche le namespace de l'env courant (ENV=dev|prod)
+    silent: true
+    cmd: echo "{{.NAME}}-$ENV"
+
+  lint:
+    desc: Lint du chart Helm
+    cmd: helm lint chart/ --values envs/$ENV/values.yaml
+
+  template:
+    desc: Rend le chart pour l'env (ENV=dev|prod)
+    cmd: >
+      helm template {{.NAME}} chart/
+      --namespace {{.NAME}}-$ENV
+      --values envs/$ENV/values.yaml
+
+  dry-run:
+    desc: Rend le chart et le valide côté serveur
+    cmd: >
+      helm template {{.NAME}} chart/
+      --namespace {{.NAME}}-$ENV
+      --values envs/$ENV/values.yaml
+      | kubectl --context {{.CONTEXT}} apply --dry-run=server -f -
+
+  deploy:
+    desc: Déploie l'env depuis le poste (kubeconfig local)
+    cmds:
+      - |
+        kubectl --context {{.CONTEXT}} apply -n {{.NAME}}-$ENV \
+          -f envs/$ENV/sealed-secrets/ 2>/dev/null || true
+      - >
+        helm --kube-context {{.CONTEXT}} upgrade --install {{.NAME}} chart/
+        --namespace {{.NAME}}-$ENV
+        --values envs/$ENV/values.yaml
+        --atomic --timeout 5m
+
+  seal:
+    desc: >
+      Scelle les tokens Matomo/Grist pour l'env. Les valeurs viennent de
+      l'environnement — jamais de la ligne de commande, jamais d'un fichier en clair.
+      Requiert MATOMO_URL MATOMO_TOKEN_AUTH MATOMO_SITE_ID GRIST_URL GRIST_API_KEY GRIST_DOC_ID.
+    cmds:
+      - |
+        set -eu
+        for v in MATOMO_URL MATOMO_TOKEN_AUTH MATOMO_SITE_ID GRIST_URL GRIST_API_KEY GRIST_DOC_ID; do
+          eval "value=\${$v:-}"
+          [ -n "$value" ] || { echo "ERREUR: $v non défini dans l'environnement" >&2; exit 1; }
+        done
+        mkdir -p envs/$ENV/sealed-secrets
+        kubectl create secret generic {{.NAME}}-tokens \
+          --namespace {{.NAME}}-$ENV \
+          --from-literal=MATOMO_URL="$MATOMO_URL" \
+          --from-literal=MATOMO_TOKEN_AUTH="$MATOMO_TOKEN_AUTH" \
+          --from-literal=MATOMO_SITE_ID="$MATOMO_SITE_ID" \
+          --from-literal=GRIST_URL="$GRIST_URL" \
+          --from-literal=GRIST_API_KEY="$GRIST_API_KEY" \
+          --from-literal=GRIST_DOC_ID="$GRIST_DOC_ID" \
+          --dry-run=client -o yaml \
+        | kubeseal --cert {{.KUBESEAL_CERT}} -o yaml --scope cluster-wide \
+        > envs/$ENV/sealed-secrets/tokens.sealedsecret.yaml
+        echo "écrit: envs/$ENV/sealed-secrets/tokens.sealedsecret.yaml"
+
+  run:cron:
+    desc: Déclenche le CronJob à la main
+    cmds:
+      - >
+        kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV
+        create job {{.NAME}}-collect-manual-$(date +%s)
+        --from=cronjob/{{.NAME}}-collect
+      - >
+        kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV
+        wait --for=condition=complete --timeout=5m job -l app.kubernetes.io/component=collect || true
+
+  logs:
+    desc: Logs des pods de l'env
+    cmd: >
+      kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV
+      logs -l app.kubernetes.io/name={{.NAME}} --all-containers --tail=200 --prefix
+
+  status:
+    desc: État des ressources de l'env
+    cmd: kubectl --context {{.CONTEXT}} -n {{.NAME}}-$ENV get cronjob,deploy,pod,ing,sealedsecret
+
+  url:
+    desc: Vérifie que le site répond
+    silent: true
+    cmd: |
+      host=$(yq '.web.host' envs/$ENV/values.yaml)
+      echo "https://$host"
+      curl -sI "https://$host" | head -1
+
+  kubeconfig:regen:
+    desc: >
+      Regénère le kubeconfig du bot Rancher et le repousse en secret GitHub.
+      Requiert un token Rancher admin dans RANCHER_ADMIN_TOKEN et le mot de passe
+      du bot dans RANCHER_BOT_PASSWORD (ou reset préalable côté Rancher).
+    cmd: ./scripts/regen-kubeconfig.sh

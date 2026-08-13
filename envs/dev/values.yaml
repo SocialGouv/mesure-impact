@@ -1,0 +1,9 @@
+environment: dev
+
+web:
+  host: mesure-impact-dev.ovh.fabrique.social.gouv.fr
+
+cron:
+  # Repasser à false une fois envs/dev/sealed-secrets/tokens.sealedsecret.yaml en place.
+  suspend: true
+  schedule: "0 6 * * *"

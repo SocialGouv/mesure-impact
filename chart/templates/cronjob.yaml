@@ -1,0 +1,53 @@
+{{- if .Values.cron.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "mesure-impact.name" . }}-collect
+  labels:
+    {{- include "mesure-impact.labels" . | nindent 4 }}
+    app.kubernetes.io/component: collect
+spec:
+  schedule: {{ .Values.cron.schedule | quote }}
+  timeZone: {{ .Values.cron.timeZone | quote }}
+  suspend: {{ .Values.cron.suspend }}
+  concurrencyPolicy: {{ .Values.cron.concurrencyPolicy }}
+  successfulJobsHistoryLimit: {{ .Values.cron.successfulJobsHistoryLimit }}
+  failedJobsHistoryLimit: {{ .Values.cron.failedJobsHistoryLimit }}
+  jobTemplate:
+    spec:
+      backoffLimit: {{ .Values.cron.backoffLimit }}
+      activeDeadlineSeconds: {{ .Values.cron.activeDeadlineSeconds }}
+      template:
+        metadata:
+          labels:
+            {{- include "mesure-impact.labels" . | nindent 12 }}
+            app.kubernetes.io/component: collect
+        spec:
+          restartPolicy: OnFailure
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          containers:
+            - name: collect
+              image: {{ include "mesure-impact.image" (dict "root" . "component" "cron") }}
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              securityContext:
+                {{- toYaml .Values.containerSecurityContext | nindent 16 }}
+              envFrom:
+                - secretRef:
+                    name: {{ .Values.secretName }}
+              env:
+                - name: ENVIRONMENT
+                  value: {{ .Values.environment | quote }}
+                {{- range $k, $v := .Values.cron.env }}
+                - name: {{ $k }}
+                  value: {{ $v | quote }}
+                {{- end }}
+              resources:
+                {{- toYaml .Values.cron.resources | nindent 16 }}
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir: {}
+{{- end }}

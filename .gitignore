@@ -1,0 +1,6 @@
+.devbox/
+.direnv/
+kubeconfig
+*.kubeconfig
+chart/charts/
+chart/*.tgz

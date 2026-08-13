@@ -1,0 +1,69 @@
+# Valeurs par défaut — surchargées par envs/<env>/values.yaml et par --set image.tag depuis la CI.
+
+image:
+  registry: ghcr.io/socialgouv
+  # Tag commun aux deux images, positionné par la CI (sha-<gitsha>).
+  tag: edge
+  pullPolicy: IfNotPresent
+
+# Nom du Secret déscellé par sealed-secrets, monté en envFrom dans le CronJob.
+# Voir envs/<env>/sealed-secrets/.
+secretName: mesure-impact-tokens
+
+cron:
+  enabled: true
+  # Tant que les tokens Matomo/Grist ne sont pas scellés, le CronJob reste suspendu.
+  suspend: true
+  schedule: "0 6 * * *"
+  timeZone: Europe/Paris
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  backoffLimit: 2
+  # Coupe un job qui traîne (secondes).
+  activeDeadlineSeconds: 1800
+  env: {}
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+
+web:
+  enabled: true
+  replicas: 1
+  port: 8080
+  # host: défini par env
+  ingress:
+    className: nginx
+    tlsSecretName: wildcard-crt
+  resources:
+    requests:
+      cpu: 10m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  # nginx-unprivileged tourne sous l'uid 101 et écoute sur 8080.
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    fsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+
+# Appliqué au pod du CronJob.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
