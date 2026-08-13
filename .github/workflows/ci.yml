@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  checks:
+    name: Portes de qualité
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: azure/setup-helm@v4
+      - name: Lint du chart Helm
+        run: helm lint chart/ --values envs/dev/values.yaml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Syntaxe des collecteurs
+        run: |
+          set -eu
+          files="docker/cron/collect.mjs $(find produits -name 'etl.mjs')"
+          for f in $files; do
+            echo "node --check $f"
+            node --check "$f"
+          done

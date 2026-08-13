@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BASAVI : mise en relation femme / association (proto V4)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@gouvfr/dsfr@1.12.1/dist/dsfr.min.css">
+<!-- API widget Grist : window.grist quand embarqué dans un doc Grist (sinon absente → vide) -->
+<script src="https://grist.numerique.gouv.fr/grist-plugin-api.js"></script>
+<style>
+  :root{ --bf:#000091; --txt:#161616; --mut:#666; --line:#e5e5e5; --soft:#f5f5fe; --neutral:#555; --warn:#b34000;
+         --ok:#18753c; --ok-bg:#e3fbe3; --ko:#b34000; --ko-bg:#ffe9d9; --pend:#6a3d99; --pend-bg:#f3edfb; --pend-line:#d3c2ec; }
+  body{ margin:0; color:var(--txt); background:#fff; font-family:"Marianne",system-ui,sans-serif; }
+  .toolbar{ display:flex; gap:1rem; align-items:center; flex-wrap:wrap; padding:.7rem 1.1rem; background:var(--soft); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+  .toolbar .grp{ display:flex; align-items:center; gap:.4rem; }
+  .toolbar label{ font-size:.78rem; color:#444; font-weight:600; }
+  .toolbar select{ padding:.36rem .55rem; border-radius:4px; border:1px solid var(--bf); font-size:.84rem; background:#fff; color:var(--txt); font-weight:600; cursor:pointer; }
+  .toolbar input.dt{ padding:.3rem .45rem; border-radius:4px; border:1px solid var(--bf); font-size:.82rem; background:#fff; color:var(--txt); font-weight:600; font-family:inherit; }
+  .toolbar .sp{ flex:1; }
+  .toolbar .state{ font-size:.74rem; color:var(--mut); } .toolbar .state b{ color:var(--bf); }
+  .toolbar .src{ font-size:.74rem; color:var(--ok); font-weight:600; } .toolbar .src.sample{ color:var(--warn); }
+  .volbar{ display:flex; align-items:center; gap:.5rem; padding:.45rem 1.1rem; background:#fff; border-bottom:1px solid var(--line); font-size:.76rem; color:#3a3a3a; }
+  .volbar .dot{ width:.5rem; height:.5rem; border-radius:50%; background:var(--warn); flex-shrink:0; } .volbar b{ color:var(--txt); }
+  .seg{ display:inline-flex; border:1px solid var(--bf); border-radius:6px; overflow:hidden; }
+  .seg button{ border:0; background:#fff; color:var(--bf); padding:.3rem .7rem; font-size:.8rem; font-weight:600; cursor:pointer; }
+  .seg button.on{ background:var(--bf); color:#fff; }
+  .head2{ display:flex; align-items:flex-start; gap:1rem; flex-wrap:wrap; padding:1rem 1.1rem .2rem; }
+  .head2 h1{ font-size:1.25rem; margin:.1rem 0; color:var(--bf); }
+  .head2 .sub{ font-size:.84rem; color:var(--mut); max-width:720px; }
+  .wrap{ padding:0 1.1rem 3rem; }
+  .fr-tabs{ margin-top:.6rem; }
+  h2.sec{ font-size:1.02rem; color:var(--bf); margin:1.5rem 0 .6rem; border-bottom:2px solid var(--soft); padding-bottom:.3rem; }
+  h2.sec small{ font-weight:400; color:var(--mut); font-size:.8rem; }
+  .pilier{ display:grid; grid-template-columns:1fr 1fr; gap:1.1rem; align-items:start; }
+  @media(max-width:880px){ .pilier{ grid-template-columns:1fr; } }
+  .card{ border:1px solid var(--line); border-radius:8px; background:#fff; overflow:hidden; }
+  .card .ph{ display:flex; align-items:center; gap:.5rem; padding:.5rem .8rem; background:var(--soft); border-bottom:1px solid var(--line); }
+  .card .ph .role{ font-weight:700; font-size:.8rem; color:var(--bf); }
+  .card .pb{ display:grid; grid-template-columns:1.4fr 1fr; }
+  @media(max-width:520px){ .card .pb{ grid-template-columns:1fr; } }
+  .coeur{ padding:.85rem 1rem; }
+  .ctrl{ padding:.85rem 1rem; border-left:1px solid var(--line); background:#fcfcff; }
+  @media(max-width:520px){ .ctrl{ border-left:0; border-top:1px solid var(--line); } }
+  .kpi-lbl{ font-size:.72rem; color:var(--mut); text-transform:uppercase; letter-spacing:.02em; }
+  .kpi-cap{ font-size:.78rem; color:var(--mut); margin-bottom:.1rem; }
+  .kpi-cap.def{ border-bottom:1px dotted #b9b9c9; cursor:help; display:inline-block; }
+  .kpi-big{ font-size:2rem; font-weight:700; color:var(--bf); line-height:1.1; margin:.12rem 0; }
+  .kpi-big.ok{ color:var(--ok); } .kpi-big.ko{ color:var(--ko); }
+  .kpi-mid{ font-size:1.4rem; font-weight:700; color:var(--txt); line-height:1.1; margin:.1rem 0; }
+  .kpi-mid.ok{ color:var(--ok); } .kpi-mid.ko{ color:var(--ko); }
+  .kpi-note{ font-size:.76rem; color:var(--mut); }
+  .trend{ font-size:.78rem; font-weight:600; color:var(--neutral); display:inline-flex; align-items:center; gap:.25rem; }
+  .trend small{ font-weight:400; color:var(--mut); }
+  .rc{ display:inline-flex; align-items:center; gap:.3rem; font-size:.7rem; font-weight:700; padding:.12rem .45rem; border-radius:4px; margin-top:.28rem; }
+  .rc.ok{ background:var(--ok-bg); color:var(--ok); } .rc.ko{ background:var(--ko-bg); color:var(--ko); }
+  .chartcard{ border-top:1px solid var(--line); padding:.6rem .9rem .7rem; background:#fcfcff; }
+  .chartcard .ct{ font-size:.74rem; color:var(--mut); font-weight:600; margin-bottom:.25rem; }
+  svg.chart{ width:100%; height:auto; display:block; }
+  .phares{ display:grid; grid-template-columns:repeat(4,1fr); gap:.9rem; }
+  @media(max-width:880px){ .phares{ grid-template-columns:repeat(2,1fr);} }
+  @media(max-width:520px){ .phares{ grid-template-columns:1fr;} }
+  .phare{ border:1px solid var(--line); border-top:3px solid var(--bf); border-radius:6px; background:#fff; padding:.8rem .9rem; }
+  .phare.value1{ border-top-width:5px; box-shadow:0 0 0 1px var(--bf) inset; }
+  .phare.pending{ border-top-color:var(--pend); background:var(--pend-bg); }
+  .phare .pil{ font-size:.7rem; font-weight:700; color:var(--bf); text-transform:uppercase; letter-spacing:.03em; }
+  .phare .v{ font-size:1.6rem; font-weight:700; color:var(--bf); margin:.18rem 0 .04rem; }
+  .phare .v.ok{ color:var(--ok); } .phare .v.ko{ color:var(--ko); } .phare .v.pend{ color:var(--pend); font-size:1.15rem; }
+  .phare .cap{ font-size:.76rem; color:var(--mut); }
+  .phare .tag{ display:inline-block; font-size:.62rem; font-weight:700; color:#555; background:#ececf5; border:1px solid #dcdcf0; border-radius:4px; padding:.02rem .32rem; margin-top:.3rem; }
+  /* funnel */
+  .funnel{ display:flex; flex-direction:column; gap:.4rem; margin:.5rem 0 .3rem; }
+  .step{ display:flex; align-items:center; gap:.7rem; }
+  .step .nm{ width:180px; font-size:.83rem; font-weight:600; flex-shrink:0; }
+  .step .bw{ flex:1; background:#eee; border-radius:4px; overflow:hidden; height:24px; }
+  .step .bar{ height:100%; background:var(--bf); display:flex; align-items:center; justify-content:flex-end; padding-right:.5rem; color:#fff; font-size:.77rem; font-weight:700; white-space:nowrap; }
+  .conv{ font-size:.78rem; color:var(--mut); margin-left:180px; } .conv b{ color:var(--txt); }
+  .conv.big{ color:var(--warn); font-weight:600; }
+  /* barlist */
+  .bl{ display:flex; flex-direction:column; gap:.4rem; margin-top:.3rem; }
+  .bl-row{ display:grid; grid-template-columns:170px 1fr 44px; align-items:center; gap:.6rem; font-size:.82rem; }
+  .bl-tr{ background:#eee; border-radius:3px; height:14px; overflow:hidden; display:block; }
+  .bl-tf{ display:block; height:100%; background:var(--bf); border-radius:3px; }
+  .bl-v{ text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+  .explain{ font-size:.78rem; color:var(--mut); background:#f6f6f6; border-left:3px solid #ccc; padding:.5rem .7rem; border-radius:0 4px 4px 0; margin-top:.4rem; }
+  .defbox{ font-size:.72rem; color:var(--mut); background:#f6f6f6; border-left:3px solid #ccc; padding:.4rem .55rem; border-radius:0 4px 4px 0; margin-top:.45rem; }
+  .perim{ font-size:.72rem; color:var(--mut); margin-top:.4rem; } .perim b{ color:#444; }
+  .attente{ border:1px dashed var(--pend-line); border-radius:8px; background:var(--pend-bg); padding:.9rem 1rem; }
+  .attente .h{ font-weight:700; font-size:.85rem; color:var(--pend); } .attente .why{ font-size:.79rem; color:var(--mut); margin-top:.2rem; }
+  .src{ font-size:.72rem; color:#999; margin-top:.4rem; } .hint{ font-size:.74rem; color:var(--mut); }
+  .srcbadge{ display:inline-block; font-size:.64rem; font-weight:600; color:#555; background:#ececf5; border:1px solid #dcdcf0; border-radius:4px; padding:.03rem .35rem; vertical-align:middle; }
+  .segnote{ font-size:.74rem; color:var(--bf); background:var(--soft); border:1px solid #d9d9f5; border-radius:6px; padding:.35rem .6rem; margin:.2rem 0 .6rem; display:inline-block; }
+</style>
+</head>
+<body>
+
+<div class="head2">
+  <div>
+    <h1>BASAVI : mettre en relation les femmes avec une association</h1>
+    <div class="sub">Pilotage de l'impact de l'annuaire des structures d'aide aux femmes victimes de violences
+      (<b>annuaire.arretonslesviolences.gouv.fr</b>). Axe n°1 : la <b>mise en relation</b> — une session où une femme
+      clique au moins un contact (téléphone, email, site) ou copie l'adresse d'une association.</div>
+  </div>
+  <p class="fr-badge fr-badge--sm fr-badge--info" style="margin-left:auto" id="badge">source Grist</p>
+</div>
+
+<div class="toolbar">
+  <div class="grp"><label for="f-preset">Période</label>
+    <select id="f-preset" aria-label="Raccourci de période">
+      <option value="all" selected>Toute la période</option>
+      <option value="7">7 derniers jours</option>
+      <option value="30">30 derniers jours</option>
+      <option value="custom" hidden>Personnalisé</option>
+    </select>
+  </div>
+  <div class="grp"><label for="f-from">Du</label>
+    <input type="date" id="f-from" class="dt" aria-label="Date de début">
+    <label for="f-to">au</label>
+    <input type="date" id="f-to" class="dt" aria-label="Date de fin">
+  </div>
+  <div class="grp"><label>Segment</label>
+    <div class="seg" role="group" aria-label="Segment device">
+      <button data-seg="tous" class="on" onclick="setSeg('tous')">Tous</button>
+      <button data-seg="mobile" onclick="setSeg('mobile')">Mobile</button>
+      <button data-seg="desktop" onclick="setSeg('desktop')">Desktop</button>
+    </div>
+  </div>
+  <span class="sp"></span>
+  <span class="state">Comparaison <b id="prevlbl">vs 30 j préc.</b></span>
+  <span class="src" id="src">● source Grist</span>
+</div>
+<div class="volbar" id="volbar" hidden></div>
+
+<div class="wrap">
+  <div class="fr-tabs">
+    <ul class="fr-tabs__list" role="tablist" aria-label="Vues de pilotage">
+      <li role="presentation"><button id="t0" class="fr-tabs__tab" tabindex="0" role="tab" aria-selected="true" aria-controls="p0">Synthèse</button></li>
+      <li role="presentation"><button id="t1" class="fr-tabs__tab" tabindex="-1" role="tab" aria-selected="false" aria-controls="p1">Utilisable</button></li>
+      <li role="presentation"><button id="t2" class="fr-tabs__tab" tabindex="-1" role="tab" aria-selected="false" aria-controls="p2">Utilisé</button></li>
+      <li role="presentation"><button id="t3" class="fr-tabs__tab" tabindex="-1" role="tab" aria-selected="false" aria-controls="p3">Utile</button></li>
+      <li role="presentation"><button id="t4" class="fr-tabs__tab" tabindex="-1" role="tab" aria-selected="false" aria-controls="p4">Impactant</button></li>
+    </ul>
+    <div id="p0" class="fr-tabs__panel fr-tabs__panel--selected" role="tabpanel" aria-labelledby="t0" tabindex="0"></div>
+    <div id="p1" class="fr-tabs__panel" role="tabpanel" aria-labelledby="t1" tabindex="0"></div>
+    <div id="p2" class="fr-tabs__panel" role="tabpanel" aria-labelledby="t2" tabindex="0"></div>
+    <div id="p3" class="fr-tabs__panel" role="tabpanel" aria-labelledby="t3" tabindex="0"></div>
+    <div id="p4" class="fr-tabs__panel" role="tabpanel" aria-labelledby="t4" tabindex="0"></div>
+  </div>
+</div>
+
+<script type="module" src="https://cdn.jsdelivr.net/npm/@gouvfr/dsfr@1.12.1/dist/dsfr.module.min.js"></script>
+<script>
+/* ============ COUCHE DONNÉES (source : doc Grist BASAVI, tables Sessions/Events/Modes/Indicateurs) ============ */
+const GRAN_LBL = 'par jour';
+const SEG_LBL = { tous:'tous devices', mobile:'mobile', desktop:'desktop' };
+const FUNNEL_LBL = ['Arrivée annuaire','Recherche lancée','Résultats affichés','Clic contact (mise en relation)'];
+// libellés des filtres : clés = slugs réels émis par le tag (site 168)
+const FILTRE_LBL = {
+  'violences-conjugales':'Violence au sein du couple', 'violences-sexuelles':'Viol, agression sexuelle',
+  'mutilations-sexuelles':'Excision / mutilations', 'prostitution':'Prostitution',
+  'mariages-forces':'Mariage forcé', 'harcelement-sexuel':'Harcèlement, agression au travail',
+};
+const CANAL_LBL = { clic_telephone:'Téléphone', clic_email:'Email', copie_adresse:'Copie adresse', clic_site:'Site web' };
+// Cibles RC (abandon : cible réaliste — pour un annuaire, la mise en relation reste minoritaire)
+const RC = { lancement:{op:'>',t:70}, clicTel:{op:'>',t:15}, copieAdr:{op:'>',t:5}, abandon:{op:'<',t:85} };
+
+let fromD=null, toD=null, seg='tous';
+const fmt = n => Number(Math.round(n)).toLocaleString('fr-FR');
+
+// tables Grist brutes + structures dérivées (mêmes formes que l'ancien proto)
+let SESS=[], EVT=[], MOD=[], INDIC=[], META=null;
+let RATES={}, VOL={}, ERR={}, FUNNEL={}, MODES={}, FILTRES={}, CANAUX={};
+
+const setSrc = (cls, txt) => { const s=document.getElementById('src'); if(s){ s.className='src'+(cls?' '+cls:''); s.textContent=txt; } };
+const rowsFromColumnar = t => { const cols=Object.keys(t).filter(k=>k!=='manualSort'); const n=(t.id||t[cols[0]]||[]).length; const out=[]; for(let i=0;i<n;i++){const o={};for(const c of cols)o[c]=t[c][i];out.push(o);} return out; };
+
+async function loadData(){
+  const inGrist = window.self!==window.top && window.grist && grist.docApi;
+  if(inGrist){
+    try{
+      const [s,e,m,i] = await Promise.race([
+        Promise.all([grist.docApi.fetchTable('Sessions'),grist.docApi.fetchTable('Events'),grist.docApi.fetchTable('Modes'),grist.docApi.fetchTable('Indicateurs')]),
+        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),3000))
+      ]);
+      SESS=rowsFromColumnar(s); EVT=rowsFromColumnar(e); MOD=rowsFromColumnar(m); INDIC=rowsFromColumnar(i);
+      try{ META=rowsFromColumnar(await grist.docApi.fetchTable('Extractions')).slice(-1)[0]||null; }catch(_){ META=null; }
+      setSrc('','● source Grist (live)');
+    }catch(e2){ SESS=EVT=MOD=INDIC=[]; META=null; setSrc('sample','● autoriser « accès complet au document » pour le live'); }
+  } else { SESS=EVT=MOD=INDIC=[]; META=null; setSrc('sample','● hors Grist (aperçu vide)'); }
+  buildFixed();
+}
+
+/* --- agrégations jour → période --- */
+const allDays = () => [...new Set(INDIC.map(x=>x.day))].sort();
+// fenêtre courante = jours présents dans [fromD, toD] (bornes calendaires) ; période précédente = même nombre de jours juste avant
+const winDays = () => { const d=allDays(); return d.filter(x=> (!fromD||x>=fromD) && (!toD||x<=toD)); };
+const prevDays = () => { const all=allDays(), w=winDays(); if(!w.length) return []; const i0=all.indexOf(w[0]); return all.slice(Math.max(0,i0-w.length), i0); };
+const pick = (arr, days, dev) => arr.filter(x=>days.includes(x.day) && x.device===dev);
+const sum = (arr, f) => arr.reduce((a,b)=>a+(Number(f(b))||0),0);
+const rnd1 = x => Math.round(x*10)/10;
+
+// taux sur une fenêtre = 100 * somme(numérateur) / somme(visites)
+function rateWin(dev, days, field){ const S=pick(SESS,days,dev), v=sum(S,r=>r.visites); if(!v) return 0;
+  const num = field==='__abandon' ? (v - sum(S,r=>r.s_contact)) : sum(S,r=>r[field]); return rnd1(100*num/v); }
+function alvWin(dev, days){ const S=pick(SESS,days,dev), v=sum(S,r=>r.visites); return v? rnd1(sum(S,r=>r.part_alv_pct*r.visites)/v) : 0; }
+
+// RATES / VOL / ERR : par device × période (indépendant de la sélection courante)
+function buildFixed(){
+  RATES={lancement:{},clicTel:{},copieAdr:{},abandon:{},partAlv:{}}; VOL={}; ERR={};
+  const F={lancement:'s_recherche',clicTel:'s_tel',copieAdr:'s_copie'};
+  const w=winDays(), pw=prevDays(), hasPrev=pw.length>0;
+  for(const dev of ['tous','mobile','desktop']){
+    for(const k of ['lancement','clicTel','copieAdr']){ const v=rateWin(dev,w,F[k]); RATES[k][dev]={v,d:hasPrev?rnd1(v-rateWin(dev,pw,F[k])):null}; }
+    { const v=rateWin(dev,w,'__abandon'); RATES.abandon[dev]={v,d:hasPrev?rnd1(v-rateWin(dev,pw,'__abandon')):null}; }
+    { const v=alvWin(dev,w); RATES.partAlv[dev]={v,d:hasPrev?rnd1(v-alvWin(dev,pw)):null}; }
+    const vw=sum(pick(EVT,w,dev).filter(e=>e.category==='recherche'&&e.action==='lancer'),e=>e.count);
+    const vp=sum(pick(EVT,pw,dev).filter(e=>e.category==='recherche'&&e.action==='lancer'),e=>e.count);
+    VOL[dev]={v:vw, d: (hasPrev&&vp)? Math.round((vw-vp)/vp*100): null};
+    const c404=sum(pick(EVT,w,dev).filter(e=>e.category==='erreur'&&e.action==='404'),e=>e.count);
+    const c500=sum(pick(EVT,w,dev).filter(e=>e.category==='erreur'&&e.action==='500'),e=>e.count);
+    const cp=sum(pick(EVT,pw,dev).filter(e=>e.category==='erreur'),e=>e.count);
+    ERR[dev]={c404,c500,d: hasPrev? (c404+c500)-cp : null};
+  }
+}
+
+// FUNNEL / MODES / FILTRES / CANAUX : dépendants de la période courante (rebâtis à chaque render)
+function buildPeriod(){
+  const w=winDays();
+  FUNNEL={}; CANAUX={};
+  MODES={ saisie:{lbl:'Saisie manuelle',part:{},f:{}}, geoloc:{lbl:'Géolocalisation',part:{},f:{}}, ville:{lbl:'Lien ville / territoire',part:{},f:{}} };
+  for(const dev of ['tous','mobile','desktop']){
+    const S=pick(SESS,w,dev), vis=sum(S,r=>r.visites)||1;
+    FUNNEL[dev]=[100, Math.round(100*sum(S,r=>r.s_recherche)/vis), Math.round(100*sum(S,r=>r.s_resultats)/vis), Math.round(100*sum(S,r=>r.s_contact)/vis)];
+    for(const mode of ['saisie','geoloc','ville']){
+      const M=pick(MOD,w,dev).filter(r=>r.mode===mode), arr=sum(M,r=>r.s_arrivee);
+      MODES[mode].part[dev]=Math.round(100*arr/vis);
+      MODES[mode].f[dev]= arr? [100, Math.round(100*sum(M,r=>r.s_recherche)/arr), Math.round(100*sum(M,r=>r.s_resultats)/arr), Math.round(100*sum(M,r=>r.s_contact)/arr)] : [100,0,0,0];
+    }
+    const C=pick(EVT,w,dev).filter(e=>e.category==='contact'), totC=sum(C,e=>e.count)||1, byA={};
+    for(const e of C) byA[e.action]=(byA[e.action]||0)+e.count;
+    CANAUX[dev]=['clic_telephone','clic_email','copie_adresse','clic_site'].filter(a=>byA[a]).map(a=>({n:CANAL_LBL[a],p:Math.round(100*byA[a]/totC)}));
+  }
+  FILTRES={};
+  for(const dev of ['tous','mobile','desktop']){
+    const Fr=pick(EVT,w,dev).filter(e=>e.category==='recherche'&&e.action==='filtrer'), totF=sum(Fr,e=>e.count)||1, byN={};
+    for(const e of Fr) byN[e.name]=(byN[e.name]||0)+e.count;
+    FILTRES[dev]=Object.entries(byN).map(([n,c])=>({n:FILTRE_LBL[n]||n,p:Math.round(100*c/totF)})).sort((a,b)=>b.p-a.p);
+  }
+}
+
+// séries journalières réelles pour les graphes (device courant, fenêtre courante)
+const KEY_FIELD={lancement:'lancement_pct',clicTel:'clictel_pct',copieAdr:'copieadr_pct',abandon:'abandon_pct',partAlv:'partalv_pct'};
+const serie = field => winDays().map(day=>{ const x=INDIC.find(r=>r.day===day&&r.device===seg); return x? (Number(x[field])||0):0; });
+const serieRate = key => serie(KEY_FIELD[key]);
+const serieVol  = () => serie('recherches');
+const serieErr  = () => winDays().map(day=>{ const x=INDIC.find(r=>r.day===day&&r.device===seg); return x? ((x.err404||0)+(x.err500||0)):0; });
+
+const r   = (key,s)=> (RATES[key]&&RATES[key][s||seg]) || {v:0,d:null};
+const vol = (s)=> (VOL[s||seg]) || {v:0,d:null};
+const err = (s)=> (ERR[s||seg]) || {c404:0,c500:0,d:null};
+function delta(d, unit){ if(d===null||d===undefined) return ''; const ar=d>0?'▲':d<0?'▼':'▬'; return `<span class="trend">${ar} ${(d>0?'+':'')+d+(unit||'')} <small>vs période préc.</small></span>`; }
+function cap(text, def){ return def ? `<span class="kpi-cap def" title="${def}">${text}</span>` : `<div class="kpi-cap">${text}</div>`; }
+function srcBadge(txt){ return `<span class="srcbadge">source : ${txt}</span>`; }
+function rcStatus(key, v){ const c=RC[key], ok = c.op==='>'? v>c.t : v<c.t;
+  return { ok, cls: ok?'ok':'ko', cible:`Cible ${c.op} ${c.t} %`, label: ok?'atteinte':'non atteinte' }; }
+function rcPill(key, v){ const st=rcStatus(key,v); return `<div class="rc ${st.cls}">${st.ok?'✓':'⚠'} ${st.cible} · ${st.label}</div>`; }
+function barList(items, max){ const m=max||100; return `<div class="bl">`+items.map(i=>`<div class="bl-row"><span>${i.n}</span><span class="bl-tr"><span class="bl-tf" style="width:${Math.round(i.p/m*100)}%"></span></span><span class="bl-v">${i.p}%</span></div>`).join('')+`</div>`; }
+
+/* --- graphe d'évolution (SVG inline, pas de lib) — séries réelles depuis Grist --- */
+function xLabels(n){ return [...Array(n)].map((_,i)=>`J-${n-1-i}`); }
+function chart(series, mode, target){
+  const W=560,H=148, mL=42,mR=12,mT=12,mB=22, iw=W-mL-mR, ih=H-mT-mB;
+  let lo=Math.min(...series), hi=Math.max(...series); if(target!=null){ lo=Math.min(lo,target); hi=Math.max(hi,target); }
+  if(lo===hi){lo-=1;hi+=1;} const pd=(hi-lo)*0.12; lo-=pd; hi+=pd;
+  const X=i=> mL+(series.length>1? i*(iw/(series.length-1)) : iw/2);
+  const slot=iw/series.length, Xb=i=>mL+i*slot, Y=v=> mT+ih-((v-lo)/(hi-lo))*ih;
+  const ticks=[hi,(lo+hi)/2,lo], tf=v=>(hi-lo)<10?(Math.round(v*10)/10).toLocaleString('fr-FR'):fmt(v);
+  const grid=ticks.map(t=>`<line x1="${mL}" y1="${Y(t).toFixed(1)}" x2="${W-mR}" y2="${Y(t).toFixed(1)}" stroke="#ececec"/><text x="${mL-6}" y="${(Y(t)+3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="#9a9a9a">${tf(t)}</text>`).join('');
+  const lbls=xLabels(series.length), idxs=[...new Set([0,Math.floor((series.length-1)/3),Math.floor(2*(series.length-1)/3),series.length-1])];
+  const xax=idxs.map(i=>`<text x="${(mode==='bars'?Xb(i)+slot/2:X(i)).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="9.5" fill="#9a9a9a">${lbls[i]||''}</text>`).join('');
+  let tline='';
+  if(target!=null){ tline=`<line x1="${mL}" y1="${Y(target).toFixed(1)}" x2="${W-mR}" y2="${Y(target).toFixed(1)}" stroke="#8f8f8f" stroke-width="1" stroke-dasharray="4 3"/><text x="${W-mR}" y="${(Y(target)-3).toFixed(1)}" text-anchor="end" font-size="9" fill="#8f8f8f">cible ${target}%</text>`; }
+  let body='';
+  if(mode==='bars'){
+    const bw=slot*0.62;
+    body=series.map((v,i)=>`<rect x="${(Xb(i)+(slot-bw)/2).toFixed(1)}" y="${Y(v).toFixed(1)}" width="${bw.toFixed(1)}" height="${(mT+ih-Y(v)).toFixed(1)}" fill="#000091" opacity="0.82"/>`).join('');
+    const li=series.length-1; body+=`<text x="${(Xb(li)+slot/2).toFixed(1)}" y="${(Y(series[li])-4).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="#000091">${fmt(series[li])}</text>`;
+  } else {
+    body=`<polyline points="${series.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="#000091" stroke-width="2" stroke-linejoin="round"/>`;
+    body+=series.map((v,i)=>`<circle cx="${X(i).toFixed(1)}" cy="${Y(v).toFixed(1)}" r="${i===series.length-1?3.2:1.6}" fill="#000091"/>`).join('');
+    const li=series.length-1; body+=`<text x="${X(li).toFixed(1)}" y="${(Y(series[li])-7).toFixed(1)}" text-anchor="end" font-size="10.5" font-weight="700" fill="#000091">${fmt(series[li])}</text>`;
+  }
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="graphique d'évolution">${grid}${tline}${body}${xax}</svg>`;
+}
+function chartCard(title, svg){ return `<div class="chartcard"><div class="ct">${title}</div>${svg}</div>`; }
+function chartRate(key,label,target){ return chartCard(`Évolution : ${label} (%, ${GRAN_LBL})`, chart(serieRate(key),'line',target)); }
+function chartVol(label){ return chartCard(`Évolution : ${label} (${GRAN_LBL})`, chart(serieVol(),'bars')); }
+function chartErr(label){ return chartCard(`Évolution : ${label} (${GRAN_LBL})`, chart(serieErr(),'bars')); }
+
+/* --- funnel --- */
+function funnelBlock(steps, labels, opts){
+  opts=opts||{}; const max=steps[0], base=opts.base;
+  let maxDrop=0, maxIdx=-1; for(let i=0;i<steps.length-1;i++){ const d=steps[i]-steps[i+1]; if(d>maxDrop){ maxDrop=d; maxIdx=i; } }
+  const flag = maxDrop>=30 ? maxIdx : -1;
+  let html = base ? `<div class="hint" style="margin-bottom:.3rem">Base : <b>${fmt(base)}</b> sessions</div>` : '';
+  html += '<div class="funnel">';
+  steps.forEach((p,i)=>{
+    html += `<div class="step"><div class="nm">${labels[i]}</div><div class="bw"><div class="bar" style="width:${Math.round(p/max*100)}%">${p}%${base?` · ${fmt(Math.round(base*p/100))}`:''}</div></div></div>`;
+    if(i<steps.length-1){ const drop=steps[i]-steps[i+1], big=(i===flag);
+      html += `<div class="conv${big?' big':''}">↓ −${drop} pts ${big?'⚠ principal décrochage':''}</div>`; }
+  });
+  html += '</div>';
+  return html;
+}
+
+/* ============ RENDU ============ */
+const frDay = d => d.slice(8,10)+'/'+d.slice(5,7);
+function curLbl(){ const w=winDays(); if(!w.length) return 'période sélectionnée'; return w[0]===w[w.length-1] ? ('le '+frDay(w[0])) : ('du '+frDay(w[0])+' au '+frDay(w[w.length-1])); }
+function segNote(){ return seg==='tous' ? '' : `<div class="segnote">Segment actif : <b>${SEG_LBL[seg]}</b> — la lecture des canaux de contact varie fortement selon le device.</div>`; }
+
+function renderSynthese(){
+  const lan=r('lancement','tous'), tel=r('clicTel','tous'), alv=r('partAlv','tous');
+  const stL=rcStatus('lancement',lan.v), stT=rcStatus('clicTel',tel.v);
+  const phares = `<div class="phares">
+    <div class="phare"><div class="pil">Utilisable</div><div class="v ${stL.cls}">${lan.v} %</div><div class="cap">Sessions lançant une recherche</div>${rcPill('lancement',lan.v)}</div>
+    <div class="phare"><div class="pil">Utilisé</div><div class="v">${alv.v} %</div><div class="cap">Part des visites venant d'ALV</div><span class="tag">référent natif</span></div>
+    <div class="phare value1"><div class="pil">Utile · valeur n°1</div><div class="v ${stT.cls}">${tel.v} %</div><div class="cap"><b>Mise en relation</b> — sessions avec clic téléphone</div>${rcPill('clicTel',tel.v)}</div>
+    <div class="phare pending"><div class="pil">Impactant</div><div class="v pend">⏳ en attente</div><div class="cap">Taux de femmes accompagnées</div><span class="tag" style="color:var(--pend)">source hors Matomo à identifier</span></div>
+  </div>`;
+
+  const glob = FUNNEL.tous;
+  const base = sum(pick(SESS, winDays(), 'tous'), x=>x.visites);
+  const funnel = funnelBlock([glob[0],glob[2],glob[3]], ['Arrivée annuaire','Résultats affichés','Clic contact (mise en relation)'], {base});
+  const abandonV = 100-glob[3];
+
+  document.getElementById('p0').innerHTML = `
+    <h2 class="sec">Les 4 cœurs phares <small>: un par pilier</small></h2>${phares}
+    <h2 class="sec">Funnel global de mise en relation <small>: ${curLbl()}</small></h2>
+    ${funnel}
+    <div class="explain"><b>Miroir de la valeur :</b> ${abandonV}% des sessions repartent sans aucun clic contact. Le principal décrochage se lit entre l'affichage des résultats et le clic contact.</div>`;
+}
+
+function renderUtilisable(){
+  const lan=r('lancement'), e=err();
+  const coeur = `${cap('Taux de lancement de recherche','Part des sessions ayant lancé au moins une recherche après l’arrivée sur l’annuaire')} ${srcBadge('Matomo · event')}
+    <div class="kpi-big ${rcStatus('lancement',lan.v).cls}">${lan.v} %</div>${rcPill('lancement',lan.v)} ${delta(lan.d,' pts')}`;
+  const ctrl = `${cap('Pages d’erreur (404 / 500)','Nombre d’occurrences de pages 404 et 500 sur la période. Cible < 10 / mois.')} ${srcBadge('Matomo · event')}
+    <div style="display:flex;gap:1.4rem;margin:.2rem 0 .1rem"><div><div class="kpi-mid">${e.c404}</div><div class="kpi-note">erreurs 404</div></div><div><div class="kpi-mid">${e.c500}</div><div class="kpi-note">erreurs 500</div></div></div>${delta(e.d,'')}
+    <div class="defbox"><b>Source :</b> events <code>erreur/404</code> + <code>erreur/500</code> (déclenchés au rendu de la page d’erreur). Le <code>nom</code> porte l’URL fautive.</div>`;
+
+  // Mode d'entrée (3 modes)
+  const sess=vol().v, modes=['saisie','geoloc','ville'];
+  const modeRow=(lbl,pct)=>`<div class="step"><div class="nm">${lbl}</div><div class="bw"><div class="bar" style="width:${pct}%">${pct}% · ${fmt(Math.round(sess*pct/100))}</div></div></div>`;
+  const modeEntree = `<h2 class="sec">Mode d’entrée dans la recherche <small>: comment la recherche démarre · segment ${SEG_LBL[seg]}</small></h2>
+    <div class="card"><div class="ph"><span class="role">Répartition des entrées (3 modes)</span></div>
+      <div style="padding:.7rem .9rem"><div class="funnel">${modes.map(k=>modeRow(MODES[k].lbl, MODES[k].part[seg])).join('')}</div>
+      <div class="hint" style="margin-top:.35rem">Base : ${fmt(sess)} recherches lancées. Source : event <code>recherche/lancer</code> (nom = saisie | geoloc | ville).</div></div></div>`;
+
+  // Filtres type de violence
+  const fl=FILTRES[seg]||[];
+  const filtres = `<h2 class="sec">Filtres de type de violence appliqués <small>: besoins exprimés · segment ${SEG_LBL[seg]}</small></h2>
+    <div class="card"><div class="ph"><span class="role">Répartition des filtres</span></div>
+      <div style="padding:.7rem .9rem">${fl.length? barList(fl, Math.max(...fl.map(f=>f.p))) : '<p class="hint">Aucun filtre appliqué sur la période / le device sélectionné.</p>'}
+      <div class="hint" style="margin-top:.35rem">Source : event <code>recherche/filtrer</code>. Part des recherches où le filtre est appliqué.</div></div></div>`;
+
+  document.getElementById('p1').innerHTML = `<h2 class="sec">Utilisable <small>: la recherche démarre-t-elle sans friction ?</small></h2>${segNote()}
+    <div class="pilier">
+      <div class="card"><div class="ph"><span class="role">Cœur · lancement de recherche (RC)</span></div><div class="coeur">${coeur}</div>${chartRate('lancement','lancement de recherche',RC.lancement.t)}</div>
+      <div class="card"><div class="ph"><span class="role">Contrôle · pages d’erreur</span></div><div class="ctrl" style="border-left:0">${ctrl}</div>${chartErr('pages d’erreur (404+500)')}</div>
+    </div>
+    ${modeEntree}
+    ${filtres}
+    <p class="src">Source : Matomo site 168 — lancement / filtre / erreurs = events. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+}
+
+function renderUtilise(){
+  const alv=r('partAlv'), v=vol();
+  const coeur = `${cap('Part des visites venant d’ALV','Part des visites de l’annuaire dont la provenance est arretonslesviolences.gouv.fr. Mesuré via le référent, natif sur le site annuaire (168).')} ${srcBadge('Matomo · référent')}
+    <div class="kpi-big">${alv.v} %</div>${delta(alv.d,' pts')}
+    <div class="perim">ⓘ <b>Périmètre :</b> mesuré par le référent sur le site annuaire. Le <b>ratio cross-site</b> BASAVI/ALV nécessite le total d’ALV → <b>temps 2</b> (accès site ALV).</div>`;
+  const ctrl = `${cap('Volume de recherches lancées','Nombre de recherches lancées sur la période et son évolution')} ${srcBadge('Matomo · event')}
+    <div class="kpi-mid">${fmt(v.v)}</div>${delta(v.d,' %')}`;
+  document.getElementById('p2').innerHTML = `<h2 class="sec">Utilisé <small>: l’annuaire capte-t-il le trafic, et d’où viennent les gens ?</small></h2>${segNote()}
+    <div class="pilier">
+      <div class="card"><div class="ph"><span class="role">Cœur · provenance ALV</span></div><div class="coeur">${coeur}</div>${chartRate('partAlv','part venant d’ALV')}</div>
+      <div class="card"><div class="ph"><span class="role">Contrôle · volume de recherches</span></div><div class="ctrl" style="border-left:0">${ctrl}</div>${chartVol('recherches lancées')}</div>
+    </div>
+    <p class="src">Source : Matomo site 168 — provenance = référent ; volume = event. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+}
+
+function renderUtile(){
+  const tel=r('clicTel'), adr=r('copieAdr'), ab=r('abandon');
+  const coeur = `${cap('Taux de clic téléphone (mise en relation)','Part des sessions avec au moins un clic sur un contact téléphone d’association. Cœur de la valeur.')} ${srcBadge('Matomo · event')}
+    <div class="kpi-big ${rcStatus('clicTel',tel.v).cls}">${tel.v} %</div>${rcPill('clicTel',tel.v)} ${delta(tel.d,' pts')}`;
+  const ctrl = `${cap('Taux de copie d’adresse','Part des sessions ayant copié l’adresse d’une association (bouton « Copier l’adresse »)')} ${srcBadge('Matomo · event')}
+    <div class="kpi-mid ${rcStatus('copieAdr',adr.v).cls}">${adr.v} %</div>${rcPill('copieAdr',adr.v)} ${delta(adr.d,' pts')}
+    <hr style="border:0;border-top:1px solid var(--line);margin:.7rem 0">
+    ${cap('Taux d’abandon sans mise en relation','Miroir de la conversion : part des sessions repartant sans aucun clic contact. Cible < 20 %. Dérivé des sessions, non tagué.')} ${srcBadge('Matomo · dérivé')}
+    <div class="kpi-mid ${rcStatus('abandon',ab.v).cls}">${ab.v} %</div>${rcPill('abandon',ab.v)} ${delta(ab.d,' pts')}`;
+
+  // sous-funnels par mode d'entrée (3 modes, device courant), 4 étapes
+  const modeBlock = (k)=>{ const m=MODES[k], f=m.f[seg], part=m.part[seg];
+    return `<div class="card"><div class="ph"><span class="role">${m.lbl}</span><span class="hint" style="margin-left:auto">${part}% des entrées</span></div>
+      <div style="padding:.6rem .9rem">${funnelBlock(f, FUNNEL_LBL, {})}</div></div>`; };
+
+  // canaux de contact
+  const canaux = `<h2 class="sec">Canaux de contact utilisés <small>: répartition des mises en relation · ${SEG_LBL[seg]}</small></h2>
+    <div class="card"><div class="ph"><span class="role">Part de chaque canal</span></div>
+      <div style="padding:.7rem .9rem">${barList(CANAUX[seg], Math.max(...CANAUX[seg].map(c=>c.p)))}
+      <div class="hint" style="margin-top:.35rem">Source : events <code>contact/clic_telephone · clic_email · copie_adresse · clic_site</code>. Seuls téléphone (RC1) et copie adresse (RC2) portent une cible.</div></div></div>`;
+
+  const sTel=serieRate('clicTel'), sAdr=serieRate('copieAdr');
+  const dual = dualChart(sTel,sAdr,RC.clicTel.t);
+
+  document.getElementById('p3').innerHTML = `<h2 class="sec">Utile <small>: le produit met-il réellement en relation ?</small></h2>${segNote()}
+    <div class="pilier">
+      <div class="card"><div class="ph"><span class="role">Cœur · clic téléphone (RC)</span></div><div class="coeur">${coeur}</div>${chartRate('clicTel','clic téléphone',RC.clicTel.t)}</div>
+      <div class="card"><div class="ph"><span class="role">Contrôle · copie adresse (RC) + abandon (RC miroir)</span></div><div class="ctrl" style="border-left:0">${ctrl}</div></div>
+    </div>
+    ${canaux}
+    <h2 class="sec">Funnel de mise en relation par mode d’entrée <small>: 4 étapes · segment ${SEG_LBL[seg]}</small></h2>
+    <div class="pilier">${modeBlock('saisie')}${modeBlock('geoloc')}${modeBlock('ville')}</div>
+    <h2 class="sec">Évolution des taux de contact <small>: RC1 téléphone &amp; RC2 copie adresse (%, ${GRAN_LBL})</small></h2>
+    <div class="chartcard"><div class="ct">Ligne pleine : clic téléphone (RC1) · ligne pointillée : copie adresse (RC2) · repère : cible RC1 ${RC.clicTel.t}%</div>${dual}</div>
+    <p class="src">Source : Matomo site 168 — clics contact = events ; abandon = dérivé des sessions ; funnel = reconstruit (composant maison). Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+}
+
+function dualChart(s1,s2,target){
+  const W=560,H=160, mL=42,mR=12,mT=12,mB=22, iw=W-mL-mR, ih=H-mT-mB;
+  const all=[...s1,...s2,target]; let lo=Math.min(...all), hi=Math.max(...all); if(lo===hi){lo-=1;hi+=1;} const pd=(hi-lo)*0.12; lo-=pd; hi+=pd;
+  const X=i=> mL+i*(iw/(s1.length-1)), Y=v=> mT+ih-((v-lo)/(hi-lo))*ih;
+  const ticks=[hi,(lo+hi)/2,lo];
+  const grid=ticks.map(t=>`<line x1="${mL}" y1="${Y(t).toFixed(1)}" x2="${W-mR}" y2="${Y(t).toFixed(1)}" stroke="#ececec"/><text x="${mL-6}" y="${(Y(t)+3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="#9a9a9a">${(Math.round(t*10)/10).toLocaleString('fr-FR')}</text>`).join('');
+  const lbls=xLabels(s1.length), idxs=[...new Set([0,Math.floor((s1.length-1)/3),Math.floor(2*(s1.length-1)/3),s1.length-1])];
+  const xax=idxs.map(i=>`<text x="${X(i).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="9.5" fill="#9a9a9a">${lbls[i]||''}</text>`).join('');
+  const tline=`<line x1="${mL}" y1="${Y(target).toFixed(1)}" x2="${W-mR}" y2="${Y(target).toFixed(1)}" stroke="#8f8f8f" stroke-width="1" stroke-dasharray="4 3"/>`;
+  const p1=`<polyline points="${s1.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="#000091" stroke-width="2"/>`;
+  const p2=`<polyline points="${s2.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="#000091" stroke-width="1.6" stroke-dasharray="5 3" opacity="0.7"/>`;
+  const e1=`<text x="${X(s1.length-1).toFixed(1)}" y="${(Y(s1[s1.length-1])-7).toFixed(1)}" text-anchor="end" font-size="10.5" font-weight="700" fill="#000091">${fmt(s1[s1.length-1])}</text>`;
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="évolution taux de contact">${grid}${tline}${p1}${p2}${e1}${xax}</svg>`;
+}
+
+function renderImpactant(){
+  document.getElementById('p4').innerHTML = `<h2 class="sec">Impactant <small>: les femmes sont-elles réellement accompagnées ?</small></h2>
+    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier mesure l'<b>effet réel</b> de la mise en relation — au-delà du clic, l'accompagnement effectif par l'association. Il ne se mesure <b>pas dans Matomo</b> : la donnée est hors du périmètre de tagging.</div>
+    <div class="pilier" style="margin-top:.8rem">
+      <div class="card"><div class="ph"><span class="fr-badge fr-badge--sm" style="background:var(--pend-bg);color:var(--pend)">⏳ en attente</span><span class="role">Taux de femmes accompagnées</span></div>
+        <div style="padding:.9rem 1rem"><div class="attente"><div class="h">⏳ Source externe à identifier</div><div class="why">Part des femmes mises en relation qui bénéficient effectivement d'un accompagnement par une association. <b>Hors Matomo</b> : nécessite une source externe (remontée associations / dispositif dédié), à cadrer. Carte maintenue visible, sans valeur, jusqu'à identification de la source.</div></div></div></div>
+      <div class="card" style="background:#fcfcff"><div class="ph"><span class="role">Pourquoi hors Matomo ?</span></div>
+        <div style="padding:.9rem 1rem;font-size:.83rem;color:#444">Matomo s'arrête au <b>clic contact</b> (dernière action observable côté produit). Ce qui se passe ensuite — appel abouti, prise en charge, suivi — se joue <b>hors du site</b>, sans boucle de retour instrumentable. La mesure d'impact réel relève d'un dispositif partenaire à construire.</div></div>
+    </div>
+    <p class="src">Périmètre : indicateur ⏳ affiché avec sa raison, jamais masqué. Source Matomo non applicable.</p>`;
+}
+
+/* ============ ORCHESTRATION ============ */
+function renderBanner(){
+  const el=document.getElementById('volbar'), b=document.getElementById('badge');
+  if(b && META && META.source) b.textContent = META.source;
+  if(!el) return;
+  if(!META){ el.hidden=true; return; }
+  const d=(META.extracted_at||'').slice(0,10).split('-').reverse().join('/');
+  el.hidden=false;
+  el.innerHTML=`<span class="dot"></span><span><b>${META.source||'Données Grist'}</b>${META.days?' · '+META.days:''}${META.jours?' · '+META.jours+' jours':''}${d?' · extraction du '+d:''}</span>`;
+}
+function renderPiliers(){ renderUtilisable(); renderUtilise(); renderUtile(); }
+function renderAll(){ buildPeriod(); renderBanner(); const pl=document.getElementById('prevlbl'); if(pl) pl.textContent = prevDays().length? 'vs période précédente' : 'pas d’historique'; renderSynthese(); renderPiliers(); renderImpactant(); }
+function setSeg(s){ seg=s; document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on', b.dataset.seg===s)); renderPiliers(); }
+
+/* --- sélecteur de date (plage calendaire + raccourcis) --- */
+function syncDateInputs(){ const fi=document.getElementById('f-from'), ti=document.getElementById('f-to'); if(fi) fi.value=fromD||''; if(ti) ti.value=toD||''; }
+function initRange(){ const d=allDays(); fromD=d[0]||null; toD=d[d.length-1]||null;
+  for(const id of ['f-from','f-to']){ const el=document.getElementById(id); if(el){ el.min=d[0]||''; el.max=d[d.length-1]||''; } }
+  syncDateInputs(); const ps=document.getElementById('f-preset'); if(ps) ps.value='all'; buildFixed();
+}
+function applyPreset(v){ const d=allDays(); if(!d.length) return; toD=d[d.length-1]; fromD = v==='all' ? d[0] : d[Math.max(0,d.length-Number(v))]; syncDateInputs(); buildFixed(); renderAll(); }
+document.getElementById('f-preset').addEventListener('change', e=>applyPreset(e.target.value));
+document.getElementById('f-from').addEventListener('change', e=>{ fromD=e.target.value||null; document.getElementById('f-preset').value='custom'; buildFixed(); renderAll(); });
+document.getElementById('f-to').addEventListener('change', e=>{ toD=e.target.value||null; document.getElementById('f-preset').value='custom'; buildFixed(); renderAll(); });
+
+(async function init(){
+  if(window.grist){ try{ grist.ready(); }catch(e){} }
+  await loadData();
+  initRange();
+  renderAll();
+  if(window.grist && grist.onRecords) grist.onRecords(async()=>{ await loadData(); initRange(); renderAll(); });
+})();
+</script>
+</body>
+</html>

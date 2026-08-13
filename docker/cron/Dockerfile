@@ -1,10 +1,12 @@
-FROM alpine:3.21
+# Collecteur Matomo → Grist. Node 20 (fetch natif), aucune dépendance npm.
+FROM node:20-alpine
 
-RUN apk add --no-cache curl ca-certificates \
- && adduser -D -u 1000 collect
+RUN adduser -D -u 1000 collect
+WORKDIR /app
 
-COPY docker/cron/collect.sh /usr/local/bin/collect
-RUN chmod +x /usr/local/bin/collect
+# Le runner + les produits (chaque etl.mjs est du Node pur, sans install).
+COPY docker/cron/collect.mjs /app/collect.mjs
+COPY produits/ /app/produits/
 
 USER 1000
-ENTRYPOINT ["/usr/local/bin/collect"]
+ENTRYPOINT ["node", "/app/collect.mjs"]

@@ -4,3 +4,7 @@ kubeconfig
 *.kubeconfig
 chart/charts/
 chart/*.tgz
+
+# fichiers d'environnement locaux (dev) — jamais commités
+produits/**/.env
+.env

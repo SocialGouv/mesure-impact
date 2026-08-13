@@ -112,3 +112,17 @@ puis `kubectl apply` des sealed secrets et `helm upgrade --install --atomic`.
 L'org SocialGouv est en `actions.enabled_repositories = "selected"` : un repo neuf doit être
 inscrit explicitement (`PUT /orgs/SocialGouv/actions/permissions/repositories/<id>`). C'est
 fait pour celui-ci.
+
+## Documentation & conventions
+
+La doc du dépôt vit dans [doc/](doc/) : `produit.md` (fonctionnel), `architecture.md`
+(technique), `conventions.md` (contribution), `decisions/` (choix structurants). Deux règles :
+
+- **Au démarrage d'une issue ou d'une tâche** : lire `doc/` pour le contexte avant d'agir.
+- **Avant d'ouvrir une PR** : mettre à jour la page `doc/` concernée si le comportement, une
+  décision ou la structure change.
+
+Les tableaux de bord vivent dans `produits/<département>/<produit>/` (un dossier par produit,
+cf. [produits/README.md](produits/README.md)). Le collecteur du CronJob est
+`docker/cron/collect.mjs`, qui lance les ETL des produits (Node pur, contrat de variables
+commun décrit dans `doc/architecture.md`).
