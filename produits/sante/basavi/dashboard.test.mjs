@@ -1,0 +1,185 @@
+// Tests de non-régression du tableau de bord. Node pur, aucune dépendance :
+// le <script> de dashboard.html est extrait et exécuté dans un vm, avec un DOM
+// bouchonné dont on relit le innerHTML produit.
+//
+// Ce que ces tests verrouillent, et pourquoi : les deux modes d'échec de cette page
+// sont un CHIFFRE FAUX affiché comme vrai (le pire sur un tableau de bord de pilotage)
+// et une DONNÉE HOSTILE qui atteint innerHTML (l'endpoint de tracking Matomo est public).
+//
+// Lancer : task test  —  ou  node produits/sante/basavi/dashboard.test.mjs
+
+import fs from 'node:fs';
+import vm from 'node:vm';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ici = path.dirname(fileURLToPath(import.meta.url));
+const html = fs.readFileSync(path.join(ici, 'dashboard.html'), 'utf8');
+const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+if (!scripts.length) throw new Error('aucun <script> inline trouvé dans dashboard.html');
+const source = scripts.reduce((a, b) => (a.length > b.length ? a : b));
+
+// Passerelle vers les liaisons `let`/`const` du script, qui ne sont pas exposées
+// sur l'objet global d'un contexte vm.
+const PASSERELLE = `
+;this.__t = {
+  set SESS(v){SESS=v}, set EVT(v){EVT=v}, set MOD(v){MOD=v}, set INDIC(v){INDIC=v}, set META(v){META=v},
+  set seg(v){seg=v},
+  get RATES(){return RATES}, get FILTRES(){return FILTRES},
+  buildFixed, buildPeriod, renderAll, chart, dualChart, serieRate, barList
+};`;
+
+function executer(scenario) {
+  const els = {};
+  const noeud = (id) =>
+    els[id] ||
+    (els[id] = {
+      id, _h: '', className: '', style: {}, value: '', hidden: false,
+      set innerHTML(v) { this._h = v; }, get innerHTML() { return this._h; },
+      set textContent(v) { this._t = v; }, get textContent() { return this._t; },
+      addEventListener() {}, querySelectorAll: () => [],
+    });
+  const ctx = {
+    document: { getElementById: noeud, querySelectorAll: () => [], addEventListener() {} },
+    window: {}, console, setTimeout, clearTimeout,
+  };
+  ctx.window.self = ctx.window;
+  ctx.window.top = {}; // hors Grist : loadData n'est pas appelé, on injecte les tables à la main
+  ctx.globalThis = ctx;
+  vm.createContext(ctx);
+  vm.runInContext(source + PASSERELLE, ctx, { filename: 'dashboard.html' });
+  scenario(ctx.__t, els);
+  return { api: ctx.__t, els };
+}
+
+let echecs = 0;
+const verifier = (titre, condition) => {
+  console.log(`${condition ? '  ok  ' : 'ÉCHEC '}${titre}`);
+  if (!condition) echecs += 1;
+};
+
+const session = (day, device, visites, contacts) => ({
+  sess_id: `${day}|${device}`, day, device, visites,
+  s_recherche: visites, s_resultats: visites, s_contact: contacts,
+  s_tel: contacts, s_copie: 0, part_alv_pct: 0,
+});
+const indicateur = (day, device, champs = {}) => ({
+  ind_id: `${day}|${device}`, day, device, visites: 0,
+  lancement_pct: null, clictel_pct: null, copieadr_pct: null,
+  contact_pct: null, abandon_pct: null, partalv_pct: null,
+  recherches: 0, err404: 0, err500: 0, ...champs,
+});
+
+// --- Une fenêtre sans donnée ne doit produire aucun chiffre ---------------------
+// Le phare « Mise en relation » a déjà été dérivé de `100 - abandon`, avec un abandon
+// à 0 en l'absence de visite : la page annonçait alors 100 % de mise en relation.
+{
+  const { els } = executer((t) => {
+    t.SESS = []; t.EVT = []; t.MOD = []; t.INDIC = []; t.META = null;
+    t.buildFixed(); t.renderAll();
+  });
+  const phares = [...els.p0.innerHTML.matchAll(/<div class="v[^"]*">([^<]*)</g)].map((m) => m[1].trim());
+  verifier('fenêtre vide : aucun phare ne montre 100 %', !phares.includes('100 %'));
+  verifier('fenêtre vide : le phare « Mise en relation » vaut —', phares[2] === '—');
+  verifier('fenêtre vide : pas de phrase miroir', !els.p0.innerHTML.includes('Miroir de la valeur'));
+  verifier('fenêtre vide : aucun NaN ni ±∞ dans les 5 panneaux',
+    !['p0', 'p1', 'p2', 'p3', 'p4'].some((k) => /NaN|∞/.test(els[k].innerHTML)));
+}
+
+// --- Un jour creux est un trou dans la série, pas un zéro -----------------------
+{
+  const jours = ['2026-08-14', '2026-08-15', '2026-08-16', '2026-08-17'];
+  executer((t) => {
+    t.SESS = jours.map((j) => session(j, 'mobile', 100, 12));
+    t.EVT = []; t.MOD = []; t.META = null;
+    // Le 16 est dans la fenêtre (desktop a des visites) mais n'a aucune ligne mobile.
+    t.INDIC = jours.filter((j) => j !== '2026-08-16')
+      .map((j) => indicateur(j, 'mobile', { visites: 100, contact_pct: 12, abandon_pct: 88 }))
+      .concat([indicateur('2026-08-16', 'desktop', { visites: 5, contact_pct: 40, abandon_pct: 60 })]);
+    t.seg = 'mobile'; t.buildFixed(); t.buildPeriod();
+
+    const serie = t.serieRate('contact');
+    verifier('jour creux : la série porte null, pas 100', serie[2] === null);
+    verifier('jour creux : les jours pleins gardent leur valeur',
+      serie[0] === 12 && serie[1] === 12 && serie[3] === 12);
+    const svg = t.chart(serie, 'line');
+    const lignes = [...svg.matchAll(/<polyline points="([^"]*)"/g)].map((m) => m[1].trim().split(' '));
+    verifier('jour creux : aucune ligne n’enjambe le trou', lignes.every((g) => g.length <= 2));
+    verifier('jour creux : les 3 points réels restent tracés', (svg.match(/<circle/g) || []).length === 3);
+  });
+}
+
+// --- Une ligne présente dont le champ vaut None reste une absence ---------------
+// `Number(null)` vaut 0 : l'absence doit être testée AVANT la conversion.
+{
+  executer((t) => {
+    t.SESS = [session('2026-08-19', 'tous', 10, 2)];
+    t.EVT = []; t.MOD = []; t.META = null;
+    t.INDIC = [indicateur('2026-08-19', 'tous', { visites: 0, contact_pct: null })];
+    t.seg = 'tous'; t.buildFixed(); t.buildPeriod();
+    const serie = t.serieRate('contact');
+    verifier('champ None : la série porte null, pas 0', serie[0] === null);
+    verifier('champ None : le graphe affiche un message, pas un point à 0',
+      t.chart(serie, 'line').includes('Pas de donnée'));
+  });
+}
+
+// --- Les libellés venus de Matomo n'atteignent jamais innerHTML tels quels ------
+{
+  const jour = '2026-08-19';
+  const charge = '<img src=x onerror=alert(1)>';
+  const { api, els } = executer((t) => {
+    t.SESS = [session(jour, 'tous', 100, 12)];
+    t.EVT = [
+      { day: jour, device: 'tous', category: 'recherche', action: 'filtrer', name: charge, count: 5 },
+      { day: jour, device: 'tous', category: 'recherche', action: 'filtrer', name: 'toString', count: 3 },
+      { day: jour, device: 'tous', category: 'recherche', action: 'filtrer', name: 'violences-conjugales', count: 2 },
+    ];
+    t.MOD = [];
+    t.INDIC = [indicateur(jour, 'tous', { visites: 100, contact_pct: 12, abandon_pct: 88 })];
+    t.META = { source: charge, days: 'x', jours: 3, extracted_at: '2026-08-19' };
+    t.buildFixed(); t.renderAll();
+  });
+  const filtres = els.p2.innerHTML;
+  verifier('libellé hostile : échappé dans la liste des filtres',
+    filtres.includes('&lt;img') && !filtres.includes(charge));
+  verifier('libellé hostile : la bannière est échappée aussi', els.volbar.innerHTML.includes('&lt;img'));
+  verifier('clé héritée d’Object.prototype (« toString ») : pas de NaN', !filtres.includes('NaN'));
+  verifier('clé héritée : le compte reste un nombre',
+    api.FILTRES.tous.every((f) => Number.isFinite(f.p)));
+}
+
+// --- Contact et abandon sont deux faces du même chiffre -------------------------
+// Deux arrondis indépendants donnaient « 14,3 % » et « 86 % », soit 100,3.
+{
+  const jour = '2026-08-19';
+  const { api, els } = executer((t) => {
+    t.SESS = [session(jour, 'tous', 7, 1), session(jour, 'mobile', 5, 1), session(jour, 'desktop', 2, 0)];
+    t.EVT = ['tous', 'mobile', 'desktop'].map((d, i) =>
+      ({ day: jour, device: d, category: 'erreur', action: '404', name: '', count: [24, 21, 2][i] }));
+    t.MOD = [];
+    t.INDIC = ['tous', 'mobile', 'desktop'].map((d) => indicateur(jour, d, { visites: 7 }));
+    t.META = null; t.seg = 'desktop'; t.buildFixed(); t.renderAll();
+  });
+  const { v: contact } = api.RATES.contact.tous;
+  const { v: abandon } = api.RATES.abandon.tous;
+  verifier('contact + abandon = 100 exactement', contact + abandon === 100);
+  const phares = [...els.p0.innerHTML.matchAll(/<div class="v[^"]*">([^<]*)</g)].map((m) => m[1].trim());
+  verifier('synthèse : les 4 phares restent sur « tous devices »', phares[0] === '24');
+  const miroir = (els.p0.innerHTML.match(/Miroir de la valeur :<\/b> ([\d.]+)%/) || [])[1];
+  verifier('synthèse : la phrase miroir est cohérente avec le phare', Number(miroir) === abandon);
+}
+
+// --- Séries dégénérées : premier jour de collecte, ou rien du tout --------------
+{
+  executer((t) => {
+    verifier('un seul point : dualChart sans NaN', !/NaN/.test(t.dualChart([12], [3])));
+    verifier('un seul point : chart sans NaN', !/NaN/.test(t.chart([12], 'line')));
+    verifier('série vide : message explicite', t.chart([], 'line').includes('Pas de donnée'));
+    verifier('série tout-null : message explicite', t.chart([null, null], 'line').includes('Pas de donnée'));
+    verifier('liste vide : message explicite', t.barList([]).includes('Aucune donnée'));
+  });
+}
+
+console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
+process.exit(echecs ? 1 : 0);

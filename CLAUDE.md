@@ -9,8 +9,13 @@ par GitHub Actions.
 ## État
 
 Le socle est **multitenant** : chaque `produits/<dept>/<nom>/` reçoit son CronJob, son
-SealedSecret et son URL de dashboard. Un seul produit est câblé à ce jour, **BASAVI**. Les
-CronJobs restent déployés avec `suspend: true` tant que les tokens ne sont pas scellés.
+SealedSecret et son URL de dashboard. Un seul produit est câblé à ce jour, **BASAVI**, dont la
+collecte de préprod est **active depuis le 20/08/2026**.
+
+`cron.suspend` vaut pour **tout l'env**, pas par produit : ajouter un produit à `envs: [dev]`
+le déploie donc actif immédiatement. C'est pourquoi la CI refuse un produit de l'inventaire
+qui n'a pas son `secrets/<env>.sealedsecret.yaml`, et pourquoi le déploiement attend que le
+Secret soit réellement déscellé avant de se déclarer réussi.
 
 `produit.yaml` déclare ses `envs` et un `site_id`/`doc_id` par env. BASAVI ne cible que `dev` :
 la prod ne reçoit donc aucun CronJob tant que son site Matomo et son doc Grist n'existent pas.

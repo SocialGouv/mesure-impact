@@ -1,0 +1,95 @@
+# Tests unitaires des règles d'alerte, joués par `task test` via promtool sur le
+# rendu réel du chart (scripts/test-alerts.sh). `rule_files` est réécrit par le script.
+#
+# Ce qui se joue ici : une alerte trop bavarde au démarrage est aussi nuisible qu'une
+# alerte muette — au moment où l'alerting devient porteur, il crie déjà au loup.
+rule_files: [rules.yaml]
+evaluation_interval: 1m
+
+tests:
+  # Mise en service : un CronJob déployé suspendu de longue date puis activé ne doit
+  # PAS être déclaré muet avant d'avoir eu ses 48 h pour collecter. C'est le cas que
+  # produit toute PR qui passe `cron.suspend` à false.
+  - interval: 1m
+    input_series:
+      - series: 'kube_cronjob_info{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '1+0x600'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '1+0x10 0+0x589'
+    alert_rule_test:
+      - { eval_time: 40m,  alertname: MesureImpactCollecteMuette, exp_alerts: [] }
+      - { eval_time: 300m, alertname: MesureImpactCollecteMuette, exp_alerts: [] }
+      - { eval_time: 600m, alertname: MesureImpactCollecteMuette, exp_alerts: [] }
+
+  # Actif depuis plus de 48 h sans un seul succès : là, il faut que ça sonne.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_info{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '1+0x800'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x800'
+    alert_rule_test:
+      - eval_time: 2915m
+        alertname: MesureImpactCollecteMuette
+        exp_alerts:
+          - exp_labels:
+              alertname: MesureImpactCollecteMuette
+              cronjob: mesure-impact-sante-basavi-collect
+              environnement: dev
+              severity: warning
+            exp_annotations:
+              summary: "Collecte mesure-impact-sante-basavi-collect sans succès depuis trop longtemps"
+              description: "Aucune collecte réussie pour mesure-impact-sante-basavi-collect depuis plus de 48 h. Panne silencieuse probable : les données affichées vieillissent sans que rien ne casse."
+
+  # Suspendu délibérément : silence, aussi longtemps qu'il le reste.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_info{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '1+0x800'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '1+0x800'
+    alert_rule_test:
+      - { eval_time: 2915m, alertname: MesureImpactCollecteMuette, exp_alerts: [] }
+
+  # A déjà collecté, puis s'est tu depuis plus de 48 h : la première branche prend le relais.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_info{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '1+0x800'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x800'
+      - series: 'kube_cronjob_status_last_successful_time{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x800'
+    alert_rule_test:
+      - eval_time: 2915m
+        alertname: MesureImpactCollecteMuette
+        exp_alerts:
+          - exp_labels:
+              alertname: MesureImpactCollecteMuette
+              cronjob: mesure-impact-sante-basavi-collect
+              environnement: dev
+              severity: warning
+            exp_annotations:
+              summary: "Collecte mesure-impact-sante-basavi-collect sans succès depuis trop longtemps"
+              description: "Aucune collecte réussie pour mesure-impact-sante-basavi-collect depuis plus de 48 h. Panne silencieuse probable : les données affichées vieillissent sans que rien ne casse."
+
+  # Un Job en échec récent : l'autre règle, bornée à la fenêtre de 24 h.
+  - interval: 5m
+    input_series:
+      - series: 'kube_job_status_failed{namespace="mesure-impact-dev", job_name="mesure-impact-sante-basavi-collect-29000001"}'
+        values: '1+0x100'
+      - series: 'kube_job_created{namespace="mesure-impact-dev", job_name="mesure-impact-sante-basavi-collect-29000001"}'
+        values: '0+0x100'
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: MesureImpactCollecteEnEchec
+        exp_alerts:
+          - exp_labels:
+              alertname: MesureImpactCollecteEnEchec
+              namespace: mesure-impact-dev
+              job_name: mesure-impact-sante-basavi-collect-29000001
+              environnement: dev
+              severity: warning
+            exp_annotations:
+              summary: "Collecte mesure-impact-sante-basavi-collect-29000001 en échec"
+              description: "Le job mesure-impact-sante-basavi-collect-29000001 du namespace mesure-impact-dev a échoué. Le tableau de bord concerné n'est plus alimenté."

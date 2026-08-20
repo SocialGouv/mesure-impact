@@ -56,6 +56,9 @@ Trois points de vigilance :
 - **La clé du compte de service expire le 31/12/2027.** Passé cette date la collecte s'arrête.
 - Le compte de service est rattaché à un compte personnel. Le rattacher à une identité DNUM
   durable reste le point ouvert de la décision 0003.
-- Un ETL local (LaunchAgent, toutes les heures) écrit encore sur le même doc. Il sera coupé
-  dès la première collecte réussie de la fabrique. Le push étant idempotent, le recouvrement
-  est sans conséquence.
+- Un ETL local (LaunchAgent, toutes les heures) écrit encore sur le même doc. **À couper au
+  merge**, pas « dès la première collecte réussie » : les deux écrivent avec le même `run_id`
+  (`basavi`) et `Extractions` est clé sur ce seul champ. L'ETL local rafraîchit donc
+  `extracted_at` chaque heure, et le bandeau de fraîcheur du tableau de bord resterait vert
+  même si la collecte de la fabrique était morte — c'est précisément le signal que cette
+  table existe pour donner. Les données, elles, sont bien idempotentes.

@@ -116,11 +116,14 @@ const S = "Sessions.lookupOne(sess_id=$ind_id)";
 const INDIC_COLS = [
   { id: 'ind_id', type: 'Text' }, { id: 'day', type: 'Text' }, { id: 'date', type: 'Date' }, { id: 'device', type: 'Text' },
   { id: 'visites', type: 'Int', formula: `${S}.visites or 0` },
-  { id: 'lancement_pct', type: 'Numeric', formula: `round(100*(${S}.s_recherche or 0)/$visites,1) if $visites else 0` },
-  { id: 'clictel_pct', type: 'Numeric', formula: `round(100*(${S}.s_tel or 0)/$visites,1) if $visites else 0` },
-  { id: 'copieadr_pct', type: 'Numeric', formula: `round(100*(${S}.s_copie or 0)/$visites,1) if $visites else 0` },
-  { id: 'abandon_pct', type: 'Numeric', formula: `round(100*(1-(${S}.s_contact or 0)/$visites),1) if $visites else 0` },
-  { id: 'partalv_pct', type: 'Numeric', formula: `${S}.part_alv_pct or 0` },
+  // Sans visite, un taux vaut None et non 0 : un 0 se lit comme une mesure, et le
+  // tableau de bord en tire « 100 % de mise en relation » sur une période creuse.
+  { id: 'lancement_pct', type: 'Numeric', formula: `round(100*(${S}.s_recherche or 0)/$visites,1) if $visites else None` },
+  { id: 'clictel_pct', type: 'Numeric', formula: `round(100*(${S}.s_tel or 0)/$visites,1) if $visites else None` },
+  { id: 'copieadr_pct', type: 'Numeric', formula: `round(100*(${S}.s_copie or 0)/$visites,1) if $visites else None` },
+  { id: 'contact_pct', type: 'Numeric', formula: `round(100*(${S}.s_contact or 0)/$visites,1) if $visites else None` },
+  { id: 'abandon_pct', type: 'Numeric', formula: `round(100-$contact_pct,1) if $contact_pct is not None else None` },
+  { id: 'partalv_pct', type: 'Numeric', formula: `${S}.part_alv_pct if $visites else None` },
   { id: 'recherches', type: 'Int', formula: `sum(e.count for e in Events.lookupRecords(day=$day, device=$device, category='recherche', action='lancer'))` },
   { id: 'err404', type: 'Int', formula: `sum(e.count for e in Events.lookupRecords(day=$day, device=$device, category='erreur', action='404'))` },
   { id: 'err500', type: 'Int', formula: `sum(e.count for e in Events.lookupRecords(day=$day, device=$device, category='erreur', action='500'))` },
@@ -131,6 +134,14 @@ const EXTRACT_COLS = [
 ];
 
 // --- Helpers extraction ---
+// Les seuls `eventName` conservés tels quels, par `action/nom`. Tout le reste est
+// une entrée arbitraire venue du tracker public : elle tombe dans le seau `autre`.
+const MODES_ENTREE = new Set(['saisie', 'geoloc', 'ville']);
+const TYPES_FILTRE = new Set(['violences-conjugales', 'violences-sexuelles', 'mutilations-sexuelles', 'prostitution', 'mariages-forces', 'harcelement-sexuel']);
+const RECHERCHE_NAMES = new Set([
+  ...[...MODES_ENTREE].map((n) => `lancer/${n}`),
+  ...[...TYPES_FILTRE].map((n) => `filtrer/${n}`),
+]);
 const DEVICE = (t) => /bureau|desktop|ordinateur/i.test(t || '') ? 'desktop' : 'mobile'; // smartphone/phablette/tablette → mobile
 const dayTs = (d) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 1000;
 const isALV = (v) => /arretonslesviolences/i.test((v.referrerUrl || '') + (v.referrerName || ''));
@@ -169,9 +180,11 @@ function build(visits) {
       // agrégat Events (day|dev|cat|action|name). On ne garde le `nom` que là où il est BORNÉ :
       // recherche/lancer (3 modes) et recherche/filtrer (6 types). Pour contact (nom = id asso) et
       // erreur (nom = URL), on droppe le nom → cardinalité maîtrisée (cf. cadrage scaling Grist).
-      const evName = cat === 'recherche' ? name : '';
+      // L'endpoint de tracking Matomo est public : le nom est une entrée hostile, et seule
+      // l'appartenance à la liste ci-dessus le borne réellement. Hors liste → `autre`.
+      const evName = cat === 'recherche' ? (RECHERCHE_NAMES.has(`${act}/${name}`) ? name : (name ? 'autre' : '')) : '';
       const ek = `${day}|${dev}|${cat}|${act}|${evName}`; evAgg.set(ek, (evAgg.get(ek) || 0) + 1);
-      if (cat === 'recherche' && act === 'lancer') { searched = true; if (!entryMode && name) entryMode = name; reached = true; }
+      if (cat === 'recherche' && act === 'lancer') { searched = true; if (!entryMode && MODES_ENTREE.has(name)) entryMode = name; reached = true; }
       if (cat === 'recherche' && act === 'filtrer') reached = true;
       if (cat === 'contact') { contacted = true; if (act === 'clic_telephone') tel = true; if (act === 'copie_adresse') copie = true; }
     }

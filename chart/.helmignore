@@ -1,0 +1,2 @@
+# Les tests unitaires des règles ne partent pas dans le paquet publié.
+*.test.yaml
