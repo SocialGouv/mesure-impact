@@ -111,28 +111,40 @@ jobs:
         run: |
           set -euo pipefail
           for env in dev prod; do
-            fournis=$(find produits -path "*/secrets/$env.sealedsecret.yaml" -exec yq -r '.metadata.name' {} + | sort -u)
+            # `yq` sans -N insère un `---` entre documents : il entrerait dans les deux
+            # listes et `grep -qx ---` serait pris pour une option. Invisible à un produit,
+            # rouge sur toutes les PR dès le second.
+            fournis=$(find produits -path "*/secrets/$env.sealedsecret.yaml" -exec yq -r -N '.metadata.name' {} + | sort -u)
             attendus=$(helm template mesure-impact chart/ \
               --namespace "mesure-impact-$env" \
               --values "envs/$env/values.yaml" \
               --values "$RUNNER_TEMP/produits-$env.yaml" \
-              | yq -r 'select(.kind == "CronJob") | .spec.jobTemplate.spec.template.spec.containers[].envFrom[].secretRef.name' | sort -u)
+              | yq -r -N 'select(.kind == "CronJob") | .spec.jobTemplate.spec.template.spec.containers[].envFrom[].secretRef.name' | sort -u)
+            # Une liste vide n'affirme rien : exiger autant de références que de produits,
+            # sinon la porte devient muette le jour où le chart cesse d'exposer les tokens.
+            attendu_n=$(yq -r '[.produits[]] | length' "$RUNNER_TEMP/produits-$env.yaml")
+            obtenu_n=$(echo "$attendus" | grep -c . || true)
+            [ "$obtenu_n" -eq "$attendu_n" ] \
+              || { echo "::error::$env : $attendu_n produits dans l'inventaire mais $obtenu_n secretRef rendus"; exit 1; }
             for nom in $attendus; do
-              echo "$fournis" | grep -qx "$nom" \
+              echo "$fournis" | grep -qxF -- "$nom" \
                 || { echo "::error::$env : le chart référence le secret '$nom', qu'aucun fichier scellé ne fournit"; exit 1; }
               echo "$env : $nom fourni"
             done
           done
 
-      - name: Tests du tableau de bord
-        run: node produits/sante/basavi/dashboard.test.mjs
+      - name: Tests du tableau de bord et de l'ETL
+        run: |
+          set -eu
+          node produits/sante/basavi/dashboard.test.mjs
+          node produits/sante/basavi/etl.test.mjs
 
       # Version épinglée : une alerte qui ne peut pas se déclencher est aussi grave
       # qu'une alerte qui hurle, et ça ne se voit qu'en jouant les règles.
       - name: Installer promtool
         run: |
           set -euo pipefail
-          v=2.55.1
+          v=2.55.0
           curl -sSfL "https://github.com/prometheus/prometheus/releases/download/v$v/prometheus-$v.linux-amd64.tar.gz" \
             | tar xz -C "$RUNNER_TEMP" "prometheus-$v.linux-amd64/promtool"
           echo "$RUNNER_TEMP/prometheus-$v.linux-amd64" >> "$GITHUB_PATH"

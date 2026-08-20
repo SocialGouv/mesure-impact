@@ -48,10 +48,12 @@ spec:
         # seconde branche, qui repère les CronJobs connus et sans succès, en
         # excluant ceux qu'on a délibérément suspendus.
         #
-        # L'ancienneté se mesure sur la durée d'ACTIVITÉ, pas sur kube_cronjob_created :
-        # un CronJob déployé suspendu pendant des semaines puis activé serait sinon
-        # immédiatement « muet », et l'alerte partirait 30 min après la mise en service,
-        # des heures avant la première exécution possible.
+        # L'ancienneté demande DEUX conditions, pas une :
+        #  - l'objet existe depuis plus de la fenêtre (sinon un CronJob neuf est déclaré
+        #    muet 30 min après sa création, avant même sa première exécution) ;
+        #  - il n'a pas été suspendu sur toute la fenêtre (sinon un CronJob déployé
+        #    suspendu pendant des semaines puis activé est déclaré muet immédiatement).
+        # Chacune prise seule laisse passer l'un des deux faux positifs.
         - alert: MesureImpactCollecteMuette
           expr: |
             (
@@ -65,6 +67,10 @@ spec:
               max by (cronjob) (kube_cronjob_info{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
               unless on (cronjob) kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}"}
               unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
+              and on (cronjob) (
+                time() - max by (cronjob) (kube_cronjob_created{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
+                > {{ .Values.alerts.silenceMaxSeconds }}
+              )
               and on (cronjob) (
                 max by (cronjob) (
                   max_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ .Values.alerts.silenceMaxSeconds }}s])

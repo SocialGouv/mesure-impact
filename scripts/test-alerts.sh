@@ -15,12 +15,17 @@ trap 'rm -rf "$travail"' EXIT
 
 "$racine/scripts/produits-values.sh" "$env" > "$travail/produits.yaml"
 
-helm template mesure-impact "$racine/chart" \
-  --namespace "mesure-impact-$env" \
-  --values "$racine/envs/$env/values.yaml" \
-  --values "$travail/produits.yaml" \
-  --show-only templates/alerts.yaml \
-  | yq '{"groups": .spec.groups}' > "$travail/rules.yaml"
+# Un env sans produit collecté ne rend aucune PrometheusRule, et `--show-only`
+# échoue alors sur « could not find template ». Rien à jouer n'est pas un échec.
+if ! helm template mesure-impact "$racine/chart" \
+      --namespace "mesure-impact-$env" \
+      --values "$racine/envs/$env/values.yaml" \
+      --values "$travail/produits.yaml" \
+      --show-only templates/alerts.yaml > "$travail/rendu.yaml" 2>/dev/null; then
+  echo "aucune règle d'alerte rendue pour $env (aucun produit collecté) — rien à jouer"
+  exit 0
+fi
+yq '{"groups": .spec.groups}' "$travail/rendu.yaml" > "$travail/rules.yaml"
 
 cp "$racine/chart/alerts.test.yaml" "$travail/alerts.test.yaml"
 

@@ -162,7 +162,9 @@ const CANAL_LBL = { clic_telephone:'Téléphone', clic_email:'Email', copie_adre
 let fromD=null, toD=null, seg='tous';
 const fmt = n => Number(Math.round(n)).toLocaleString('fr-FR');
 // Un indicateur sans donnée se rend « — », jamais 0 : un zéro se lit comme une mesure.
-const pct = v => v==null ? '—' : `${v} %`;
+// Vaut pour les taux comme pour les compteurs — « 0 page d'erreur » se lit « produit sain ».
+const pct = v => v==null ? '—' : `${v.toLocaleString('fr-FR')} %`;
+const num = v => v==null ? '—' : fmt(v);
 
 // tables Grist brutes + structures dérivées (mêmes formes que l'ancien proto)
 let SESS=[], EVT=[], MOD=[], INDIC=[], META=null;
@@ -216,13 +218,16 @@ function buildFixed(){
     // arrondis indépendants donneraient deux chiffres qui ne totalisent pas 100.
     { const c=RATES.contact[dev]; RATES.abandon[dev]={v: c.v==null? null : rnd1(100-c.v), d: c.d==null? null : rnd1(-c.d)}; }
     { const v=alvWin(dev,w); RATES.partAlv[dev]={v,d:hasPrev?diff(v,alvWin(dev,pw)):null}; }
+    // Rien de collecté pour ce device sur la fenêtre : les compteurs sont absents,
+    // pas nuls. « 0 page d'erreur » sur une collecte muette se lit « produit sain ».
+    const mesure = pick(SESS,w,dev).length > 0;
     const vw=sum(pick(EVT,w,dev).filter(e=>e.category==='recherche'&&e.action==='lancer'),e=>e.count);
     const vp=sum(pick(EVT,pw,dev).filter(e=>e.category==='recherche'&&e.action==='lancer'),e=>e.count);
-    VOL[dev]={v:vw, d: (hasPrev&&vp)? Math.round((vw-vp)/vp*100): null};
+    VOL[dev]={v: mesure? vw : null, d: (hasPrev&&vp&&mesure)? Math.round((vw-vp)/vp*100): null};
     const c404=sum(pick(EVT,w,dev).filter(e=>e.category==='erreur'&&e.action==='404'),e=>e.count);
     const c500=sum(pick(EVT,w,dev).filter(e=>e.category==='erreur'&&e.action==='500'),e=>e.count);
     const cp=sum(pick(EVT,pw,dev).filter(e=>e.category==='erreur'),e=>e.count);
-    ERR[dev]={c404,c500,d: hasPrev? (c404+c500)-cp : null};
+    ERR[dev]= mesure? {c404,c500,d: hasPrev? (c404+c500)-cp : null} : {c404:null,c500:null,d:null};
   }
 }
 
@@ -268,18 +273,24 @@ const serieVol  = () => serie('recherches');
 const serieErr  = () => winDays().map(day=>{ const x=INDIC.find(r=>r.day===day&&r.device===seg); return x? ((x.err404||0)+(x.err500||0)):null; });
 
 const r   = (key,s)=> (RATES[key]&&RATES[key][s||seg]) || {v:null,d:null};
-const vol = (s)=> (VOL[s||seg]) || {v:0,d:null};
-const err = (s)=> (ERR[s||seg]) || {c404:0,c500:0,d:null};
+const vol = (s)=> (VOL[s||seg]) || {v:null,d:null};
+const err = (s)=> (ERR[s||seg]) || {c404:null,c500:null,d:null};
 function delta(d, unit){ if(d===null||d===undefined) return ''; const ar=d>0?'▲':d<0?'▼':'▬'; return `<span class="trend">${ar} ${(d>0?'+':'')+d+(unit||'')} <small>vs période préc.</small></span>`; }
 function cap(text, def){ return def ? `<span class="kpi-cap def" title="${def}">${text}</span>` : `<div class="kpi-cap">${text}</div>`; }
 function srcBadge(txt){ return `<span class="srcbadge">source : ${txt}</span>`; }
 // Les libellés viennent de Matomo, dont l'endpoint de tracking est public : ils sont
 // hostiles par défaut et ne doivent jamais atteindre innerHTML tels quels.
 function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+const BL_MAX=25;
 function barList(items){
   if(!items || !items.length) return '<p class="hint">Aucune donnée sur la période / le device sélectionné.</p>';
-  const m=Math.max(...items.map(i=>i.p), 1);
-  return `<div class="bl">`+items.map(i=>`<div class="bl-row"><span>${esc(i.n)}</span><span class="bl-tr"><span class="bl-tf" style="width:${Math.round(i.p/m*100)}%"></span></span><span class="bl-v">${i.p}%</span></div>`).join('')+`</div>`; }
+  // `Math.max(...tableau)` déborde la pile au-delà d'environ 1e5 entrées, et le nombre
+  // de libellés distincts vient du tracker : réduction plutôt que spread, liste plafonnée.
+  const reste = items.length - BL_MAX;
+  const suite = reste>0 ? `<p class="hint">+ ${fmt(reste)} autres libellés, non affichés.</p>` : '';
+  items = items.slice(0, BL_MAX);
+  const m=items.reduce((a,i)=>Math.max(a,i.p),1);
+  return `<div class="bl">`+items.map(i=>`<div class="bl-row"><span>${esc(i.n)}</span><span class="bl-tr"><span class="bl-tf" style="width:${Math.round(i.p/m*100)}%"></span></span><span class="bl-v">${i.p}%</span></div>`).join('')+`</div>`+suite; }
 
 /* --- graphe d'évolution (SVG inline, pas de lib) — séries réelles depuis Grist --- */
 function xLabels(n){ return [...Array(n)].map((_,i)=>`J-${n-1-i}`); }
@@ -320,14 +331,20 @@ function chartVol(label){ return chartCard(`Évolution : ${label} (${GRAN_LBL})`
 function chartErr(label){ return chartCard(`Évolution : ${label} (${GRAN_LBL})`, chart(serieErr(),'bars')); }
 
 /* --- funnel --- */
+// `opts.counts` porte les effectifs RÉELS de chaque étape. Les reconstruire depuis
+// le pourcentage arrondi affiche 173 là où il y a 177 sessions : le compte existe,
+// autant le dire. Sans `counts`, seul le pourcentage est rendu.
 function funnelBlock(steps, labels, opts){
-  opts=opts||{}; const max=steps[0], base=opts.base;
+  opts=opts||{}; const max=steps[0], base=opts.base, counts=opts.counts;
   let maxDrop=0, maxIdx=-1; for(let i=0;i<steps.length-1;i++){ const d=steps[i]-steps[i+1]; if(d>maxDrop){ maxDrop=d; maxIdx=i; } }
   const flag = maxDrop>=30 ? maxIdx : -1;
   let html = base ? `<div class="hint" style="margin-bottom:.3rem">Base : <b>${fmt(base)}</b> sessions</div>` : '';
   html += '<div class="funnel">';
   steps.forEach((p,i)=>{
-    html += `<div class="step"><div class="nm">${labels[i]}</div><div class="bw"><div class="bar" style="width:${Math.round(p/max*100)}%">${p}%${base?` · ${fmt(Math.round(base*p/100))}`:''}</div></div></div>`;
+    const eff = counts && counts[i]!=null ? ` · ${fmt(counts[i])}` : '';
+    // Largeur bornée : une étape supérieure à sa base produirait une barre débordante.
+    const largeur = max? Math.min(100, Math.max(0, Math.round(p/max*100))) : 0;
+    html += `<div class="step"><div class="nm">${labels[i]}</div><div class="bw"><div class="bar" style="width:${largeur}%">${p}%${eff}</div></div></div>`;
     if(i<steps.length-1){ const drop=steps[i]-steps[i+1], big=(i===flag);
       html += `<div class="conv${big?' big':''}">↓ −${drop} pts ${big?'⚠ principal décrochage':''}</div>`; }
   });
@@ -345,16 +362,18 @@ function renderSynthese(){
   // y compris les erreurs — sinon un phare suit le segment courant et les autres non.
   const lan=r('lancement','tous'), con=r('contact','tous'), ab=r('abandon','tous'), e=err('tous');
   const phares = `<div class="phares">
-    <div class="phare"><div class="pil">Utilisable</div><div class="v">${fmt(e.c404 + e.c500)}</div><div class="cap">Pages d'erreur (404 + 500)</div><span class="tag">fiabilité technique</span></div>
+    <div class="phare"><div class="pil">Utilisable</div><div class="v">${num(e.c404==null ? null : e.c404 + e.c500)}</div><div class="cap">Pages d'erreur (404 + 500)</div><span class="tag">fiabilité technique</span></div>
     <div class="phare"><div class="pil">Utilisé</div><div class="v">${pct(lan.v)}</div><div class="cap">Sessions lançant une recherche</div></div>
     <div class="phare value1"><div class="pil">Utile · phare</div><div class="v">${pct(con.v)}</div><div class="cap"><b>Mise en relation</b> — sessions avec interaction asso (tél, mail, site, adresse)</div></div>
     <div class="phare pending"><div class="pil">Impactant</div><div class="v pend">⏳ en attente</div><div class="cap">Taux de femmes accompagnées par au moins 1 structure suite à l'utilisation de l'annuaire</div><span class="tag" style="color:var(--pend)">source hors Matomo à identifier</span></div>
   </div>`;
 
   const glob = FUNNEL.tous;
-  const base = sum(pick(SESS, winDays(), 'tous'), x=>x.visites);
+  const S = pick(SESS, winDays(), 'tous');
+  const base = sum(S, x=>x.visites);
   const funnel = glob
-    ? funnelBlock([glob[0],glob[2],glob[3]], ['Arrivée annuaire','Résultats affichés','Clic contact (mise en relation)'], {base})
+    ? funnelBlock([glob[0],glob[2],glob[3]], ['Arrivée annuaire','Résultats affichés','Clic contact (mise en relation)'],
+        {base, counts:[base, sum(S,x=>x.s_resultats), sum(S,x=>x.s_contact)]})
     : noData;
   const miroir = ab.v==null ? ''
     : `<div class="explain"><b>Miroir de la valeur :</b> ${ab.v}% des sessions repartent sans aucun clic contact. Le principal décrochage se lit entre l'affichage des résultats et le clic contact.</div>`;
@@ -369,20 +388,20 @@ function renderSynthese(){
 function renderUtilisable(){
   const e=err();
   const errCard = `${cap('Pages d’erreur (404 / 500)','Nombre d’occurrences de pages 404 et 500 sur la période.')} ${srcBadge('Matomo · event')}
-    <div style="display:flex;gap:1.4rem;margin:.2rem 0 .1rem"><div><div class="kpi-mid">${e.c404}</div><div class="kpi-note">erreurs 404</div></div><div><div class="kpi-mid">${e.c500}</div><div class="kpi-note">erreurs 500</div></div></div>${delta(e.d,'')}
+    <div style="display:flex;gap:1.4rem;margin:.2rem 0 .1rem"><div><div class="kpi-mid">${num(e.c404)}</div><div class="kpi-note">erreurs 404</div></div><div><div class="kpi-mid">${num(e.c500)}</div><div class="kpi-note">erreurs 500</div></div></div>${delta(e.d,'')}
     <div class="defbox"><b>Source :</b> events <code>erreur/404</code> + <code>erreur/500</code> (déclenchés au rendu de la page d’erreur). Le <code>nom</code> porte l’URL fautive.</div>`;
 
   // Mode d'entrée (3 modes). `part` est un pourcentage de VISITES : l'effectif se
   // reconstruit sur les visites, pas sur le nombre de recherches lancées (plusieurs
   // par session), sinon la ligne affiche un effectif supérieur à sa propre base.
-  const visites = sum(pick(SESS, winDays(), seg), x=>x.visites), modes=['saisie','geoloc','ville'];
+  const S = pick(SESS, winDays(), seg), visites = sum(S, x=>x.visites), modes=['saisie','geoloc','ville'];
   const modeRow=(lbl,part)=> part==null
     ? `<div class="step"><div class="nm">${lbl}</div><div class="bw"><div class="bar" style="width:0%">—</div></div></div>`
     : `<div class="step"><div class="nm">${lbl}</div><div class="bw"><div class="bar" style="width:${part}%">${part}% · ${fmt(Math.round(visites*part/100))}</div></div></div>`;
   const modeEntree = `<h2 class="sec">Mode d’entrée dans la recherche <small>: comment la recherche démarre · segment ${SEG_LBL[seg]}</small></h2>
     <div class="card"><div class="ph"><span class="role">Répartition des entrées (3 modes)</span></div>
       <div style="padding:.7rem .9rem"><div class="funnel">${modes.map(k=>modeRow(MODES[k].lbl, MODES[k].part[seg])).join('')}</div>
-      <div class="hint" style="margin-top:.35rem">Base : ${fmt(visites)} sessions. Source : event <code>recherche/lancer</code> (nom = saisie | geoloc | ville).</div></div></div>`;
+      <div class="hint" style="margin-top:.35rem">Base : ${S.length? fmt(visites) : '—'} sessions. Source : event <code>recherche/lancer</code> (nom = saisie | geoloc | ville).</div></div></div>`;
 
   document.getElementById('p1').innerHTML = `<h2 class="sec">Utilisable <small>: entrée dans la recherche et fiabilité technique</small></h2>
     <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier vérifie que l'annuaire est <b>utilisable</b> : par quel mode d'entrée la recherche démarre, et ce que le produit renvoie comme pages d'erreur.</div>${segNote()}
@@ -402,7 +421,7 @@ function renderUtilise(){
     <div class="kpi-mid">${pct(alv.v)}</div>${delta(alv.d,' pts')}
     <div class="perim">ⓘ <b>Statut :</b> indicateur en <b>stand-by</b> (arbitrage Ali, 20/08). <b>Cible</b> : part des visiteurs d’ALV qui accèdent à l’annuaire, pour objectiver le repositionnement de l’annuaire sur ALV. Nécessite le total ALV via l’<b>API Eulerian</b> (faisabilité à vérifier avec Grégoire, chef de projet ALV). Le calcul intermédiaire sur volume ALV figé est écarté : la vraie mesure est attendue avant la fin septembre.</div>`;
   const volCard = `${cap('Volume de recherches lancées','Nombre de recherches lancées sur la période et son évolution')} ${srcBadge('Matomo · event')}
-    <div class="kpi-mid">${fmt(v.v)}</div>${delta(v.d,' %')}`;
+    <div class="kpi-mid">${num(v.v)}</div>${delta(v.d,' %')}`;
 
   // Filtres type de violence
   const fl=FILTRES[seg]||[];
@@ -506,7 +525,15 @@ function renderBanner(){
   el.innerHTML=`<span class="dot"></span><span><b>${esc(META.source||'Données Grist')}</b>${META.days?' · '+esc(META.days):''}${META.jours?' · '+esc(META.jours)+' jours':''}${d?' · extraction du '+esc(d):''}</span>`;
 }
 function renderPiliers(){ renderUtilisable(); renderUtilise(); renderUtile(); }
-function renderAll(){ buildPeriod(); renderBanner(); const pl=document.getElementById('prevlbl'); if(pl) pl.textContent = prevDays().length? 'vs période précédente' : 'pas d’historique'; renderSynthese(); renderPiliers(); renderImpactant(); }
+function renderAll(){ try{ renderTout(); }catch(e){ rendreEchec(e); } }
+// Les panneaux sont écrits l'un après l'autre : sans ce filet, une exception au 2e
+// laisse les suivants vides et la page ressemble à un tableau de bord valide.
+function rendreEchec(e){
+  console.error(e);
+  const msg = `<div class="explain" style="border-left-color:var(--ko);color:var(--ko)"><b>Le tableau de bord n'a pas pu être rendu.</b> ${esc(e && e.message || e)}</div>`;
+  for(const id of ['p0','p1','p2','p3','p4']){ const el=document.getElementById(id); if(el) el.innerHTML = msg; }
+}
+function renderTout(){ buildPeriod(); renderBanner(); const pl=document.getElementById('prevlbl'); if(pl) pl.textContent = prevDays().length? 'vs période précédente' : 'pas d’historique'; renderSynthese(); renderPiliers(); renderImpactant(); }
 function setSeg(s){ seg=s; document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on', b.dataset.seg===s)); renderPiliers(); }
 
 /* --- sélecteur de date (plage calendaire + raccourcis) --- */

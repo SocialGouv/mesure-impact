@@ -31,9 +31,10 @@ tasks:
     cmd: ./scripts/produits-values.sh $ENV > {{.PRODUITS_VALUES}}-$ENV
 
   test:
-    desc: Tests — tableau de bord (Node) et règles d'alerte (promtool)
+    desc: Tests — tableau de bord, ETL (Node) et règles d’alerte (promtool)
     cmds:
       - node produits/sante/basavi/dashboard.test.mjs
+      - node produits/sante/basavi/etl.test.mjs
       - ./scripts/test-alerts.sh $ENV
 
   lint:

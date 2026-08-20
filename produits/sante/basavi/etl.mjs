@@ -134,14 +134,20 @@ const EXTRACT_COLS = [
 ];
 
 // --- Helpers extraction ---
-// Les seuls `eventName` conservés tels quels, par `action/nom`. Tout le reste est
-// une entrée arbitraire venue du tracker public : elle tombe dans le seau `autre`.
+// Le tracker Matomo est public : catégorie, action et nom sont trois entrées
+// arbitraires. Les trois sont bornées, pas seulement le nom — sinon la cardinalité
+// des lignes Events reste illimitée, et surtout un `|` dans l'action décale le
+// `split('|')` de la clé d'agrégat et réinjecte du texte choisi dans la colonne
+// `name`, par-dessus l'allowlist. Aucune valeur retenue ne contient de `|`.
+const CATEGORIES = new Set(['recherche', 'contact', 'erreur']);
+const ACTIONS = new Set(['lancer', 'filtrer', 'clic_telephone', 'clic_email', 'copie_adresse', 'clic_site', '404', '500']);
 const MODES_ENTREE = new Set(['saisie', 'geoloc', 'ville']);
 const TYPES_FILTRE = new Set(['violences-conjugales', 'violences-sexuelles', 'mutilations-sexuelles', 'prostitution', 'mariages-forces', 'harcelement-sexuel']);
 const RECHERCHE_NAMES = new Set([
   ...[...MODES_ENTREE].map((n) => `lancer/${n}`),
   ...[...TYPES_FILTRE].map((n) => `filtrer/${n}`),
 ]);
+const borner = (valeur, liste) => (liste.has(valeur) ? valeur : 'autre');
 const DEVICE = (t) => /bureau|desktop|ordinateur/i.test(t || '') ? 'desktop' : 'mobile'; // smartphone/phablette/tablette → mobile
 const dayTs = (d) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 1000;
 const isALV = (v) => /arretonslesviolences/i.test((v.referrerUrl || '') + (v.referrerName || ''));
@@ -176,12 +182,11 @@ function build(visits) {
     for (const a of acts) {
       if (a.type === 'action' && /\/search/.test(a.url || '')) reached = true;
       if (a.type !== 'event') continue;
-      const cat = a.eventCategory || '', act = a.eventAction || '', name = a.eventName || '';
+      const cat = borner(a.eventCategory || '', CATEGORIES), act = borner(a.eventAction || '', ACTIONS);
+      const name = a.eventName || '';
       // agrégat Events (day|dev|cat|action|name). On ne garde le `nom` que là où il est BORNÉ :
       // recherche/lancer (3 modes) et recherche/filtrer (6 types). Pour contact (nom = id asso) et
       // erreur (nom = URL), on droppe le nom → cardinalité maîtrisée (cf. cadrage scaling Grist).
-      // L'endpoint de tracking Matomo est public : le nom est une entrée hostile, et seule
-      // l'appartenance à la liste ci-dessus le borne réellement. Hors liste → `autre`.
       const evName = cat === 'recherche' ? (RECHERCHE_NAMES.has(`${act}/${name}`) ? name : (name ? 'autre' : '')) : '';
       const ek = `${day}|${dev}|${cat}|${act}|${evName}`; evAgg.set(ek, (evAgg.get(ek) || 0) + 1);
       if (cat === 'recherche' && act === 'lancer') { searched = true; if (!entryMode && MODES_ENTREE.has(name)) entryMode = name; reached = true; }

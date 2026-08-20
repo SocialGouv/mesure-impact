@@ -24,7 +24,7 @@ const source = scripts.reduce((a, b) => (a.length > b.length ? a : b));
 const PASSERELLE = `
 ;this.__t = {
   set SESS(v){SESS=v}, set EVT(v){EVT=v}, set MOD(v){MOD=v}, set INDIC(v){INDIC=v}, set META(v){META=v},
-  set seg(v){seg=v},
+  set seg(v){seg=v}, set fromD(v){fromD=v}, set toD(v){toD=v},
   get RATES(){return RATES}, get FILTRES(){return FILTRES},
   buildFixed, buildPeriod, renderAll, chart, dualChart, serieRate, barList
 };`;
@@ -84,6 +84,21 @@ const indicateur = (day, device, champs = {}) => ({
   verifier('fenêtre vide : pas de phrase miroir', !els.p0.innerHTML.includes('Miroir de la valeur'));
   verifier('fenêtre vide : aucun NaN ni ±∞ dans les 5 panneaux',
     !['p0', 'p1', 'p2', 'p3', 'p4'].some((k) => /NaN|∞/.test(els[k].innerHTML)));
+  // Un funnel bâti sur un dénominateur de secours affiche « Arrivée 100 % » puis
+  // « −100 pts ⚠ principal décrochage » — un décrochage catastrophique inventé.
+  verifier('fenêtre vide : aucun funnel dessiné en synthèse',
+    !els.p0.innerHTML.includes('class="funnel"') && !els.p0.innerHTML.includes('principal décrochage'));
+  verifier('fenêtre vide : aucun sous-funnel par mode dans l’onglet Utile',
+    !els.p3.innerHTML.includes('principal décrochage'));
+  // Les compteurs aussi : « 0 page d'erreur » sur une collecte muette se lit « produit sain ».
+  verifier('fenêtre vide : le phare des erreurs vaut —', phares[0] === '—');
+  verifier('fenêtre vide : les compteurs 404/500 valent —',
+    (els.p1.innerHTML.match(/kpi-mid">—</g) || []).length === 2);
+  verifier('fenêtre vide : le volume de recherches vaut —', els.p2.innerHTML.includes('kpi-mid">—<'));
+  verifier('fenêtre vide : la part ALV vaut —', els.p2.innerHTML.includes('kpi-mid">—<'));
+  verifier('fenêtre vide : les 3 modes d’entrée valent — et non 0 %',
+    (els.p1.innerHTML.match(/class="bar" style="width:0%">—</g) || []).length === 3);
+  verifier('fenêtre vide : la base du pilier vaut —', els.p1.innerHTML.includes('Base : — sessions'));
 }
 
 // --- Un jour creux est un trou dans la série, pas un zéro -----------------------
@@ -154,11 +169,13 @@ const indicateur = (day, device, champs = {}) => ({
 {
   const jour = '2026-08-19';
   const { api, els } = executer((t) => {
-    t.SESS = [session(jour, 'tous', 7, 1), session(jour, 'mobile', 5, 1), session(jour, 'desktop', 2, 0)];
+    // 16 visites / 1 contact : 6,25 % — deux arrondis indépendants donneraient
+    // 6,3 + 93,8 = 100,1. Une fixture à 7/1 ne déclencherait pas le demi-arrondi.
+    t.SESS = [session(jour, 'tous', 16, 1), session(jour, 'mobile', 11, 1), session(jour, 'desktop', 5, 0)];
     t.EVT = ['tous', 'mobile', 'desktop'].map((d, i) =>
       ({ day: jour, device: d, category: 'erreur', action: '404', name: '', count: [24, 21, 2][i] }));
     t.MOD = [];
-    t.INDIC = ['tous', 'mobile', 'desktop'].map((d) => indicateur(jour, d, { visites: 7 }));
+    t.INDIC = ['tous', 'mobile', 'desktop'].map((d) => indicateur(jour, d, { visites: 16 }));
     t.META = null; t.seg = 'desktop'; t.buildFixed(); t.renderAll();
   });
   const { v: contact } = api.RATES.contact.tous;
@@ -168,6 +185,67 @@ const indicateur = (day, device, champs = {}) => ({
   verifier('synthèse : les 4 phares restent sur « tous devices »', phares[0] === '24');
   const miroir = (els.p0.innerHTML.match(/Miroir de la valeur :<\/b> ([\d.]+)%/) || [])[1];
   verifier('synthèse : la phrase miroir est cohérente avec le phare', Number(miroir) === abandon);
+}
+
+// --- Un libellé hérité d'Object.prototype ne doit pas devenir un libellé de filtre
+{
+  const jour = '2026-08-19';
+  const { api } = executer((t) => {
+    t.SESS = [session(jour, 'tous', 100, 12)];
+    t.EVT = [{ day: jour, device: 'tous', category: 'recherche', action: 'filtrer', name: 'toString', count: 3 }];
+    t.MOD = []; t.META = null;
+    t.INDIC = [indicateur(jour, 'tous', { visites: 100, contact_pct: 12 })];
+    t.buildFixed(); t.buildPeriod();
+  });
+  verifier('clé héritée : le libellé rendu reste la clé brute, pas la fonction native',
+    api.FILTRES.tous[0].n === 'toString');
+}
+
+// --- Les autres indicateurs distinguent aussi l'absence du zéro ------------------
+{
+  const jour = '2026-08-19';
+  const { api } = executer((t) => {
+    t.SESS = [session(jour, 'mobile', 10, 2)];
+    t.EVT = []; t.MOD = []; t.META = null;
+    t.INDIC = [indicateur(jour, 'mobile', { visites: 10, contact_pct: 20 })];
+    t.seg = 'desktop'; t.buildFixed(); t.buildPeriod();
+  });
+  // desktop n'a aucune ligne : tout doit être absent, pas nul.
+  verifier('device sans donnée : part ALV absente', api.RATES.partAlv.desktop.v === null);
+  verifier('device sans donnée : taux de contact absent', api.RATES.contact.desktop.v === null);
+  verifier('device sans donnée : abandon absent', api.RATES.abandon.desktop.v === null);
+}
+
+// --- Pas de delta fabriqué face à une période précédente sans visite -------------
+{
+  const { api } = executer((t) => {
+    // 14/08 : aucune visite mobile (seul desktop est présent). 15/08 : 30 % de contact.
+    t.SESS = [session('2026-08-14', 'desktop', 5, 1), session('2026-08-15', 'mobile', 10, 3)];
+    t.EVT = []; t.MOD = []; t.META = null;
+    t.INDIC = [indicateur('2026-08-14', 'desktop', { visites: 5 }), indicateur('2026-08-15', 'mobile', { visites: 10 })];
+    t.seg = 'mobile'; t.fromD = '2026-08-15'; t.toD = '2026-08-15';
+    t.buildFixed();
+  });
+  verifier('période précédente vide : aucun delta inventé', api.RATES.contact.mobile.d === null);
+}
+
+// --- Les effectifs affichés sont les vrais, pas des pourcentages remultipliés ----
+{
+  const jour = '2026-08-19';
+  const { els } = executer((t) => {
+    // 1234 visites, 1000 résultats, 177 contacts : 177/1234 = 14,34 % -> « 14 % » arrondi.
+    t.SESS = [{ sess_id: `${jour}|tous`, day: jour, device: 'tous', visites: 1234,
+      s_recherche: 1100, s_resultats: 1000, s_contact: 177, s_tel: 100, s_copie: 20, part_alv_pct: 0 }];
+    t.EVT = []; t.MOD = []; t.META = null;
+    t.INDIC = [indicateur(jour, 'tous', { visites: 1234, contact_pct: 14.3 })];
+    t.seg = 'tous'; t.buildFixed(); t.renderAll();
+  });
+  const funnel = els.p0.innerHTML;
+  verifier('funnel : l’effectif de contact est le compte réel (177), pas 14 % de la base',
+    funnel.includes('177') && !funnel.includes('· 173'));
+  const largeurs = [...funnel.matchAll(/width:(-?\d+)%/g)].map((m) => Number(m[1]));
+  verifier(`funnel : aucune barre hors de [0,100] (${largeurs.join(',')})`,
+    largeurs.length > 0 && largeurs.every((w) => w >= 0 && w <= 100));
 }
 
 // --- Séries dégénérées : premier jour de collecte, ou rien du tout --------------

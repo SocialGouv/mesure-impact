@@ -7,6 +7,20 @@ rule_files: [rules.yaml]
 evaluation_interval: 1m
 
 tests:
+  # CronJob NEUF, jamais suspendu — le cas d'un produit ajouté à un env déjà actif.
+  # Il ne doit pas être déclaré « muet depuis 48 h » 30 min après sa création.
+  - interval: 1m
+    input_series:
+      - series: 'kube_cronjob_info{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '1+0x600'
+      - series: 'kube_cronjob_created{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x600'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x600'
+    alert_rule_test:
+      - { eval_time: 40m,  alertname: MesureImpactCollecteMuette, exp_alerts: [] }
+      - { eval_time: 600m, alertname: MesureImpactCollecteMuette, exp_alerts: [] }
+
   # Mise en service : un CronJob déployé suspendu de longue date puis activé ne doit
   # PAS être déclaré muet avant d'avoir eu ses 48 h pour collecter. C'est le cas que
   # produit toute PR qui passe `cron.suspend` à false.
@@ -14,6 +28,8 @@ tests:
     input_series:
       - series: 'kube_cronjob_info{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
         values: '1+0x600'
+      - series: 'kube_cronjob_created{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '-864000+0x600'   # créé il y a 10 jours : l'ancienneté n'est pas ce qui protège ici
       - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
         values: '1+0x10 0+0x589'
     alert_rule_test:
@@ -26,6 +42,8 @@ tests:
     input_series:
       - series: 'kube_cronjob_info{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
         values: '1+0x800'
+      - series: 'kube_cronjob_created{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x800'
       - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
         values: '0+0x800'
     alert_rule_test:
@@ -46,6 +64,8 @@ tests:
     input_series:
       - series: 'kube_cronjob_info{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
         values: '1+0x800'
+      - series: 'kube_cronjob_created{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x800'
       - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
         values: '1+0x800'
     alert_rule_test:
@@ -56,6 +76,8 @@ tests:
     input_series:
       - series: 'kube_cronjob_info{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
         values: '1+0x800'
+      - series: 'kube_cronjob_created{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x800'
       - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
         values: '0+0x800'
       - series: 'kube_cronjob_status_last_successful_time{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
