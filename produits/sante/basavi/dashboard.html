@@ -226,7 +226,10 @@ function buildFixed(){
     VOL[dev]={v: mesure? vw : null, d: (hasPrev&&vp&&mesure)? Math.round((vw-vp)/vp*100): null};
     const c404=sum(pick(EVT,w,dev).filter(e=>e.category==='erreur'&&e.action==='404'),e=>e.count);
     const c500=sum(pick(EVT,w,dev).filter(e=>e.category==='erreur'&&e.action==='500'),e=>e.count);
-    const cp=sum(pick(EVT,pw,dev).filter(e=>e.category==='erreur'),e=>e.count);
+    // Même périmètre des deux côtés : `c404+c500` ne compte que 404 et 500, donc le
+    // comparatif aussi. Sommer toute la catégorie y ajoute le seau `erreur/autre`,
+    // et deux périodes identiques affichent alors une baisse.
+    const cp=sum(pick(EVT,pw,dev).filter(e=>e.category==='erreur'&&(e.action==='404'||e.action==='500')),e=>e.count);
     ERR[dev]= mesure? {c404,c500,d: hasPrev? (c404+c500)-cp : null} : {c404:null,c500:null,d:null};
   }
 }
@@ -250,7 +253,12 @@ function buildPeriod(){
     // de la fonction héritée d'Object.prototype — la carte entière passe à NaN.
     const C=pick(EVT,w,dev).filter(e=>e.category==='contact'), totC=sum(C,e=>e.count)||1, byA=Object.create(null);
     for(const e of C) byA[e.action]=(byA[e.action]||0)+e.count;
-    CANAUX[dev]=['clic_telephone','clic_email','copie_adresse','clic_site'].filter(a=>byA[a]).map(a=>({n:CANAL_LBL[a],p:Math.round(100*byA[a]/totC)}));
+    const canaux=['clic_telephone','clic_email','copie_adresse','clic_site'];
+    CANAUX[dev]=canaux.filter(a=>byA[a]).map(a=>({n:CANAL_LBL[a],p:Math.round(100*byA[a]/totC)}));
+    // Le reliquat est au dénominateur : sans cette ligne, une « répartition » qui ne
+    // totalise pas 100 % sans que rien ne l'indique.
+    const reste=sum(C,e=>e.count)-canaux.reduce((a,k)=>a+(byA[k]||0),0);
+    if(reste>0) CANAUX[dev].push({n:'Autre canal',p:Math.round(100*reste/totC)});
   }
   FILTRES={};
   for(const dev of ['tous','mobile','desktop']){
@@ -270,7 +278,9 @@ const serie = field => winDays().map(day=>{ const x=INDIC.find(r=>r.day===day&&r
   if(raw==null || raw==='') return null; const n=Number(raw); return Number.isFinite(n)? n : null; });
 const serieRate = key => serie(KEY_FIELD[key]);
 const serieVol  = () => serie('recherches');
-const serieErr  = () => winDays().map(day=>{ const x=INDIC.find(r=>r.day===day&&r.device===seg); return x? ((x.err404||0)+(x.err500||0)):null; });
+const serieErr  = () => winDays().map(day=>{ const x=INDIC.find(r=>r.day===day&&r.device===seg);
+  if(!x) return null; const a=Number(x.err404), b=Number(x.err500);
+  return (Number.isFinite(a)||Number.isFinite(b)) ? (Number.isFinite(a)?a:0)+(Number.isFinite(b)?b:0) : null; });
 
 const r   = (key,s)=> (RATES[key]&&RATES[key][s||seg]) || {v:null,d:null};
 const vol = (s)=> (VOL[s||seg]) || {v:null,d:null};
@@ -304,7 +314,10 @@ function chart(series, mode){
   const pts=series.map((v,i)=>({i,v})).filter(p=>p.v!=null);
   if(!pts.length) return noData;
   let lo=Math.min(...pts.map(p=>p.v)), hi=Math.max(...pts.map(p=>p.v));
-  if(lo===hi){lo-=1;hi+=1;} const pd=(hi-lo)*0.12; lo-=pd; hi+=pd;
+  // Un comptage se lit depuis zéro : sinon trois jours à 0 erreur dessinent trois
+  // barres à mi-hauteur, sous des graduations négatives.
+  if(mode==='bars'){ if(hi<=0) return '<p class="hint">Aucune occurrence sur la période.</p>'; lo=0; hi*=1.12; }
+  else { if(lo===hi){lo-=1;hi+=1;} const pd=(hi-lo)*0.12; lo-=pd; hi+=pd; }
   const X=i=> mL+(series.length>1? i*(iw/(series.length-1)) : iw/2);
   const slot=iw/series.length, Xb=i=>mL+i*slot, Y=v=> mT+ih-((v-lo)/(hi-lo))*ih;
   const ticks=[hi,(lo+hi)/2,lo], tf=v=>(hi-lo)<10?(Math.round(v*10)/10).toLocaleString('fr-FR'):fmt(v);
@@ -376,7 +389,7 @@ function renderSynthese(){
         {base, counts:[base, sum(S,x=>x.s_resultats), sum(S,x=>x.s_contact)]})
     : noData;
   const miroir = ab.v==null ? ''
-    : `<div class="explain"><b>Miroir de la valeur :</b> ${ab.v}% des sessions repartent sans aucun clic contact. Le principal décrochage se lit entre l'affichage des résultats et le clic contact.</div>`;
+    : `<div class="explain"><b>Miroir de la valeur :</b> ${pct(ab.v)} des sessions repartent sans aucun clic contact. Le principal décrochage se lit entre l'affichage des résultats et le clic contact.</div>`;
 
   document.getElementById('p0').innerHTML = `
     <h2 class="sec">Les 4 indicateurs phares <small>: un par pilier</small></h2>${phares}
@@ -525,16 +538,19 @@ function renderBanner(){
   el.innerHTML=`<span class="dot"></span><span><b>${esc(META.source||'Données Grist')}</b>${META.days?' · '+esc(META.days):''}${META.jours?' · '+esc(META.jours)+' jours':''}${d?' · extraction du '+esc(d):''}</span>`;
 }
 function renderPiliers(){ renderUtilisable(); renderUtilise(); renderUtile(); }
-function renderAll(){ try{ renderTout(); }catch(e){ rendreEchec(e); } }
 // Les panneaux sont écrits l'un après l'autre : sans ce filet, une exception au 2e
-// laisse les suivants vides et la page ressemble à un tableau de bord valide.
+// laisse les suivants afficher les chiffres de la sélection PRÉCÉDENTE, et la page
+// ressemble à un tableau de bord valide. Tout ce qui redessine passe donc par ici —
+// y compris le changement de segment, qui est l'interaction la plus fréquente.
+function protege(action){ try{ action(); }catch(e){ rendreEchec(e); } }
+function renderAll(){ protege(()=>{ buildFixed(); renderTout(); }); }
 function rendreEchec(e){
   console.error(e);
   const msg = `<div class="explain" style="border-left-color:var(--ko);color:var(--ko)"><b>Le tableau de bord n'a pas pu être rendu.</b> ${esc(e && e.message || e)}</div>`;
   for(const id of ['p0','p1','p2','p3','p4']){ const el=document.getElementById(id); if(el) el.innerHTML = msg; }
 }
 function renderTout(){ buildPeriod(); renderBanner(); const pl=document.getElementById('prevlbl'); if(pl) pl.textContent = prevDays().length? 'vs période précédente' : 'pas d’historique'; renderSynthese(); renderPiliers(); renderImpactant(); }
-function setSeg(s){ seg=s; document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on', b.dataset.seg===s)); renderPiliers(); }
+function setSeg(s){ protege(()=>{ seg=s; document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on', b.dataset.seg===s)); renderPiliers(); }); }
 
 /* --- sélecteur de date (plage calendaire + raccourcis) --- */
 function syncDateInputs(){ const fi=document.getElementById('f-from'), ti=document.getElementById('f-to'); if(fi) fi.value=fromD||''; if(ti) ti.value=toD||''; }
@@ -542,10 +558,10 @@ function initRange(){ const d=allDays(); fromD=d[0]||null; toD=d[d.length-1]||nu
   for(const id of ['f-from','f-to']){ const el=document.getElementById(id); if(el){ el.min=d[0]||''; el.max=d[d.length-1]||''; } }
   syncDateInputs(); const ps=document.getElementById('f-preset'); if(ps) ps.value='all'; buildFixed();
 }
-function applyPreset(v){ const d=allDays(); if(!d.length) return; toD=d[d.length-1]; fromD = v==='all' ? d[0] : d[Math.max(0,d.length-Number(v))]; syncDateInputs(); buildFixed(); renderAll(); }
+function applyPreset(v){ protege(()=>{ const d=allDays(); if(!d.length) return; toD=d[d.length-1]; fromD = v==='all' ? d[0] : d[Math.max(0,d.length-Number(v))]; syncDateInputs(); buildFixed(); renderTout(); }); }
 document.getElementById('f-preset').addEventListener('change', e=>applyPreset(e.target.value));
-document.getElementById('f-from').addEventListener('change', e=>{ fromD=e.target.value||null; document.getElementById('f-preset').value='custom'; buildFixed(); renderAll(); });
-document.getElementById('f-to').addEventListener('change', e=>{ toD=e.target.value||null; document.getElementById('f-preset').value='custom'; buildFixed(); renderAll(); });
+document.getElementById('f-from').addEventListener('change', e=>{ fromD=e.target.value||null; document.getElementById('f-preset').value='custom'; renderAll(); });
+document.getElementById('f-to').addEventListener('change', e=>{ toD=e.target.value||null; document.getElementById('f-preset').value='custom'; renderAll(); });
 
 (async function init(){
   if(window.grist){ try{ grist.ready(); }catch(e){} }

@@ -26,7 +26,8 @@ const PASSERELLE = `
   set SESS(v){SESS=v}, set EVT(v){EVT=v}, set MOD(v){MOD=v}, set INDIC(v){INDIC=v}, set META(v){META=v},
   set seg(v){seg=v}, set fromD(v){fromD=v}, set toD(v){toD=v},
   get RATES(){return RATES}, get FILTRES(){return FILTRES},
-  buildFixed, buildPeriod, renderAll, chart, dualChart, serieRate, barList
+  buildFixed, buildPeriod, renderAll, chart, dualChart, serieRate, serieErr, barList, setSeg,
+  casser(){ MODES = null; }
 };`;
 
 function executer(scenario) {
@@ -39,9 +40,14 @@ function executer(scenario) {
       set textContent(v) { this._t = v; }, get textContent() { return this._t; },
       addEventListener() {}, querySelectorAll: () => [],
     });
+  // console.error est capturé plutôt que réémis : une erreur attendue par un test ne
+  // doit pas ressembler à un échec dans la sortie, et on peut vérifier qu'elle a bien
+  // été journalisée — le dépôt s'interdit les échecs silencieux.
+  const journal = [];
   const ctx = {
     document: { getElementById: noeud, querySelectorAll: () => [], addEventListener() {} },
-    window: {}, console, setTimeout, clearTimeout,
+    window: {}, setTimeout, clearTimeout,
+    console: { ...console, error: (...a2) => journal.push(a2.map(String).join(' ')) },
   };
   ctx.window.self = ctx.window;
   ctx.window.top = {}; // hors Grist : loadData n'est pas appelé, on injecte les tables à la main
@@ -49,7 +55,7 @@ function executer(scenario) {
   vm.createContext(ctx);
   vm.runInContext(source + PASSERELLE, ctx, { filename: 'dashboard.html' });
   scenario(ctx.__t, els);
-  return { api: ctx.__t, els };
+  return { api: ctx.__t, els, journal };
 }
 
 let echecs = 0;
@@ -183,8 +189,11 @@ const indicateur = (day, device, champs = {}) => ({
   verifier('contact + abandon = 100 exactement', contact + abandon === 100);
   const phares = [...els.p0.innerHTML.matchAll(/<div class="v[^"]*">([^<]*)</g)].map((m) => m[1].trim());
   verifier('synthèse : les 4 phares restent sur « tous devices »', phares[0] === '24');
-  const miroir = (els.p0.innerHTML.match(/Miroir de la valeur :<\/b> ([\d.]+)%/) || [])[1];
-  verifier('synthèse : la phrase miroir est cohérente avec le phare', Number(miroir) === abandon);
+  // Le miroir doit passer par le même formateur que le phare : l'ancienne assertion
+  // acceptait « 93.8% » (point, pas d'espace) et figeait donc l'incohérence.
+  const miroir = (els.p0.innerHTML.match(/Miroir de la valeur :<\/b> ([^<]*?) des sessions/) || [])[1];
+  verifier(`synthèse : la phrase miroir est formatée comme le phare (${miroir})`,
+    miroir === `${abandon.toLocaleString('fr-FR')} %`);
 }
 
 // --- Un libellé hérité d'Object.prototype ne doit pas devenir un libellé de filtre
@@ -244,6 +253,17 @@ const indicateur = (day, device, champs = {}) => ({
   verifier('funnel : l’effectif de contact est le compte réel (177), pas 14 % de la base',
     funnel.includes('177') && !funnel.includes('· 173'));
   const largeurs = [...funnel.matchAll(/width:(-?\d+)%/g)].map((m) => Number(m[1]));
+  // Entrée dégénérée : plus de contacts que de visites. La barre doit rester bornée.
+  const dege = executer((t) => {
+    t.SESS = [{ sess_id: `${jour}|tous`, day: jour, device: 'tous', visites: 10,
+      s_recherche: 10, s_resultats: 25, s_contact: 25, s_tel: 0, s_copie: 0, part_alv_pct: 0 }];
+    t.EVT = []; t.MOD = []; t.META = null;
+    t.INDIC = [indicateur(jour, 'tous', { visites: 10, contact_pct: 100 })];
+    t.seg = 'tous'; t.buildFixed(); t.renderAll();
+  }).els.p0.innerHTML;
+  const degeL = [...dege.matchAll(/width:(-?\d+)%/g)].map((m) => Number(m[1]));
+  verifier(`funnel dégénéré : barres bornées à 100 % (${degeL.join(',')})`,
+    degeL.length > 0 && degeL.every((w) => w >= 0 && w <= 100));
   verifier(`funnel : aucune barre hors de [0,100] (${largeurs.join(',')})`,
     largeurs.length > 0 && largeurs.every((w) => w >= 0 && w <= 100));
 }
@@ -257,6 +277,65 @@ const indicateur = (day, device, champs = {}) => ({
     verifier('série tout-null : message explicite', t.chart([null, null], 'line').includes('Pas de donnée'));
     verifier('liste vide : message explicite', t.barList([]).includes('Aucune donnée'));
   });
+}
+
+// --- Une liste de libellés non bornée ne doit ni déborder la pile ni tout afficher
+// Le nombre de libellés distincts vient du tracker public : il n'a pas de plafond.
+{
+  const jour = '2026-08-19';
+  const { els } = executer((t) => {
+    t.SESS = [session(jour, 'tous', 100, 12)];
+    t.EVT = Array.from({ length: 200000 }, (_, i) =>
+      ({ day: jour, device: 'tous', category: 'recherche', action: 'filtrer', name: `f-${i}`, count: 1 }));
+    t.MOD = [];
+    t.INDIC = [indicateur(jour, 'tous', { visites: 100, contact_pct: 12 })];
+    t.META = null; t.buildFixed(); t.renderAll();
+  });
+  const lignes = (els.p2.innerHTML.match(/class="bl-row"/g) || []).length;
+  verifier(`200 000 libellés : la page est rendue sans exception (${lignes} lignes)`,
+    !els.p2.innerHTML.includes('border-left-color:var(--ko)'));
+  verifier('200 000 libellés : la liste est plafonnée', lignes > 0 && lignes <= 30);
+  verifier('200 000 libellés : le reste tronqué est annoncé',
+    els.p2.innerHTML.includes('autres libell'));
+}
+
+// --- La série d'erreurs distingue elle aussi le trou du zéro ---------------------
+{
+  const jours = ['2026-08-14', '2026-08-15'];
+  executer((t) => {
+    t.SESS = jours.map((j) => session(j, 'mobile', 10, 2));
+    t.EVT = []; t.MOD = []; t.META = null;
+    t.INDIC = [indicateur('2026-08-14', 'mobile', { visites: 10, err404: 3 }),
+      indicateur('2026-08-15', 'desktop', { visites: 4 })];
+    t.seg = 'mobile'; t.buildFixed(); t.buildPeriod();
+    const serie = t.serieErr();
+    verifier(`série d'erreurs : jour mesuré = 3 (${JSON.stringify(serie)})`, serie[0] === 3);
+    verifier('série d’erreurs : jour sans ligne = null, pas 0', serie[1] === null);
+  });
+}
+
+// --- Une exception de rendu s'affiche, elle ne laisse pas des panneaux périmés ---
+{
+  const jour = '2026-08-19';
+  const { els, api, journal } = executer((t) => {
+    t.SESS = [session(jour, 'tous', 10, 2), session(jour, 'mobile', 6, 2)];
+    t.EVT = []; t.MOD = []; t.META = null;
+    t.INDIC = ['tous', 'mobile'].map((d) => indicateur(jour, d, { visites: 10, contact_pct: 20 }));
+    t.seg = 'tous'; t.buildFixed(); t.renderAll();
+  });
+  verifier('rendu nominal : le panneau est écrit',
+    els.p2.innerHTML.length > 0 && !els.p2.innerHTML.includes('border-left-color:var(--ko)'));
+  // MODES à null fait lever renderUtilisable, comme le ferait une donnée inattendue.
+  api.casser();
+  let propagee = null;
+  try { api.setSeg('mobile'); } catch (e) { propagee = e; }
+  verifier('exception au changement de segment : rien ne remonte à l’appelant', propagee === null);
+  verifier('exception au changement de segment : l’échec est affiché',
+    els.p1.innerHTML.includes('border-left-color:var(--ko)'));
+  verifier('exception au changement de segment : aucun panneau ne garde de chiffres périmés',
+    ['p1', 'p2', 'p3'].every((k) => els[k].innerHTML.includes('border-left-color:var(--ko)')));
+  verifier('exception au changement de segment : elle est aussi journalisée',
+    journal.some((l) => l.includes('TypeError')));
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');

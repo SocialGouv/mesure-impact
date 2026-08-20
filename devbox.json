@@ -1,16 +1,20 @@
 {
   "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.17.5/.schema/devbox.schema.json",
-  "packages": [
-    "go-task@3.45.4",
-    "kubectl@1.32.3",
-    "kubernetes-helm@3.17.3",
-    "kubeseal@0.30.0",
-    "gh@2.69.0",
-    "jq@1.7.1",
-    "yq-go@4.45.1",
-    "nodejs@22.14.0",
-    "prometheus@2.55.0"
-  ],
+  "packages": {
+    "go-task": "3.45.4",
+    "kubectl": "1.32.3",
+    "kubernetes-helm": "3.17.3",
+    "kubeseal": "0.30.0",
+    "gh": "2.69.0",
+    "jq": "1.7.1",
+    "yq-go": "4.45.1",
+    "nodejs": "22.14.0",
+    "prometheus": {
+      "version": "2.55.0",
+      "//": "promtool vit dans la sortie `cli`, pas dans `out` : sans ça, `task test` échoue",
+      "outputs": ["cli"]
+    }
+  },
   "shell": {
     "init_hook": [
       "echo 'mesure-impact — tape `task` pour la liste des commandes'"

@@ -54,6 +54,11 @@ spec:
         #  - il n'a pas été suspendu sur toute la fenêtre (sinon un CronJob déployé
         #    suspendu pendant des semaines puis activé est déclaré muet immédiatement).
         # Chacune prise seule laisse passer l'un des deux faux positifs.
+        #
+        # Les deux s'écrivent en `unless <négation>`, jamais en `and <condition>` :
+        # `and` avec un membre droit vide ne renvoie rien, donc une métrique absente
+        # ÉTEINDRAIT l'alerte. Pour un garde-fou contre la panne silencieuse, une
+        # métrique manquante doit faire sonner, pas taire.
         - alert: MesureImpactCollecteMuette
           expr: |
             (
@@ -66,15 +71,14 @@ spec:
             (
               max by (cronjob) (kube_cronjob_info{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
               unless on (cronjob) kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}"}
-              unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
-              and on (cronjob) (
+              unless on (cronjob) (
                 time() - max by (cronjob) (kube_cronjob_created{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
-                > {{ .Values.alerts.silenceMaxSeconds }}
+                <= {{ .Values.alerts.silenceMaxSeconds }}
               )
-              and on (cronjob) (
+              unless on (cronjob) (
                 max by (cronjob) (
                   max_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ .Values.alerts.silenceMaxSeconds }}s])
-                ) == 0
+                ) == 1
               )
             )
           for: 30m

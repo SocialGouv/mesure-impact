@@ -147,12 +147,21 @@ const RECHERCHE_NAMES = new Set([
   ...[...MODES_ENTREE].map((n) => `lancer/${n}`),
   ...[...TYPES_FILTRE].map((n) => `filtrer/${n}`),
 ]);
-const borner = (valeur, liste) => (liste.has(valeur) ? valeur : 'autre');
+// Ce qui tombe hors liste est agrégé en `autre` — mais la valeur d'origine est
+// retenue à part : sinon une dérive du plan de tag (l'appli renomme un event) devient
+// indiscernable du bruit du tracker public, et la panne n'a plus de trace.
+const horsListe = new Map();
+const borner = (valeur, liste, quoi) => {
+  if (liste.has(valeur)) return valeur;
+  if (valeur) horsListe.set(`${quoi}=${valeur}`, (horsListe.get(`${quoi}=${valeur}`) || 0) + 1);
+  return 'autre';
+};
 const DEVICE = (t) => /bureau|desktop|ordinateur/i.test(t || '') ? 'desktop' : 'mobile'; // smartphone/phablette/tablette → mobile
 const dayTs = (d) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 1000;
 const isALV = (v) => /arretonslesviolences/i.test((v.referrerUrl || '') + (v.referrerName || ''));
 
 function build(visits) {
+  horsListe.clear();
   // agrégateurs par clé jour|device
   const sess = new Map();   // day|dev -> compteurs + {alv, tot}
   const evAgg = new Map();  // day|dev|cat|action|name -> count
@@ -182,7 +191,7 @@ function build(visits) {
     for (const a of acts) {
       if (a.type === 'action' && /\/search/.test(a.url || '')) reached = true;
       if (a.type !== 'event') continue;
-      const cat = borner(a.eventCategory || '', CATEGORIES), act = borner(a.eventAction || '', ACTIONS);
+      const cat = borner(a.eventCategory || '', CATEGORIES, 'categorie'), act = borner(a.eventAction || '', ACTIONS, 'action');
       const name = a.eventName || '';
       // agrégat Events (day|dev|cat|action|name). On ne garde le `nom` que là où il est BORNÉ :
       // recherche/lancer (3 modes) et recherche/filtrer (6 types). Pour contact (nom = id asso) et
@@ -235,6 +244,14 @@ function build(visits) {
     for (const [mode, cur] of Object.entries(mAgg)) modes.push({ mode_id: `${day}|tous|${mode}`, day, date: dayTs(day), device: 'tous', mode, ...cur });
   }
   return { sessions, events, modes, indic, days: [...days].sort(), retenues, reelles };
+}
+
+// Résumé des valeurs hors allowlist, remonté dans Extractions.note ET dans les logs
+// du Job : c'est le seul endroit où une dérive du plan de tag reste visible.
+function inconnus() {
+  if (!horsListe.size) return '';
+  const top = [...horsListe.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  return ` ⚠ hors allowlist : ${top.map(([k, n]) => `${k}×${n}`).join(', ')}`;
 }
 
 async function main() {
@@ -313,9 +330,10 @@ async function main() {
     run_id: RUN_ID, extracted_at: stamp, source: `Matomo réel, site ${SITE}`,
     days: days.length ? `${days[0]} → ${days[days.length - 1]}` : '(aucun)', jours: days.length,
     devices: 'tous, mobile, desktop',
-    note: `${arr.length} visites brutes. Grain jour × device.`,
+    note: `${arr.length} visites brutes. Grain jour × device.${inconnus()}`,
   }], ['run_id']);
 
+  if (horsListe.size) console.warn(`⚠ valeurs hors allowlist rencontrées :${inconnus()}`);
   console.log(`\n✓ Push : Sessions=${nS}, Events=${nE}, Modes=${nM}, Indicateurs=${nI}, Extractions=1`);
   console.log(`  ${arr.length} visites brutes · ${days.length} jours${days.length ? ` (${days[0]} → ${days[days.length - 1]})` : ''}`);
 }

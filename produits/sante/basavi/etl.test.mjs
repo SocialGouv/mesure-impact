@@ -18,7 +18,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ici = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(ici, 'etl.mjs'), 'utf8');
-const sansEntree = source.replace(/^main\(\)\.catch\(.*$/m, 'export { build };');
+const sansEntree = source.replace(/^main\(\)\.catch\(.*$/m,
+  'export { build, inconnus, CATEGORIES, ACTIONS, MODES_ENTREE, TYPES_FILTRE };');
 if (sansEntree === source) throw new Error("le point d'entrée main() n'a pas été trouvé dans etl.mjs");
 
 const copie = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'etl-test-')), 'etl.mjs');
@@ -30,7 +31,7 @@ process.env.GRIST_URL ||= 'https://grist.invalid';
 process.env.GRIST_DOC_ID ||= 'x';
 process.env.GRIST_API_KEY ||= 'x';
 process.env.COLLECT_FROM ||= '2020-01-01';
-const { build } = await import(pathToFileURL(copie).href);
+const { build, inconnus, ACTIONS, MODES_ENTREE, TYPES_FILTRE } = await import(pathToFileURL(copie).href);
 
 let echecs = 0;
 const verifier = (titre, condition) => {
@@ -109,6 +110,42 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
   verifier('mode d’entrée hors liste : aucun funnel de mode créé', r.modes.length === 0);
   verifier('la recherche reste comptée dans la session',
     r.sessions.find((s) => s.device === 'mobile').s_recherche === 1);
+}
+
+// --- Le canari : une dérive du plan de tag doit rester visible -------------------
+{
+  build([visite([['contact', 'copier_adresse', ''], ['navigation', 'clic_menu', '']])]);
+  const note = inconnus();
+  console.log(`      ${note.trim()}`);
+  verifier('canari : l’action renommée est nommée dans la note', note.includes('copier_adresse'));
+  verifier('canari : la catégorie inconnue est nommée aussi', note.includes('navigation'));
+}
+
+// --- L'allowlist de l'ETL et les libellés du front décrivent le même plan de tag --
+// Les deux listes vivent dans deux fichiers. La comparaison doit aller DANS LES DEUX
+// SENS : retirer une valeur de l'ETL fait disparaître un canal ou un type de violence
+// du produit sans rien casser, et l'inclusion à sens unique ne le voit pas.
+{
+  const front = fs.readFileSync(path.join(ici, 'dashboard.html'), 'utf8');
+  const filtresFront = new Set([...front.matchAll(/'([a-z-]+)':'[^']*'/g)].map((m) => m[1]));
+  const canauxFront = new Set([...front.matchAll(/(clic_telephone|clic_email|copie_adresse|clic_site):'[^']*'/g)].map((m) => m[1]));
+  const modesFront = new Set([...front.matchAll(/for\(const mode of \[([^\]]+)\]\)/g)]
+    .flatMap((m) => m[1].split(',').map((x) => x.trim().replace(/'/g, ''))));
+  // Le front lit err404 / err500 : les deux actions doivent exister côté ETL.
+  const erreursFront = new Set([...front.matchAll(/err(\d{3})/g)].map((m) => m[1]));
+
+  const memeEnsemble = (etl, front2, quoi) => {
+    const manqueFront = [...etl].filter((v) => !front2.has(v));
+    const manqueEtl = [...front2].filter((v) => !etl.has(v));
+    const ecart = [...manqueFront.map((v) => `absent du front : ${v}`),
+      ...manqueEtl.map((v) => `absent de l'ETL : ${v}`)];
+    verifier(`${quoi} : ETL et front décrivent le même plan de tag${ecart.length ? ` (${ecart.join(' · ')})` : ''}`,
+      ecart.length === 0);
+  };
+  memeEnsemble(TYPES_FILTRE, filtresFront, 'types de violence');
+  memeEnsemble(MODES_ENTREE, modesFront, 'modes d’entrée');
+  memeEnsemble(new Set([...ACTIONS].filter((a) => canauxFront.has(a))), canauxFront, 'canaux de contact');
+  memeEnsemble(new Set([...ACTIONS].filter((a) => /^\d{3}$/.test(a))), erreursFront, 'codes d’erreur');
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
