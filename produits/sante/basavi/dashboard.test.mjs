@@ -25,7 +25,7 @@ const PASSERELLE = `
 ;this.__t = {
   set SESS(v){SESS=v}, set EVT(v){EVT=v}, set MOD(v){MOD=v}, set INDIC(v){INDIC=v}, set META(v){META=v},
   set seg(v){seg=v}, set fromD(v){fromD=v}, set toD(v){toD=v},
-  get RATES(){return RATES}, get FILTRES(){return FILTRES},
+  get RATES(){return RATES}, get FILTRES(){return FILTRES}, get CANAUX(){return CANAUX}, get ERR(){return ERR},
   buildFixed, buildPeriod, renderAll, chart, dualChart, serieRate, serieErr, barList, setSeg,
   casser(){ MODES = null; }
 };`;
@@ -266,6 +266,72 @@ const indicateur = (day, device, champs = {}) => ({
     degeL.length > 0 && degeL.every((w) => w >= 0 && w <= 100));
   verifier(`funnel : aucune barre hors de [0,100] (${largeurs.join(',')})`,
     largeurs.length > 0 && largeurs.every((w) => w >= 0 && w <= 100));
+}
+
+// --- Changer la plage de dates doit recalculer les phares, pas les laisser périmés
+// `renderAll` appelle `buildFixed()` : sans lui, la page affiche les chiffres de la
+// plage précédente en ayant l'air d'avoir répondu.
+{
+  const { api, els } = executer((t) => {
+    // 01/08 : 10 visites / 1 contact (10 %). 02/08 : 10 visites / 9 contacts (90 %).
+    t.SESS = [session('2026-08-01', 'tous', 10, 1), session('2026-08-02', 'tous', 10, 9)];
+    t.EVT = []; t.MOD = []; t.META = null;
+    t.INDIC = [indicateur('2026-08-01', 'tous', { visites: 10, contact_pct: 10 }),
+      indicateur('2026-08-02', 'tous', { visites: 10, contact_pct: 90 })];
+    t.seg = 'tous'; t.buildFixed(); t.renderAll();
+  });
+  const phare = () => [...els.p0.innerHTML.matchAll(/<div class="v[^"]*">([^<]*)</g)].map((m) => m[1].trim())[2];
+  verifier(`plage complète : le phare vaut 50 % (${phare()})`, phare() === '50 %');
+  api.fromD = '2026-08-02';
+  api.renderAll();
+  verifier(`plage restreinte au 02/08 : le phare passe à 90 % (${phare()})`, phare() === '90 %');
+}
+
+// --- Le delta d'erreurs compare le même périmètre des deux côtés ------------------
+{
+  const jours = ['2026-08-01', '2026-08-02'];
+  const { api } = executer((t) => {
+    t.SESS = jours.map((j) => session(j, 'tous', 10, 2));
+    // Périodes strictement identiques : 10 erreurs 404 et 5 hors 404/500 de chaque côté.
+    t.EVT = jours.flatMap((j) => [
+      { day: j, device: 'tous', category: 'erreur', action: '404', name: '', count: 10 },
+      { day: j, device: 'tous', category: 'erreur', action: 'autre', name: '', count: 5 },
+    ]);
+    t.MOD = []; t.META = null;
+    t.INDIC = jours.map((j) => indicateur(j, 'tous', { visites: 10 }));
+    t.seg = 'tous'; t.fromD = '2026-08-02'; t.toD = '2026-08-02'; t.buildFixed();
+  });
+  verifier('deux périodes d’erreurs identiques : delta nul', api.ERR.tous.d === 0);
+}
+
+// --- Un graphe de comptage part de zéro -------------------------------------------
+{
+  executer((t) => {
+    const svg = t.chart([2, 4], 'bars');
+    const bas = [...svg.matchAll(/<text[^>]*>(-?[\d\s,]+)<\/text>/g)].map((m) => m[1].trim());
+    verifier(`barres : aucune graduation négative (${bas.join(' / ')})`,
+      !bas.some((v) => v.startsWith('-')));
+    verifier('barres : tout à zéro affiche un message, pas des barres',
+      t.chart([0, 0, 0], 'bars').includes('Aucune occurrence'));
+  });
+}
+
+// --- La répartition des canaux totalise 100 % -------------------------------------
+{
+  const jour = '2026-08-19';
+  const { api } = executer((t) => {
+    t.SESS = [session(jour, 'tous', 100, 40)];
+    t.EVT = [
+      { day: jour, device: 'tous', category: 'contact', action: 'clic_telephone', name: '', count: 30 },
+      { day: jour, device: 'tous', category: 'contact', action: 'autre', name: '', count: 70 },
+    ];
+    t.MOD = []; t.META = null;
+    t.INDIC = [indicateur(jour, 'tous', { visites: 100, contact_pct: 40 })];
+    t.seg = 'tous'; t.buildFixed(); t.buildPeriod();
+  });
+  const somme = api.CANAUX.tous.reduce((a, c) => a + c.p, 0);
+  verifier(`canaux : la répartition totalise 100 % (${JSON.stringify(api.CANAUX.tous)})`, somme === 100);
+  verifier('canaux : le reliquat est nommé', api.CANAUX.tous.some((c) => c.n === 'Autre canal'));
 }
 
 // --- Séries dégénérées : premier jour de collecte, ou rien du tout --------------

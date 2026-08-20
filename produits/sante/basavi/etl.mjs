@@ -251,7 +251,9 @@ function build(visits) {
 function inconnus() {
   if (!horsListe.size) return '';
   const top = [...horsListe.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-  return ` ⚠ hors allowlist : ${top.map(([k, n]) => `${k}×${n}`).join(', ')}`;
+  // JSON.stringify borne et échappe : ces valeurs viennent du tracker public, et un
+  // saut de ligne y forgerait une fausse ligne de succès dans les logs du Job.
+  return ` ⚠ hors allowlist : ${top.map(([k, n]) => `${JSON.stringify(k)}×${n}`).join(', ')}`;
 }
 
 async function main() {

@@ -65,7 +65,14 @@ spec:
               time() - max by (cronjob) (
                 kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
               ) > {{ .Values.alerts.silenceMaxSeconds }}
-              unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
+              {{/* Même délai de grâce que la branche 2, et pour la même raison : un test
+                   ponctuel sur `spec_suspend` fait sonner 30 min après une réactivation de
+                   maintenance, alors que la première exécution n'a pas encore eu lieu. */}}
+              unless on (cronjob) (
+                max by (cronjob) (
+                  max_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ .Values.alerts.silenceMaxSeconds }}s])
+                ) == 1
+              )
             )
             or
             (

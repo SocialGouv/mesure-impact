@@ -144,8 +144,29 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
   };
   memeEnsemble(TYPES_FILTRE, filtresFront, 'types de violence');
   memeEnsemble(MODES_ENTREE, modesFront, 'modes d’entrée');
-  memeEnsemble(new Set([...ACTIONS].filter((a) => canauxFront.has(a))), canauxFront, 'canaux de contact');
+  // Référence codée en dur, pas dérivée de l'un des deux côtés : sinon la comparaison
+  // est tautologique et ne voit ni un canal retiré de l'ETL, ni un libellé retiré du front.
+  const CANAUX_ATTENDUS = new Set(['clic_telephone', 'clic_email', 'copie_adresse', 'clic_site']);
+  memeEnsemble(CANAUX_ATTENDUS, canauxFront, 'canaux de contact (front)');
+  memeEnsemble(CANAUX_ATTENDUS, new Set([...ACTIONS].filter((a) => CANAUX_ATTENDUS.has(a))), 'canaux de contact (ETL)');
+  // Le front doit aussi ITÉRER sur ces 4 canaux, pas seulement les libeller.
+  const iteres = new Set([...front.matchAll(/\['clic_telephone'[^\]]*\]/g)]
+    .flatMap((m) => m[0].replace(/[[\]']/g, '').split(',').map((x) => x.trim())));
+  memeEnsemble(CANAUX_ATTENDUS, iteres, 'canaux de contact (itérés par le front)');
   memeEnsemble(new Set([...ACTIONS].filter((a) => /^\d{3}$/.test(a))), erreursFront, 'codes d’erreur');
+}
+
+// --- Le canari est branché sur Extractions.note, pas seulement défini ------------
+{
+  const source2 = fs.readFileSync(path.join(ici, 'etl.mjs'), 'utf8');
+  verifier('canari : inconnus() est injecté dans Extractions.note',
+    /note:\s*`[^`]*\$\{inconnus\(\)\}/.test(source2));
+  verifier('canari : inconnus() est aussi journalisé par le Job',
+    /console\.warn\([^)]*inconnus\(\)/.test(source2));
+  // Les valeurs viennent du tracker public : un saut de ligne forgerait une ligne de log.
+  build([visite([['contact', 'x\n✓ Push : tout va bien', '']])]);
+  verifier(`canari : les valeurs hostiles sont échappées (${inconnus().trim().slice(0, 60)})`,
+    !inconnus().includes('\n'));
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
