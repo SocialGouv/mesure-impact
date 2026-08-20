@@ -4,6 +4,6 @@ web:
   host: mesure-impact-dev.ovh.fabrique.social.gouv.fr
 
 cron:
-  # Repasser à false une fois envs/dev/sealed-secrets/tokens.sealedsecret.yaml en place.
-  suspend: true
+  # Tokens scellés le 20/08/2026 (envs/dev/sealed-secrets/tokens.sealedsecret.yaml).
+  suspend: false
   schedule: "0 6 * * *"

@@ -41,5 +41,17 @@ Produit `envs/dev/sealed-secrets/tokens.sealedsecret.yaml` (chiffré, commitable
 
 ## État
 
-Pilote. Le CronJob reste suspendu tant que les tokens ne sont pas scellés.
-Front en préprod, itéré au fil des retours équipe.
+Pilote. **Tokens de préprod scellés le 20/08/2026**, CronJob activé (`cron.suspend: false`
+dans `envs/dev/values.yaml`), collecte quotidienne à 6h sur le site Matomo 168 vers le doc
+Grist « Preprod - BASAVI ».
+
+Front en préprod, itéré au fil des retours de l'équipe produit. `dashboard.html` est aligné
+sur la version déployée (widget embarqué dans le doc Grist, servi aussi depuis Netlify).
+
+Deux réserves connues :
+
+- Les tokens scellés sont ceux d'un compte personnel. La version durable passe par un compte
+  de service Grist et un token Matomo dédié, à faire avant la bascule en prod.
+- L'ETL local (LaunchAgent sur le poste de Phil, toutes les heures) écrit encore sur le même
+  doc. Il doit être coupé dès la première collecte réussie de la fabrique. Le push étant
+  idempotent, un recouvrement passager est sans conséquence.

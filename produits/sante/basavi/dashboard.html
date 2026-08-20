@@ -96,9 +96,7 @@
 <div class="head2">
   <div>
     <h1>BASAVI : mettre en relation les femmes avec une association</h1>
-    <div class="sub">Pilotage de l'impact de l'annuaire des structures d'aide aux femmes victimes de violences
-      (<b>annuaire.arretonslesviolences.gouv.fr</b>). Axe n°1 : la <b>mise en relation</b> — une session où une femme
-      clique au moins un contact (téléphone, email, site) ou copie l'adresse d'une association.</div>
+    <div class="sub">Tableau de bord de mesure d'impact du produit BASAVI.</div>
   </div>
   <p class="fr-badge fr-badge--sm fr-badge--info" style="margin-left:auto" id="badge">source Grist</p>
 </div>
@@ -260,9 +258,8 @@ const err = (s)=> (ERR[s||seg]) || {c404:0,c500:0,d:null};
 function delta(d, unit){ if(d===null||d===undefined) return ''; const ar=d>0?'▲':d<0?'▼':'▬'; return `<span class="trend">${ar} ${(d>0?'+':'')+d+(unit||'')} <small>vs période préc.</small></span>`; }
 function cap(text, def){ return def ? `<span class="kpi-cap def" title="${def}">${text}</span>` : `<div class="kpi-cap">${text}</div>`; }
 function srcBadge(txt){ return `<span class="srcbadge">source : ${txt}</span>`; }
-function rcStatus(key, v){ const c=RC[key], ok = c.op==='>'? v>c.t : v<c.t;
-  return { ok, cls: ok?'ok':'ko', cible:`Cible ${c.op} ${c.t} %`, label: ok?'atteinte':'non atteinte' }; }
-function rcPill(key, v){ const st=rcStatus(key,v); return `<div class="rc ${st.cls}">${st.ok?'✓':'⚠'} ${st.cible} · ${st.label}</div>`; }
+function rcStatus(){ return { ok:true, cls:'', cible:'', label:'' }; }
+function rcPill(){ return ''; }
 function barList(items, max){ const m=max||100; return `<div class="bl">`+items.map(i=>`<div class="bl-row"><span>${i.n}</span><span class="bl-tr"><span class="bl-tf" style="width:${Math.round(i.p/m*100)}%"></span></span><span class="bl-v">${i.p}%</span></div>`).join('')+`</div>`; }
 
 /* --- graphe d'évolution (SVG inline, pas de lib) — séries réelles depuis Grist --- */
@@ -292,7 +289,7 @@ function chart(series, mode, target){
   return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="graphique d'évolution">${grid}${tline}${body}${xax}</svg>`;
 }
 function chartCard(title, svg){ return `<div class="chartcard"><div class="ct">${title}</div>${svg}</div>`; }
-function chartRate(key,label,target){ return chartCard(`Évolution : ${label} (%, ${GRAN_LBL})`, chart(serieRate(key),'line',target)); }
+function chartRate(key,label){ return chartCard(`Évolution : ${label} (%, ${GRAN_LBL})`, chart(serieRate(key),'line')); }
 function chartVol(label){ return chartCard(`Évolution : ${label} (${GRAN_LBL})`, chart(serieVol(),'bars')); }
 function chartErr(label){ return chartCard(`Évolution : ${label} (${GRAN_LBL})`, chart(serieErr(),'bars')); }
 
@@ -318,13 +315,13 @@ function curLbl(){ const w=winDays(); if(!w.length) return 'période sélectionn
 function segNote(){ return seg==='tous' ? '' : `<div class="segnote">Segment actif : <b>${SEG_LBL[seg]}</b> — la lecture des canaux de contact varie fortement selon le device.</div>`; }
 
 function renderSynthese(){
-  const lan=r('lancement','tous'), tel=r('clicTel','tous'), alv=r('partAlv','tous');
-  const stL=rcStatus('lancement',lan.v), stT=rcStatus('clicTel',tel.v);
+  const lan=r('lancement','tous'), ab=r('abandon','tous'), e=err();
+  const contact={v:Math.round((100-ab.v)*10)/10};
   const phares = `<div class="phares">
-    <div class="phare"><div class="pil">Utilisable</div><div class="v ${stL.cls}">${lan.v} %</div><div class="cap">Sessions lançant une recherche</div>${rcPill('lancement',lan.v)}</div>
-    <div class="phare"><div class="pil">Utilisé</div><div class="v">${alv.v} %</div><div class="cap">Part des visites venant d'ALV</div><span class="tag">référent natif</span></div>
-    <div class="phare value1"><div class="pil">Utile · valeur n°1</div><div class="v ${stT.cls}">${tel.v} %</div><div class="cap"><b>Mise en relation</b> — sessions avec clic téléphone</div>${rcPill('clicTel',tel.v)}</div>
-    <div class="phare pending"><div class="pil">Impactant</div><div class="v pend">⏳ en attente</div><div class="cap">Taux de femmes accompagnées</div><span class="tag" style="color:var(--pend)">source hors Matomo à identifier</span></div>
+    <div class="phare"><div class="pil">Utilisable</div><div class="v">${fmt(e.c404 + e.c500)}</div><div class="cap">Pages d'erreur (404 + 500)</div><span class="tag">fiabilité technique</span></div>
+    <div class="phare"><div class="pil">Utilisé</div><div class="v">${lan.v} %</div><div class="cap">Sessions lançant une recherche</div></div>
+    <div class="phare value1"><div class="pil">Utile · phare</div><div class="v">${contact.v} %</div><div class="cap"><b>Mise en relation</b> — sessions avec interaction asso (tél, mail, site, adresse)</div></div>
+    <div class="phare pending"><div class="pil">Impactant</div><div class="v pend">⏳ en attente</div><div class="cap">Taux de femmes accompagnées par au moins 1 structure suite à l'utilisation de l'annuaire</div><span class="tag" style="color:var(--pend)">source hors Matomo à identifier</span></div>
   </div>`;
 
   const glob = FUNNEL.tous;
@@ -333,17 +330,15 @@ function renderSynthese(){
   const abandonV = 100-glob[3];
 
   document.getElementById('p0').innerHTML = `
-    <h2 class="sec">Les 4 cœurs phares <small>: un par pilier</small></h2>${phares}
+    <h2 class="sec">Les 4 indicateurs phares <small>: un par pilier</small></h2>${phares}
     <h2 class="sec">Funnel global de mise en relation <small>: ${curLbl()}</small></h2>
     ${funnel}
     <div class="explain"><b>Miroir de la valeur :</b> ${abandonV}% des sessions repartent sans aucun clic contact. Le principal décrochage se lit entre l'affichage des résultats et le clic contact.</div>`;
 }
 
 function renderUtilisable(){
-  const lan=r('lancement'), e=err();
-  const coeur = `${cap('Taux de lancement de recherche','Part des sessions ayant lancé au moins une recherche après l’arrivée sur l’annuaire')} ${srcBadge('Matomo · event')}
-    <div class="kpi-big ${rcStatus('lancement',lan.v).cls}">${lan.v} %</div>${rcPill('lancement',lan.v)} ${delta(lan.d,' pts')}`;
-  const ctrl = `${cap('Pages d’erreur (404 / 500)','Nombre d’occurrences de pages 404 et 500 sur la période. Cible < 10 / mois.')} ${srcBadge('Matomo · event')}
+  const e=err();
+  const errCard = `${cap('Pages d’erreur (404 / 500)','Nombre d’occurrences de pages 404 et 500 sur la période.')} ${srcBadge('Matomo · event')}
     <div style="display:flex;gap:1.4rem;margin:.2rem 0 .1rem"><div><div class="kpi-mid">${e.c404}</div><div class="kpi-note">erreurs 404</div></div><div><div class="kpi-mid">${e.c500}</div><div class="kpi-note">erreurs 500</div></div></div>${delta(e.d,'')}
     <div class="defbox"><b>Source :</b> events <code>erreur/404</code> + <code>erreur/500</code> (déclenchés au rendu de la page d’erreur). Le <code>nom</code> porte l’URL fautive.</div>`;
 
@@ -355,6 +350,26 @@ function renderUtilisable(){
       <div style="padding:.7rem .9rem"><div class="funnel">${modes.map(k=>modeRow(MODES[k].lbl, MODES[k].part[seg])).join('')}</div>
       <div class="hint" style="margin-top:.35rem">Base : ${fmt(sess)} recherches lancées. Source : event <code>recherche/lancer</code> (nom = saisie | geoloc | ville).</div></div></div>`;
 
+  document.getElementById('p1').innerHTML = `<h2 class="sec">Utilisable <small>: entrée dans la recherche et fiabilité technique</small></h2>
+    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier vérifie que l'annuaire est <b>utilisable</b> : par quel mode d'entrée la recherche démarre, et ce que le produit renvoie comme pages d'erreur.</div>${segNote()}
+    ${modeEntree}
+    <h2 class="sec">Fiabilité technique <small>: pages d’erreur</small></h2>
+    <div class="pilier">
+      <div class="card"><div class="ph"><span class="role">Pages d’erreur (404 / 500)</span></div><div class="ctrl" style="border-left:0">${errCard}</div>${chartErr('pages d’erreur (404+500)')}</div>
+    </div>
+    <p class="src">Source : Matomo, entrées / erreurs = events. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+}
+
+function renderUtilise(){
+  const lan=r('lancement'), alv=r('partAlv'), v=vol();
+  const coeur = `${cap('Taux de lancement de recherche','Part des sessions ayant lancé au moins une recherche après l’arrivée sur l’annuaire')} ${srcBadge('Matomo · event')}
+    <div class="kpi-big">${lan.v} %</div>${delta(lan.d,' pts')}`;
+  const alvCard = `${cap('Part des visites venant d’ALV','Repère technique de provenance, mesuré via le référent sur le site annuaire (168). Ne vaut pas indicateur d’impact tant que l’annuaire n’est référencé que sur ALV.')} ${srcBadge('Matomo · référent')} <span class="tag" style="color:var(--pend)">⏳ stand-by</span>
+    <div class="kpi-mid">${alv.v} %</div>${delta(alv.d,' pts')}
+    <div class="perim">ⓘ <b>Statut :</b> indicateur en <b>stand-by</b> (arbitrage Ali, 20/08). <b>Cible</b> : part des visiteurs d’ALV qui accèdent à l’annuaire, pour objectiver le repositionnement de l’annuaire sur ALV. Nécessite le total ALV via l’<b>API Eulerian</b> (faisabilité à vérifier avec Grégoire, chef de projet ALV). Le calcul intermédiaire sur volume ALV figé est écarté : la vraie mesure est attendue avant la fin septembre.</div>`;
+  const volCard = `${cap('Volume de recherches lancées','Nombre de recherches lancées sur la période et son évolution')} ${srcBadge('Matomo · event')}
+    <div class="kpi-mid">${fmt(v.v)}</div>${delta(v.d,' %')}`;
+
   // Filtres type de violence
   const fl=FILTRES[seg]||[];
   const filtres = `<h2 class="sec">Filtres de type de violence appliqués <small>: besoins exprimés · segment ${SEG_LBL[seg]}</small></h2>
@@ -362,39 +377,29 @@ function renderUtilisable(){
       <div style="padding:.7rem .9rem">${fl.length? barList(fl, Math.max(...fl.map(f=>f.p))) : '<p class="hint">Aucun filtre appliqué sur la période / le device sélectionné.</p>'}
       <div class="hint" style="margin-top:.35rem">Source : event <code>recherche/filtrer</code>. Part des recherches où le filtre est appliqué.</div></div></div>`;
 
-  document.getElementById('p1').innerHTML = `<h2 class="sec">Utilisable <small>: la recherche démarre-t-elle sans friction ?</small></h2>${segNote()}
+  document.getElementById('p2').innerHTML = `<h2 class="sec">Utilisé <small>: usage de l’annuaire et origine du trafic</small></h2>
+    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier mesure l'<b>usage réel</b> de l'annuaire : part des sessions qui lancent une recherche, filtres appliqués, volume de recherches, et captation du trafic venant d'ALV.</div>${segNote()}
     <div class="pilier">
-      <div class="card"><div class="ph"><span class="role">Cœur · lancement de recherche (RC)</span></div><div class="coeur">${coeur}</div>${chartRate('lancement','lancement de recherche',RC.lancement.t)}</div>
-      <div class="card"><div class="ph"><span class="role">Contrôle · pages d’erreur</span></div><div class="ctrl" style="border-left:0">${ctrl}</div>${chartErr('pages d’erreur (404+500)')}</div>
+      <div class="card"><div class="ph"><span class="role">Phare · lancement de recherche</span></div><div class="coeur">${coeur}</div>${chartRate('lancement','lancement de recherche')}</div>
+      <div class="card"><div class="ph"><span class="role">Périphérique · captation du trafic ALV (stand-by)</span></div><div class="ctrl" style="border-left:0">${alvCard}</div>${chartRate('partAlv','part venant d’ALV')}</div>
     </div>
-    ${modeEntree}
+    <div class="pilier">
+      <div class="card"><div class="ph"><span class="role">Périphérique · volume de recherches</span></div><div class="ctrl" style="border-left:0">${volCard}</div>${chartVol('recherches lancées')}</div>
+    </div>
     ${filtres}
-    <p class="src">Source : Matomo site 168 — lancement / filtre / erreurs = events. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
-}
-
-function renderUtilise(){
-  const alv=r('partAlv'), v=vol();
-  const coeur = `${cap('Part des visites venant d’ALV','Part des visites de l’annuaire dont la provenance est arretonslesviolences.gouv.fr. Mesuré via le référent, natif sur le site annuaire (168).')} ${srcBadge('Matomo · référent')}
-    <div class="kpi-big">${alv.v} %</div>${delta(alv.d,' pts')}
-    <div class="perim">ⓘ <b>Périmètre :</b> mesuré par le référent sur le site annuaire. Le <b>ratio cross-site</b> BASAVI/ALV nécessite le total d’ALV → <b>temps 2</b> (accès site ALV).</div>`;
-  const ctrl = `${cap('Volume de recherches lancées','Nombre de recherches lancées sur la période et son évolution')} ${srcBadge('Matomo · event')}
-    <div class="kpi-mid">${fmt(v.v)}</div>${delta(v.d,' %')}`;
-  document.getElementById('p2').innerHTML = `<h2 class="sec">Utilisé <small>: l’annuaire capte-t-il le trafic, et d’où viennent les gens ?</small></h2>${segNote()}
-    <div class="pilier">
-      <div class="card"><div class="ph"><span class="role">Cœur · provenance ALV</span></div><div class="coeur">${coeur}</div>${chartRate('partAlv','part venant d’ALV')}</div>
-      <div class="card"><div class="ph"><span class="role">Contrôle · volume de recherches</span></div><div class="ctrl" style="border-left:0">${ctrl}</div>${chartVol('recherches lancées')}</div>
-    </div>
-    <p class="src">Source : Matomo site 168 — provenance = référent ; volume = event. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+    <p class="src">Source : Matomo, lancement / provenance / volume / filtres = events + référent. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
 }
 
 function renderUtile(){
   const tel=r('clicTel'), adr=r('copieAdr'), ab=r('abandon');
-  const coeur = `${cap('Taux de clic téléphone (mise en relation)','Part des sessions avec au moins un clic sur un contact téléphone d’association. Cœur de la valeur.')} ${srcBadge('Matomo · event')}
-    <div class="kpi-big ${rcStatus('clicTel',tel.v).cls}">${tel.v} %</div>${rcPill('clicTel',tel.v)} ${delta(tel.d,' pts')}`;
+  const contact={v:Math.round((100-ab.v)*10)/10, d: ab.d==null?null:-ab.d};
+  const coeur = `${cap('Taux de sessions avec interaction asso','Part des sessions où une femme a contacté au moins une association : clic téléphone, email, site ou copie de l’adresse. Agrégat des 4 canaux de contact.')} ${srcBadge('Matomo · event')}
+    <div class="kpi-big">${contact.v} %</div>${delta(contact.d,' pts')}
+    <div class="hint" style="margin-top:.3rem">Agrège les 4 canaux de contact : téléphone, email, site, copie d’adresse.</div>`;
   const ctrl = `${cap('Taux de copie d’adresse','Part des sessions ayant copié l’adresse d’une association (bouton « Copier l’adresse »)')} ${srcBadge('Matomo · event')}
     <div class="kpi-mid ${rcStatus('copieAdr',adr.v).cls}">${adr.v} %</div>${rcPill('copieAdr',adr.v)} ${delta(adr.d,' pts')}
     <hr style="border:0;border-top:1px solid var(--line);margin:.7rem 0">
-    ${cap('Taux d’abandon sans mise en relation','Miroir de la conversion : part des sessions repartant sans aucun clic contact. Cible < 20 %. Dérivé des sessions, non tagué.')} ${srcBadge('Matomo · dérivé')}
+    ${cap('Taux d’abandon sans mise en relation','Miroir de la conversion : part des sessions repartant sans aucun clic contact. Dérivé des sessions, non tagué.')} ${srcBadge('Matomo · dérivé')}
     <div class="kpi-mid ${rcStatus('abandon',ab.v).cls}">${ab.v} %</div>${rcPill('abandon',ab.v)} ${delta(ab.d,' pts')}`;
 
   // sous-funnels par mode d'entrée (3 modes, device courant), 4 étapes
@@ -406,33 +411,35 @@ function renderUtile(){
   const canaux = `<h2 class="sec">Canaux de contact utilisés <small>: répartition des mises en relation · ${SEG_LBL[seg]}</small></h2>
     <div class="card"><div class="ph"><span class="role">Part de chaque canal</span></div>
       <div style="padding:.7rem .9rem">${barList(CANAUX[seg], Math.max(...CANAUX[seg].map(c=>c.p)))}
-      <div class="hint" style="margin-top:.35rem">Source : events <code>contact/clic_telephone · clic_email · copie_adresse · clic_site</code>. Seuls téléphone (RC1) et copie adresse (RC2) portent une cible.</div></div></div>`;
+      <div class="hint" style="margin-top:.35rem">Source : events <code>contact/clic_telephone · clic_email · copie_adresse · clic_site</code>.</div></div></div>`;
 
   const sTel=serieRate('clicTel'), sAdr=serieRate('copieAdr');
-  const dual = dualChart(sTel,sAdr,RC.clicTel.t);
+  const dual = dualChart(sTel,sAdr);
+  const sContact = serieRate('abandon').map(v=>Math.round((100-v)*10)/10);
 
-  document.getElementById('p3').innerHTML = `<h2 class="sec">Utile <small>: le produit met-il réellement en relation ?</small></h2>${segNote()}
+  document.getElementById('p3').innerHTML = `<h2 class="sec">Utile <small>: mise en relation via l’annuaire</small></h2>
+    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier mesure la <b>mise en relation</b> : la part des sessions qui aboutissent à un contact avec une association, par téléphone, email, site ou copie de l'adresse.</div>${segNote()}
     <div class="pilier">
-      <div class="card"><div class="ph"><span class="role">Cœur · clic téléphone (RC)</span></div><div class="coeur">${coeur}</div>${chartRate('clicTel','clic téléphone',RC.clicTel.t)}</div>
-      <div class="card"><div class="ph"><span class="role">Contrôle · copie adresse (RC) + abandon (RC miroir)</span></div><div class="ctrl" style="border-left:0">${ctrl}</div></div>
+      <div class="card"><div class="ph"><span class="role">Phare · interaction avec une asso</span></div><div class="coeur">${coeur}</div>${chartCard(`Évolution : interaction asso (%, ${GRAN_LBL})`, chart(sContact,'line'))}</div>
+      <div class="card"><div class="ph"><span class="role">Périphérique · détail par canal</span></div><div class="ctrl" style="border-left:0">${ctrl}</div></div>
     </div>
     ${canaux}
     <h2 class="sec">Funnel de mise en relation par mode d’entrée <small>: 4 étapes · segment ${SEG_LBL[seg]}</small></h2>
     <div class="pilier">${modeBlock('saisie')}${modeBlock('geoloc')}${modeBlock('ville')}</div>
-    <h2 class="sec">Évolution des taux de contact <small>: RC1 téléphone &amp; RC2 copie adresse (%, ${GRAN_LBL})</small></h2>
-    <div class="chartcard"><div class="ct">Ligne pleine : clic téléphone (RC1) · ligne pointillée : copie adresse (RC2) · repère : cible RC1 ${RC.clicTel.t}%</div>${dual}</div>
-    <p class="src">Source : Matomo site 168 — clics contact = events ; abandon = dérivé des sessions ; funnel = reconstruit (composant maison). Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+    <h2 class="sec">Évolution des taux de contact <small>: téléphone &amp; copie adresse (%, ${GRAN_LBL})</small></h2>
+    <div class="chartcard"><div class="ct">Ligne pleine : clic téléphone · ligne pointillée : copie adresse</div>${dual}</div>
+    <p class="src">Source : Matomo, clics contact = events ; abandon = dérivé des sessions ; funnel = reconstruit (composant maison). Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
 }
 
 function dualChart(s1,s2,target){
   const W=560,H=160, mL=42,mR=12,mT=12,mB=22, iw=W-mL-mR, ih=H-mT-mB;
-  const all=[...s1,...s2,target]; let lo=Math.min(...all), hi=Math.max(...all); if(lo===hi){lo-=1;hi+=1;} const pd=(hi-lo)*0.12; lo-=pd; hi+=pd;
+  const all=[...s1,...s2]; let lo=Math.min(...all), hi=Math.max(...all); if(lo===hi){lo-=1;hi+=1;} const pd=(hi-lo)*0.12; lo-=pd; hi+=pd;
   const X=i=> mL+i*(iw/(s1.length-1)), Y=v=> mT+ih-((v-lo)/(hi-lo))*ih;
   const ticks=[hi,(lo+hi)/2,lo];
   const grid=ticks.map(t=>`<line x1="${mL}" y1="${Y(t).toFixed(1)}" x2="${W-mR}" y2="${Y(t).toFixed(1)}" stroke="#ececec"/><text x="${mL-6}" y="${(Y(t)+3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="#9a9a9a">${(Math.round(t*10)/10).toLocaleString('fr-FR')}</text>`).join('');
   const lbls=xLabels(s1.length), idxs=[...new Set([0,Math.floor((s1.length-1)/3),Math.floor(2*(s1.length-1)/3),s1.length-1])];
   const xax=idxs.map(i=>`<text x="${X(i).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="9.5" fill="#9a9a9a">${lbls[i]||''}</text>`).join('');
-  const tline=`<line x1="${mL}" y1="${Y(target).toFixed(1)}" x2="${W-mR}" y2="${Y(target).toFixed(1)}" stroke="#8f8f8f" stroke-width="1" stroke-dasharray="4 3"/>`;
+  const tline='';
   const p1=`<polyline points="${s1.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="#000091" stroke-width="2"/>`;
   const p2=`<polyline points="${s2.map((v,i)=>`${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ')}" fill="none" stroke="#000091" stroke-width="1.6" stroke-dasharray="5 3" opacity="0.7"/>`;
   const e1=`<text x="${X(s1.length-1).toFixed(1)}" y="${(Y(s1[s1.length-1])-7).toFixed(1)}" text-anchor="end" font-size="10.5" font-weight="700" fill="#000091">${fmt(s1[s1.length-1])}</text>`;
@@ -440,10 +447,10 @@ function dualChart(s1,s2,target){
 }
 
 function renderImpactant(){
-  document.getElementById('p4').innerHTML = `<h2 class="sec">Impactant <small>: les femmes sont-elles réellement accompagnées ?</small></h2>
-    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier mesure l'<b>effet réel</b> de la mise en relation — au-delà du clic, l'accompagnement effectif par l'association. Il ne se mesure <b>pas dans Matomo</b> : la donnée est hors du périmètre de tagging.</div>
+  document.getElementById('p4').innerHTML = `<h2 class="sec">Impactant <small>: accompagnement effectif des femmes</small></h2>
+    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier mesure l'<b>effet réel</b> de la mise en relation, au-delà du clic : l'accompagnement effectif par l'association. Il ne se mesure <b>pas dans Matomo</b> : la donnée est hors du périmètre de tagging.</div>
     <div class="pilier" style="margin-top:.8rem">
-      <div class="card"><div class="ph"><span class="fr-badge fr-badge--sm" style="background:var(--pend-bg);color:var(--pend)">⏳ en attente</span><span class="role">Taux de femmes accompagnées</span></div>
+      <div class="card"><div class="ph"><span class="fr-badge fr-badge--sm" style="background:var(--pend-bg);color:var(--pend)">⏳ en attente</span><span class="role">Taux de femmes accompagnées par au moins 1 structure suite à l'utilisation de l'annuaire</span></div>
         <div style="padding:.9rem 1rem"><div class="attente"><div class="h">⏳ Source externe à identifier</div><div class="why">Part des femmes mises en relation qui bénéficient effectivement d'un accompagnement par une association. <b>Hors Matomo</b> : nécessite une source externe (remontée associations / dispositif dédié), à cadrer. Carte maintenue visible, sans valeur, jusqu'à identification de la source.</div></div></div></div>
       <div class="card" style="background:#fcfcff"><div class="ph"><span class="role">Pourquoi hors Matomo ?</span></div>
         <div style="padding:.9rem 1rem;font-size:.83rem;color:#444">Matomo s'arrête au <b>clic contact</b> (dernière action observable côté produit). Ce qui se passe ensuite — appel abouti, prise en charge, suivi — se joue <b>hors du site</b>, sans boucle de retour instrumentable. La mesure d'impact réel relève d'un dispositif partenaire à construire.</div></div>
