@@ -28,6 +28,7 @@ ENVNOM="$env" yq -n '{"produitsInventaire": strenv(ENVNOM)}'
 echo "produits:"
 
 vus=""
+docs_vus=""
 
 while IFS= read -r manifeste; do
   [ -n "$manifeste" ] || continue
@@ -111,6 +112,17 @@ while IFS= read -r manifeste; do
     [ "$site_ici" != "$site_la" ] || \
       echo "$slug : note — $env et $autre lisent le même site Matomo ($site_ici)" >&2
   fi
+
+  # Le doc Grist est ÉCRIT, et les clés naturelles des tables (day|device) ne portent
+  # aucun discriminant de produit : deux produits sur le même doc s'écrasent l'un
+  # l'autre chaque nuit, le dernier exécuté gagnant, en silence. Le contrôle existait
+  # déjà entre les envs d'un même produit ; il manquait entre produits.
+  case " $docs_vus " in
+    *" $grist_doc "*)
+      echo "$slug : le doc Grist $grist_doc est déjà utilisé par un autre produit en $env — les deux collectes s'écraseraient" >&2
+      exit 1 ;;
+  esac
+  docs_vus="$docs_vus $grist_doc"
 
   # Optionnel : le chart applique son schedule par défaut si absent.
   schedule=$(yq -r '.collecte.schedule // ""' "$manifeste")

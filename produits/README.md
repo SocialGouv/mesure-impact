@@ -13,6 +13,13 @@ Chaque tableau de bord vit dans `produits/<département>/<produit>/`. Le socle t
 5. **Sceller les tokens** : `PRODUIT=<dept>/<nom> ENV=dev task seal` (voir `doc/conventions.md`).
    Sans ce fichier, la CI refuse la PR : `cron.suspend` vaut pour tout l'env, donc un
    produit sans secret naîtrait actif et échouerait chaque nuit.
+6. **Premier run** : un produit qui ne collecte rien du tout échoue volontairement — c'est
+   presque toujours un `site_id` faux ou un tag absent. Si l'absence de trafic est
+   attendue, poser `ALLOW_EMPTY_COLLECT: "1"` dans `cron.env` de l'env, et le retirer dès
+   la première collecte réussie.
+7. **Doc Grist distinct** : deux produits ne peuvent pas partager un `doc_id`. Les clés des
+   tables sont `day|device`, sans discriminant de produit : les deux collectes s'écraseraient.
+   Le générateur d'inventaire refuse ce cas.
 6. **Documenter** : mettre à jour `doc/produit.md` et ouvrir la PR (le modèle de PR rappelle
    la checklist).
 

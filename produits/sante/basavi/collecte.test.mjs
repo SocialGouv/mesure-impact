@@ -136,6 +136,15 @@ for (const [scenario, titre] of [['vide', 'aucune visite'], ['simulation', 'que 
     /n'a jamais rien collecté/.test(texte) && /MATOMO_SITE_ID \(168\)/.test(texte));
 }
 
+// --- Un produit qu'on sait branché mais sans trafic peut être toléré explicitement
+// Sans échappatoire, son alerte sonnerait chaque matin sans moyen de l'acquitter.
+{
+  const { code, texte } = await jouer('vide',
+    { sessionsExistantes: false, env: { ALLOW_EMPTY_COLLECT: '1' } });
+  verifier('ALLOW_EMPTY_COLLECT : le Job réussit malgré une table vide', code === 0, `code ${code}`);
+  verifier('ALLOW_EMPTY_COLLECT : le silence reste signalé', /Aucune journée collectée/.test(texte));
+}
+
 // --- Le cas nominal publie RÉELLEMENT --------------------------------------------
 {
   const { code, texte, trafic } = await jouer('reel');

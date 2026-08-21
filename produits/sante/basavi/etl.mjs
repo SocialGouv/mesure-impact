@@ -9,7 +9,8 @@
 // fichier `.env` local (gitignoré) en développement. Contrat de variables commun au
 // socle (cf. chart/ et Taskfile.yml) :
 //   MATOMO_URL, MATOMO_TOKEN_AUTH, MATOMO_SITE_ID, GRIST_URL, GRIST_API_KEY, GRIST_DOC_ID
-// Optionnelles : COLLECT_FROM (date de début), GRIST_DOC_NAME (vérif de sécurité), RUN_ID.
+// Optionnelles : ALLOW_EMPTY_COLLECT (tolère une collecte vide sur un produit qui n'a
+//   encore jamais rien collecté), COLLECT_FROM (date de début), GRIST_DOC_NAME (vérif de sécurité), RUN_ID.
 //
 // Usage local : node produits/sante/basavi/etl.mjs [--reset] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
 import { readFileSync, existsSync } from 'node:fs';
@@ -338,12 +339,17 @@ async function main() {
   // n'observent que l'état Kubernetes, aucune ne regarde la fraîcheur des données
   // Grist, donc plus rien ne pourrait le signaler. C'est le seul détecteur.
   if (!days.length) {
-    const dejaCollecte = (await getRecords('Sessions')).length > 0;
+    // Échappatoire explicite pour un produit qu'on sait branché mais sans trafic :
+    // sans elle, son alerte sonnerait chaque matin sans moyen de l'acquitter. Se pose
+    // dans `cron.env` de l'env, et se retire dès la première collecte réussie.
+    const tolereVide = /^(1|true|oui)$/i.test(cfg.ALLOW_EMPTY_COLLECT || '');
+    const dejaCollecte = tolereVide || (await getRecords('Sessions')).length > 0;
     if (!dejaCollecte) {
       throw new Error(
         `Aucune donnée sur ${FROM} → ${TO} (${arr.length} visites brutes) et la table Sessions ` +
         `est vide : ce produit n'a jamais rien collecté. Vérifier MATOMO_SITE_ID (${SITE}) et ` +
-        `la présence du tag sur le site.`
+        `la présence du tag sur le site. Si l'absence de trafic est attendue, poser ` +
+        `ALLOW_EMPTY_COLLECT=1 dans cron.env de l'env.`
       );
     }
     // L'horodatage d'extraction n'est pas rafraîchi : le bandeau du tableau de bord
