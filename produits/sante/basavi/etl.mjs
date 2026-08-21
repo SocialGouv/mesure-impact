@@ -93,7 +93,12 @@ async function mapi(method, extra = {}) {
   // Un amont en erreur peut renvoyer un corps JSON parfaitement valide — souvent
   // un tableau vide. Sans ce contrôle, une panne se lit comme « zéro visite ».
   if (!r.ok) throw new Error(redact(`${method} → HTTP ${r.status} : ${(await r.text()).slice(0, 300)}`));
-  const j = await r.json();
+  // Lire en texte puis parser : une page de proxy ou de maintenance est du HTML servi
+  // en 200, et `r.json()` lèverait une SyntaxError qui ne dit pas d'où vient le corps.
+  const brut = await r.text();
+  let j;
+  try { j = JSON.parse(brut); }
+  catch { throw new Error(redact(`${method} : réponse non-JSON (content-type ${r.headers.get('content-type')}) : ${brut.slice(0, 300)}`)); }
   if (j && j.result === 'error') throw new Error(redact(method + ': ' + j.message));
   return j;
 }
@@ -253,7 +258,9 @@ function inconnus() {
   const top = [...horsListe.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
   // JSON.stringify borne et échappe : ces valeurs viennent du tracker public, et un
   // saut de ligne y forgerait une fausse ligne de succès dans les logs du Job.
-  return ` ⚠ hors allowlist : ${top.map(([k, n]) => `${JSON.stringify(k)}×${n}`).join(', ')}`;
+  // Longueur bornée aussi : `JSON.stringify` amplifie ×6 un caractère de contrôle, et
+  // Matomo accepte des noms d'action de plusieurs kilo-octets.
+  return ` ⚠ hors allowlist : ${top.map(([k, n]) => `${JSON.stringify(k.slice(0, 80))}×${n}`).join(', ')}`;
 }
 
 async function main() {
@@ -321,11 +328,20 @@ async function main() {
   const nE = await upsert('Events', events, ['event_id']);
   const nM = await upsert('Modes', modes, ['mode_id']);
   const nI = await upsert('Indicateurs', indic, ['ind_id']);
+  // Une fenêtre sans trafic exploitable n'est PAS une panne : c'est l'état nominal d'un
+  // site de préprod, et celui de tout produit le jour de son onboarding. Le garde
+  // ci-dessus a déjà écarté le seul cas anormal (des visites réelles dont aucune date
+  // n'est lisible). Échouer ici ferait sonner MesureImpactCollecteEnEchec toutes les
+  // nuits sur un site simplement calme.
+  // L'horodatage d'extraction n'est pas rafraîchi pour autant : le bandeau du tableau
+  // de bord vieillit visiblement, et MesureImpactCollecteMuette reste le filet si le
+  // silence dure. C'est le rôle qu'on lui a donné.
   if (!days.length) {
-    throw new Error(
-      `Aucune journée collectée sur ${FROM} → ${TO} (${arr.length} visites reçues). ` +
-      `L'horodatage d'extraction n'est pas rafraîchi : le tableau de bord doit vieillir visiblement.`
+    console.warn(
+      `⚠ Aucune journée collectée sur ${FROM} → ${TO} (${arr.length} visites brutes, ` +
+      `${reelles} réelles) — rien à publier. L'horodatage d'extraction reste inchangé.`
     );
+    return;
   }
   const stamp = new Date().toISOString();
   await upsert('Extractions', [{

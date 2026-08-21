@@ -55,6 +55,13 @@ spec:
         #    suspendu pendant des semaines puis activé est déclaré muet immédiatement).
         # Chacune prise seule laisse passer l'un des deux faux positifs.
         #
+        # Le délai de grâce mesure la DURÉE de suspension, pas sa présence : avec un
+        # `max_over_time(...) == 1`, un unique scrape à 1 — le geste de remédiation le
+        # plus naturel face à cette alerte — la rendait muette 48 h, et une suspension
+        # récurrente à moins de 48 h d'intervalle la rendait muette à jamais. La moyenne
+        # sur une fenêtre double dit « suspendu plus de la moitié du temps » : 48 h de
+        # grâce après une vraie suspension, aucun effet d'un clignotement.
+        #
         # Les deux s'écrivent en `unless <négation>`, jamais en `and <condition>` :
         # `and` avec un membre droit vide ne renvoie rien, donc une métrique absente
         # ÉTEINDRAIT l'alerte. Pour un garde-fou contre la panne silencieuse, une
@@ -70,8 +77,8 @@ spec:
                    maintenance, alors que la première exécution n'a pas encore eu lieu. */}}
               unless on (cronjob) (
                 max by (cronjob) (
-                  max_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ .Values.alerts.silenceMaxSeconds }}s])
-                ) == 1
+                  avg_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ mul 2 .Values.alerts.silenceMaxSeconds }}s])
+                ) > 0.5
               )
             )
             or
@@ -84,8 +91,8 @@ spec:
               )
               unless on (cronjob) (
                 max by (cronjob) (
-                  max_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ .Values.alerts.silenceMaxSeconds }}s])
-                ) == 1
+                  avg_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ mul 2 .Values.alerts.silenceMaxSeconds }}s])
+                ) > 0.5
               )
             )
           for: 30m

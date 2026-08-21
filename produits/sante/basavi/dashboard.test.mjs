@@ -303,6 +303,22 @@ const indicateur = (day, device, champs = {}) => ({
   });
   verifier('deux périodes d’erreurs identiques : delta nul', api.ERR.tous.d === 0);
 }
+{
+  // Périodes DIFFÉRENTES : sans cette assertion, une implémentation qui compare la
+  // période à elle-même, ou qui renvoie toujours 0, passerait le test ci-dessus.
+  const jours = ['2026-08-01', '2026-08-02'];
+  const { api } = executer((t) => {
+    t.SESS = jours.map((j) => session(j, 'tous', 10, 2));
+    t.EVT = [
+      { day: jours[0], device: 'tous', category: 'erreur', action: '404', name: '', count: 10 },
+      { day: jours[1], device: 'tous', category: 'erreur', action: '404', name: '', count: 5 },
+    ];
+    t.MOD = []; t.META = null;
+    t.INDIC = jours.map((j) => indicateur(j, 'tous', { visites: 10 }));
+    t.seg = 'tous'; t.fromD = jours[1]; t.toD = jours[1]; t.buildFixed();
+  });
+  verifier(`erreurs 10 puis 5 : delta = -5 (${api.ERR.tous.d})`, api.ERR.tous.d === -5);
+}
 
 // --- Un graphe de comptage part de zéro -------------------------------------------
 {
@@ -311,6 +327,11 @@ const indicateur = (day, device, champs = {}) => ({
     const bas = [...svg.matchAll(/<text[^>]*>(-?[\d\s,]+)<\/text>/g)].map((m) => m[1].trim());
     verifier(`barres : aucune graduation négative (${bas.join(' / ')})`,
       !bas.some((v) => v.startsWith('-')));
+    // Assertion géométrique, pas signalétique : sans base à zéro, la barre de valeur 2
+    // disparaît et le graphe ment sur le rapport 2:4, sans aucune graduation négative.
+    const h = [...svg.matchAll(/<rect[^>]*height="([\d.]+)"/g)].map((m) => Number(m[1]));
+    verifier(`barres : les hauteurs sont proportionnelles aux valeurs (${h.join(' / ')})`,
+      h.length === 2 && h[0] > 0 && Math.abs(h[1] - 2 * h[0]) < 1);
     verifier('barres : tout à zéro affiche un message, pas des barres',
       t.chart([0, 0, 0], 'bars').includes('Aucune occurrence'));
   });
@@ -321,9 +342,14 @@ const indicateur = (day, device, champs = {}) => ({
   const jour = '2026-08-19';
   const { api } = executer((t) => {
     t.SESS = [session(jour, 'tous', 100, 40)];
+    // Les 4 canaux sont exercés : une fixture à un seul canal ne verrait pas un front
+    // qui cesserait d'itérer sur les autres.
     t.EVT = [
       { day: jour, device: 'tous', category: 'contact', action: 'clic_telephone', name: '', count: 30 },
-      { day: jour, device: 'tous', category: 'contact', action: 'autre', name: '', count: 70 },
+      { day: jour, device: 'tous', category: 'contact', action: 'clic_email', name: '', count: 10 },
+      { day: jour, device: 'tous', category: 'contact', action: 'copie_adresse', name: '', count: 5 },
+      { day: jour, device: 'tous', category: 'contact', action: 'clic_site', name: '', count: 5 },
+      { day: jour, device: 'tous', category: 'contact', action: 'autre', name: '', count: 50 },
     ];
     t.MOD = []; t.META = null;
     t.INDIC = [indicateur(jour, 'tous', { visites: 100, contact_pct: 40 })];
@@ -332,6 +358,9 @@ const indicateur = (day, device, champs = {}) => ({
   const somme = api.CANAUX.tous.reduce((a, c) => a + c.p, 0);
   verifier(`canaux : la répartition totalise 100 % (${JSON.stringify(api.CANAUX.tous)})`, somme === 100);
   verifier('canaux : le reliquat est nommé', api.CANAUX.tous.some((c) => c.n === 'Autre canal'));
+  for (const attendu of ['Téléphone', 'Email', 'Copie adresse', 'Site web']) {
+    verifier(`canaux : « ${attendu} » est rendu`, api.CANAUX.tous.some((c) => c.n === attendu));
+  }
 }
 
 // --- Séries dégénérées : premier jour de collecte, ou rien du tout --------------

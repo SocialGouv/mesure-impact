@@ -149,10 +149,8 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
   const CANAUX_ATTENDUS = new Set(['clic_telephone', 'clic_email', 'copie_adresse', 'clic_site']);
   memeEnsemble(CANAUX_ATTENDUS, canauxFront, 'canaux de contact (front)');
   memeEnsemble(CANAUX_ATTENDUS, new Set([...ACTIONS].filter((a) => CANAUX_ATTENDUS.has(a))), 'canaux de contact (ETL)');
-  // Le front doit aussi ITÉRER sur ces 4 canaux, pas seulement les libeller.
-  const iteres = new Set([...front.matchAll(/\['clic_telephone'[^\]]*\]/g)]
-    .flatMap((m) => m[0].replace(/[[\]']/g, '').split(',').map((x) => x.trim())));
-  memeEnsemble(CANAUX_ATTENDUS, iteres, 'canaux de contact (itérés par le front)');
+  // Que le front ITÈRE réellement sur les 4 canaux ne se prouve pas par une regex sur
+  // le source : c'est la fixture à 4 canaux de dashboard.test.mjs qui l'exerce.
   memeEnsemble(new Set([...ACTIONS].filter((a) => /^\d{3}$/.test(a))), erreursFront, 'codes d’erreur');
 }
 
@@ -164,9 +162,14 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
   verifier('canari : inconnus() est aussi journalisé par le Job',
     /console\.warn\([^)]*inconnus\(\)/.test(source2));
   // Les valeurs viennent du tracker public : un saut de ligne forgerait une ligne de log.
-  build([visite([['contact', 'x\n✓ Push : tout va bien', '']])]);
-  verifier(`canari : les valeurs hostiles sont échappées (${inconnus().trim().slice(0, 60)})`,
-    !inconnus().includes('\n'));
+  build([visite([['contact', 'x\n\r\u001b[2K✓ Push : tout va bien', '']])]);
+  const note = inconnus();
+  verifier(`canari : ni saut de ligne, ni retour chariot, ni séquence ANSI (${note.trim().slice(0, 50)})`,
+    !/[\r\n\u001b]/.test(note));
+  // Matomo accepte des noms d'action de plusieurs kilo-octets, et JSON.stringify
+  // amplifie ×6 un caractère de contrôle : la note doit rester bornée.
+  build([visite([['contact', '\u0001'.repeat(4000), '']])]);
+  verifier(`canari : la note reste bornée (${inconnus().length} caractères)`, inconnus().length < 1500);
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
