@@ -92,13 +92,13 @@ async function mapi(method, extra = {}) {
   const r = await fetch(`${MURL}/index.php`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   // Un amont en erreur peut renvoyer un corps JSON parfaitement valide — souvent
   // un tableau vide. Sans ce contrôle, une panne se lit comme « zéro visite ».
-  if (!r.ok) throw new Error(redact(`${method} → HTTP ${r.status} : ${(await r.text()).slice(0, 300)}`));
+  if (!r.ok) throw new Error(redact(`${method} → HTTP ${r.status} : ${JSON.stringify((await r.text()).slice(0, 300))}`));
   // Lire en texte puis parser : une page de proxy ou de maintenance est du HTML servi
   // en 200, et `r.json()` lèverait une SyntaxError qui ne dit pas d'où vient le corps.
   const brut = await r.text();
   let j;
   try { j = JSON.parse(brut); }
-  catch { throw new Error(redact(`${method} : réponse non-JSON (content-type ${r.headers.get('content-type')}) : ${brut.slice(0, 300)}`)); }
+  catch { throw new Error(redact(`${method} : réponse non-JSON (content-type ${r.headers.get('content-type')}) : ${JSON.stringify(brut.slice(0, 300))}`)); }
   if (j && j.result === 'error') throw new Error(redact(method + ': ' + j.message));
   return j;
 }
@@ -328,25 +328,37 @@ async function main() {
   const nE = await upsert('Events', events, ['event_id']);
   const nM = await upsert('Modes', modes, ['mode_id']);
   const nI = await upsert('Indicateurs', indic, ['ind_id']);
-  // Une fenêtre sans trafic exploitable n'est PAS une panne : c'est l'état nominal d'un
-  // site de préprod, et celui de tout produit le jour de son onboarding. Le garde
-  // ci-dessus a déjà écarté le seul cas anormal (des visites réelles dont aucune date
-  // n'est lisible). Échouer ici ferait sonner MesureImpactCollecteEnEchec toutes les
-  // nuits sur un site simplement calme.
-  // L'horodatage d'extraction n'est pas rafraîchi pour autant : le bandeau du tableau
-  // de bord vieillit visiblement, et MesureImpactCollecteMuette reste le filet si le
-  // silence dure. C'est le rôle qu'on lui a donné.
+  // Une fenêtre sans trafic exploitable n'est PAS une panne quand le produit a DÉJÀ
+  // collecté : c'est l'état nominal d'un site de préprod calme, et échouer ferait
+  // sonner MesureImpactCollecteEnEchec toutes les nuits pour rien.
+  //
+  // Mais n'avoir JAMAIS rien collecté est une erreur de câblage, pas un creux —
+  // `site_id` faux ou tracker absent, l'erreur d'onboarding numéro un. Sortir en 0
+  // dans ce cas rafraîchit `last_successful_time` chaque nuit : les deux alertes
+  // n'observent que l'état Kubernetes, aucune ne regarde la fraîcheur des données
+  // Grist, donc plus rien ne pourrait le signaler. C'est le seul détecteur.
   if (!days.length) {
+    const dejaCollecte = (await getRecords('Sessions')).length > 0;
+    if (!dejaCollecte) {
+      throw new Error(
+        `Aucune donnée sur ${FROM} → ${TO} (${arr.length} visites brutes) et la table Sessions ` +
+        `est vide : ce produit n'a jamais rien collecté. Vérifier MATOMO_SITE_ID (${SITE}) et ` +
+        `la présence du tag sur le site.`
+      );
+    }
+    // L'horodatage d'extraction n'est pas rafraîchi : le bandeau du tableau de bord
+    // vieillit visiblement, ce qui est le signal attendu pour un creux.
     console.warn(
       `⚠ Aucune journée collectée sur ${FROM} → ${TO} (${arr.length} visites brutes, ` +
-      `${reelles} réelles) — rien à publier. L'horodatage d'extraction reste inchangé.`
+      `dont ${arr.length - reelles} de simulation écartées) — rien à publier. ` +
+      `L'horodatage d'extraction reste inchangé.`
     );
     return;
   }
   const stamp = new Date().toISOString();
   await upsert('Extractions', [{
     run_id: RUN_ID, extracted_at: stamp, source: `Matomo réel, site ${SITE}`,
-    days: days.length ? `${days[0]} → ${days[days.length - 1]}` : '(aucun)', jours: days.length,
+    days: `${days[0]} → ${days[days.length - 1]}`, jours: days.length,
     devices: 'tous, mobile, desktop',
     note: `${arr.length} visites brutes. Grain jour × device.${inconnus()}`,
   }], ['run_id']);

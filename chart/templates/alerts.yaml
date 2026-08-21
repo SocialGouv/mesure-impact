@@ -55,6 +55,13 @@ spec:
         #    suspendu pendant des semaines puis activé est déclaré muet immédiatement).
         # Chacune prise seule laisse passer l'un des deux faux positifs.
         #
+        # Deux clauses, pas une, et elles ne disent pas la même chose :
+        #  - `== 1` couvre la suspension EN COURS, immédiatement ;
+        #  - la moyenne couvre la GRÂCE après réactivation.
+        # La seconde seule laisse 24 h de fausse alerte à chaque suspension volontaire
+        # d'un CronJob qui collectait : l'alerte mûrit à dernier_succès + 48 h, la
+        # moyenne à début_suspension + 48 h, et on ne suspend qu'après un succès.
+        #
         # Le délai de grâce mesure la DURÉE de suspension, pas sa présence : avec un
         # `max_over_time(...) == 1`, un unique scrape à 1 — le geste de remédiation le
         # plus naturel face à cette alerte — la rendait muette 48 h, et une suspension
@@ -75,6 +82,17 @@ spec:
               {{/* Même délai de grâce que la branche 2, et pour la même raison : un test
                    ponctuel sur `spec_suspend` fait sonner 30 min après une réactivation de
                    maintenance, alors que la première exécution n'a pas encore eu lieu. */}}
+              {{/* Suspension EN COURS : silence immédiat. Un CronJob volontairement
+                   suspendu ne doit pas alerter, et l'attente d'une moyenne arriverait
+                   toujours après la maturation de l'alerte — une suspension ne peut
+                   avoir lieu qu'après le dernier succès. */}}
+              unless on (cronjob) (
+                max by (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}) == 1
+              )
+              {{/* Après RÉACTIVATION : grâce proportionnelle à la durée réellement
+                   passée suspendue, pour laisser au CronJob le temps d'une exécution.
+                   La moyenne, ici, ne peut que retarder le réveil — jamais masquer une
+                   suspension en cours, que la clause précédente couvre déjà. */}}
               unless on (cronjob) (
                 max by (cronjob) (
                   avg_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ mul 2 .Values.alerts.silenceMaxSeconds }}s])
@@ -89,6 +107,17 @@ spec:
                 time() - max by (cronjob) (kube_cronjob_created{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
                 <= {{ .Values.alerts.silenceMaxSeconds }}
               )
+              {{/* Suspension EN COURS : silence immédiat. Un CronJob volontairement
+                   suspendu ne doit pas alerter, et l'attente d'une moyenne arriverait
+                   toujours après la maturation de l'alerte — une suspension ne peut
+                   avoir lieu qu'après le dernier succès. */}}
+              unless on (cronjob) (
+                max by (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}) == 1
+              )
+              {{/* Après RÉACTIVATION : grâce proportionnelle à la durée réellement
+                   passée suspendue, pour laisser au CronJob le temps d'une exécution.
+                   La moyenne, ici, ne peut que retarder le réveil — jamais masquer une
+                   suspension en cours, que la clause précédente couvre déjà. */}}
               unless on (cronjob) (
                 max by (cronjob) (
                   avg_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ mul 2 .Values.alerts.silenceMaxSeconds }}s])

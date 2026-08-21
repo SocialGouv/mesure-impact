@@ -41,26 +41,47 @@ const CORPS_MATOMO = {
   vide: () => ({ statut: 200, type: 'application/json', corps: '[]' }),
   simulation: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify([visiteSimulee]) }),
   reel: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify([visiteReelle]) }),
-  // Une page de proxy ou de maintenance : du HTML servi en 200.
-  html: () => ({ statut: 200, type: 'text/html', corps: '<html>maintenance</html>' }),
+  // Une page de proxy ou de maintenance : du HTML servi en 200. Le corps contient une
+  // fausse ligne de succès : l'amont ne doit pas pouvoir écrire dans nos logs.
+  html: () => ({ statut: 200, type: 'text/html',
+    corps: '<html>maintenance\n✓ Push : Sessions=42, Events=99, Extractions=1\n</html>' }),
   // Erreur applicative Matomo, qui réverbère le token dans son message.
   erreurToken: () => ({ statut: 200, type: 'application/json',
     corps: JSON.stringify({ result: 'error', message: 'token_auth JETON-SECRET invalide' }) }),
-  cinqCents: () => ({ statut: 500, type: 'text/plain', corps: 'boom' }),
+  cinqCents: () => ({ statut: 500, type: 'text/plain',
+    corps: 'boom\n✓ Push : Sessions=42, Events=99, Extractions=1' }),
+  // Schéma Matomo qui change sous nos pieds : `serverDate` renommé. Les visites sont
+  // bien réelles, aucune n'est datable — le contraire d'une fenêtre creuse.
+  schemaCasse: () => ({ statut: 200, type: 'application/json',
+    corps: JSON.stringify([{ ...visiteReelle, serverDate: undefined, jourDuServeur: AUJOURDHUI }]) }),
+  // JSON valide mais pas un tableau de visites : le garde-fou de forme.
+  objet: () => ({ statut: 200, type: 'application/json', corps: '{"value":42}' }),
 };
 
-async function jouer(scenario) {
+async function jouer(scenario, options = {}) {
   const reponse = CORPS_MATOMO[scenario]();
   const matomo = http.createServer((req, res) => {
     res.writeHead(reponse.statut, { 'content-type': reponse.type });
     res.end(reponse.corps);
   });
+  // Le bouchon ENREGISTRE : sans lecture du trafic, un `upsert` qui ne poste rien
+  // passerait les tests, puisque la ligne de log est calculée avant tout PUT.
+  const trafic = [];
   const grist = http.createServer((req, res) => {
     let recu = '';
     req.on('data', (c) => { recu += c; });
     req.on('end', () => {
+      trafic.push({ methode: req.method, url: req.url, corps: recu });
+      if (options.gristStatut && /\/records$/.test(req.url) && req.method === 'PUT') {
+        res.writeHead(options.gristStatut, { 'content-type': 'text/plain' });
+        return res.end('quota dépassé');
+      }
       res.writeHead(200, { 'content-type': 'application/json' });
       if (req.url.includes('/columns')) return res.end('{"columns":[]}');
+      // `sessionsExistantes` simule un produit qui a déjà collecté par le passé.
+      if (/\/tables\/Sessions\/records/.test(req.url) && options.sessionsExistantes) {
+        return res.end('{"records":[{"id":1,"fields":{"sess_id":"2026-01-01|tous"}}]}');
+      }
       if (req.url.includes('/records')) return res.end('{"records":[]}');
       if (req.url.includes('/tables')) return res.end('{"tables":[]}');
       return res.end('{}');
@@ -80,6 +101,8 @@ async function jouer(scenario) {
         GRIST_DOC_ID: 'doc-test',
         GRIST_API_KEY: 'CLE-SECRETE',
         COLLECT_FROM: '2026-08-06',
+        // En dernier : ces surcharges doivent gagner sur les valeurs nominales ci-dessus.
+        ...(options.env || {}),
       },
     });
     let texte = '';
@@ -88,41 +111,98 @@ async function jouer(scenario) {
     enfant.on('close', (code) => resoudre({ code, texte }));
   });
   matomo.close(); grist.close();
-  return sortie;
+  return { ...sortie, trafic };
 }
 
-// --- Une fenêtre sans trafic n'est pas une panne ---------------------------------
-// C'est l'état nominal d'un site de préprod, et celui de tout produit au jour de son
-// onboarding. Sortir en 1 fait sonner MesureImpactCollecteEnEchec toutes les nuits.
+// --- Une fenêtre creuse n'est pas une panne, SI le produit a déjà collecté --------
+// C'est l'état nominal d'un site de préprod calme. Sortir en 1 ferait sonner
+// MesureImpactCollecteEnEchec toutes les nuits sur un site simplement sans trafic.
 for (const [scenario, titre] of [['vide', 'aucune visite'], ['simulation', 'que des visites de simulation']]) {
-  const { code, texte } = await jouer(scenario);
-  verifier(`fenêtre sans trafic (${titre}) : le Job réussit`, code === 0, `code de sortie ${code}`);
-  verifier(`fenêtre sans trafic (${titre}) : le silence est signalé`,
-    /Aucune journée collectée/.test(texte));
-  verifier(`fenêtre sans trafic (${titre}) : l’horodatage n’est pas rafraîchi`,
-    !/Extractions=1/.test(texte));
+  const { code, texte, trafic } = await jouer(scenario, { sessionsExistantes: true });
+  verifier(`creux (${titre}) : le Job réussit`, code === 0, `code de sortie ${code}`);
+  verifier(`creux (${titre}) : le silence est signalé`, /Aucune journée collectée/.test(texte));
+  verifier(`creux (${titre}) : aucune ligne Extractions n'est écrite`,
+    !trafic.some((r) => r.methode === 'PUT' && /Extractions/.test(r.url)));
 }
 
-// --- Le cas nominal publie et le dit ---------------------------------------------
+// --- N'avoir JAMAIS rien collecté est une erreur de câblage, pas un creux ---------
+// site_id faux ou tracker absent : l'erreur d'onboarding numéro un. Sortir en 0
+// rafraîchirait `last_successful_time` chaque nuit, et aucune alerte ne regarde la
+// fraîcheur des données Grist — plus rien ne pourrait le signaler.
 {
-  const { code, texte } = await jouer('reel');
+  const { code, texte } = await jouer('vide', { sessionsExistantes: false });
+  verifier('jamais rien collecté : le Job échoue', code === 1, `code de sortie ${code}`);
+  verifier('jamais rien collecté : le message nomme MATOMO_SITE_ID',
+    /n'a jamais rien collecté/.test(texte) && /MATOMO_SITE_ID \(168\)/.test(texte));
+}
+
+// --- Le cas nominal publie RÉELLEMENT --------------------------------------------
+{
+  const { code, texte, trafic } = await jouer('reel');
   verifier('collecte nominale : le Job réussit', code === 0, `code de sortie ${code}`);
-  verifier('collecte nominale : les 5 tables sont poussées', /Extractions=1/.test(texte));
+  const ecrits = trafic.filter((r) => r.methode === 'PUT' && /\/records$/.test(r.url))
+    .map((r) => r.url.match(/tables\/([^/]+)\/records/)[1]);
+  for (const table of ['Sessions', 'Events', 'Modes', 'Indicateurs', 'Extractions']) {
+    verifier(`collecte nominale : la table ${table} reçoit un PUT`, ecrits.includes(table));
+  }
+  const extraction = trafic.find((r) => r.methode === 'PUT' && /Extractions/.test(r.url));
+  verifier('collecte nominale : l’horodatage part bien dans le corps',
+    /"extracted_at":"\d{4}-\d{2}-\d{2}T/.test(extraction ? extraction.corps : ''));
+  const crees = trafic.filter((r) => r.methode === 'POST' && /\/tables$/.test(r.url));
+  verifier('collecte nominale : les tables absentes sont créées', crees.length > 0);
+  verifier('collecte nominale : le résumé annonce la publication', /Extractions=1/.test(texte));
 }
 
 // --- Une panne amont doit échouer BRUYAMMENT, et sans fuiter les tokens ----------
-for (const [scenario, titre] of [['html', 'page de maintenance HTML'], ['cinqCents', 'erreur 500'],
-  ['erreurToken', 'erreur applicative Matomo']]) {
-  const { code, texte } = await jouer(scenario);
+for (const [scenario, titre, motif] of [
+  ['html', 'page de maintenance HTML', /réponse non-JSON \(content-type text\/html/],
+  ['cinqCents', 'erreur 500 de Matomo', /HTTP 500/],
+  ['erreurToken', 'erreur applicative Matomo', /token_auth \*\*\* invalide/],
+  ['schemaCasse', 'champ de date Matomo renommé', /Anomalie : 1 visites réelles/],
+  ['objet', 'réponse JSON de forme inattendue', /Réponse Matomo inattendue/],
+]) {
+  const { code, texte } = await jouer(scenario, { sessionsExistantes: true });
   verifier(`panne amont (${titre}) : le Job échoue`, code === 1, `code de sortie ${code}`);
-  if (scenario === 'html') {
-    verifier('panne amont (HTML) : le message nomme le content-type, pas une SyntaxError',
-      /réponse non-JSON \(content-type text\/html/.test(texte) && !/SyntaxError/.test(texte),
+  verifier(`panne amont (${titre}) : le message nomme la cause`, motif.test(texte),
+    texte.split('\n').filter((l) => l.startsWith('✗')).join(' | '));
+  verifier(`panne amont (${titre}) : aucun token en clair`,
+    !texte.includes('JETON-SECRET') && !texte.includes('CLE-SECRETE'));
+  verifier(`panne amont (${titre}) : aucune ligne de log forgée par l'amont`,
+    !/^✓ Push/m.test(texte));
+  // Échouer ne suffit pas : chaque garde-fou doit être celui qui a parlé. Sans ça,
+  // un contrôle supprimé passe inaperçu parce qu'un autre attrape le cas plus loin.
+  if (scenario === 'erreurToken') {
+    verifier('erreur applicative Matomo : c’est bien ce contrôle qui a parlé',
+      !/Réponse Matomo inattendue/.test(texte),
       texte.split('\n').filter((l) => l.startsWith('✗')).join(' | '));
   }
-  verifier(`panne amont (${titre}) : aucun token en clair dans la sortie`,
-    !texte.includes('JETON-SECRET') && !texte.includes('CLE-SECRETE'),
-    texte.split('\n').filter((l) => l.includes('JETON') || l.includes('CLE-')).join(' | '));
+  if (scenario === 'schemaCasse') {
+    verifier('schéma cassé : distingué d’une fenêtre creuse',
+      !/Aucune journée collectée/.test(texte) && !/jamais rien collecté/.test(texte));
+  }
+}
+
+// --- Une panne côté Grist ne doit pas passer pour un succès -----------------------
+{
+  const { code, texte } = await jouer('reel', { gristStatut: 403 });
+  verifier('Grist refuse l’écriture : le Job échoue', code === 1, `code de sortie ${code}`);
+  verifier('Grist refuse l’écriture : aucun token en clair',
+    !texte.includes('JETON-SECRET') && !texte.includes('CLE-SECRETE'));
+}
+
+// --- Une variable d'environnement manquante échoue bruyamment ---------------------
+{
+  const { code, texte } = await jouer('reel', { env: { GRIST_DOC_ID: '' }, sessionsExistantes: true });
+  verifier('variable manquante : le Job échoue', code === 1, `code de sortie ${code}`);
+  verifier('variable manquante : le message nomme la variable', /GRIST_DOC_ID/.test(texte),
+    texte.split('\n').filter((l) => l.startsWith('✗')).join(' | '));
+}
+
+// --- `--reset` refuse de vider les tables sans rien pour les repeupler ------------
+{
+  const { code, texte, trafic } = await jouer('vide', { sessionsExistantes: true, argv: true });
+  verifier('fenêtre creuse : aucune suppression Grist émise',
+    !trafic.some((r) => r.methode === 'POST' && /data\/delete/.test(r.url)), texte.slice(0, 120));
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
