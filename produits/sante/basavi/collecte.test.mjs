@@ -91,7 +91,7 @@ async function jouer(scenario, options = {}) {
   await new Promise((r) => grist.listen(0, '127.0.0.1', r));
 
   const sortie = await new Promise((resoudre) => {
-    const enfant = spawn(process.execPath, [path.join(ici, 'etl.mjs')], {
+    const enfant = spawn(process.execPath, [path.join(ici, 'etl.mjs'), ...(options.argv || [])], {
       env: {
         ...process.env,
         MATOMO_URL: `http://127.0.0.1:${matomo.address().port}`,
@@ -199,10 +199,21 @@ for (const [scenario, titre, motif] of [
 }
 
 // --- `--reset` refuse de vider les tables sans rien pour les repeupler ------------
+// Il vide les tables ENTIÈRES : l'accepter sur une extraction creuse effacerait tout
+// l'historique sans rien pour le reconstruire.
 {
-  const { code, texte, trafic } = await jouer('vide', { sessionsExistantes: true, argv: true });
-  verifier('fenêtre creuse : aucune suppression Grist émise',
-    !trafic.some((r) => r.methode === 'POST' && /data\/delete/.test(r.url)), texte.slice(0, 120));
+  const { code, texte, trafic } = await jouer('vide', { sessionsExistantes: true, argv: ['--reset'] });
+  verifier('--reset sur une extraction creuse : refusé', code === 1, `code de sortie ${code}`);
+  verifier('--reset refusé : le message dit pourquoi', /aucune ligne construite/.test(texte),
+    texte.split('\n').filter((l) => l.startsWith('✗')).join(' | '));
+  verifier('--reset refusé : aucune suppression Grist émise',
+    !trafic.some((r) => /data\/delete/.test(r.url)));
+}
+{
+  const { code, texte } = await jouer('reel', { argv: ['--reset', '--from', '2026-08-01'] });
+  verifier('--reset avec --from : refusé', code === 1, `code de sortie ${code}`);
+  verifier('--reset avec --from : le message dit pourquoi', /effacerait tout l/.test(texte),
+    texte.split('\n').filter((l) => l.startsWith('✗')).join(' | '));
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
