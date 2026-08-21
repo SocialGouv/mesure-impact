@@ -238,7 +238,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "Collecte mesure-impact-sante-basavi-collect n'est plus planifiée"
-              description: "Aucun Job n'a été créé pour mesure-impact-sante-basavi-collect depuis plus d'une cadence : quota atteint, webhook d'admission, schedule illisible ou contrôleur en défaut. La collecte est arrêtée, et rien d'autre ne le signale."
+              description: "Aucun Job n'a été créé pour mesure-impact-sante-basavi-collect depuis plus d'une cadence : quota atteint, webhook d'admission, ou contrôleur en défaut. La collecte est arrêtée, et rien d'autre ne le signale."
       - eval_time: 20160m
         alertname: MesureImpactCollecteNonPlanifiee
         exp_alerts:
@@ -250,7 +250,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "Collecte mesure-impact-sante-basavi-collect n'est plus planifiée"
-              description: "Aucun Job n'a été créé pour mesure-impact-sante-basavi-collect depuis plus d'une cadence : quota atteint, webhook d'admission, schedule illisible ou contrôleur en défaut. La collecte est arrêtée, et rien d'autre ne le signale."
+              description: "Aucun Job n'a été créé pour mesure-impact-sante-basavi-collect depuis plus d'une cadence : quota atteint, webhook d'admission, ou contrôleur en défaut. La collecte est arrêtée, et rien d'autre ne le signale."
       - eval_time: 43200m
         alertname: MesureImpactCollecteNonPlanifiee
         exp_alerts:
@@ -262,7 +262,7 @@ tests:
               severity: warning
             exp_annotations:
               summary: "Collecte mesure-impact-sante-basavi-collect n'est plus planifiée"
-              description: "Aucun Job n'a été créé pour mesure-impact-sante-basavi-collect depuis plus d'une cadence : quota atteint, webhook d'admission, schedule illisible ou contrôleur en défaut. La collecte est arrêtée, et rien d'autre ne le signale."
+              description: "Aucun Job n'a été créé pour mesure-impact-sante-basavi-collect depuis plus d'une cadence : quota atteint, webhook d'admission, ou contrôleur en défaut. La collecte est arrêtée, et rien d'autre ne le signale."
 
   # Suspendu : kube-state-metrics cesse d'émettre la métrique, l'alerte s'éteint à
   # l'instant. C'est le prédicat que six versions de `Muette` ont cherché en vain dans
@@ -384,4 +384,152 @@ tests:
     alert_rule_test:
       - { eval_time: 60m, alertname: MesureImpactCollecteEnEchec, exp_alerts: [] }
       - { eval_time: 300m, alertname: MesureImpactCollecteEnEchec, exp_alerts: [] }
+
+  # Une série ABSENTE ne se distingue pas d'une série saine : les deux règles de valeur
+  # restent vertes sur une collecte morte. CronJob supprimé à 96 h.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_next_schedule_time{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '86400+86400x1151 _x2000'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x1151 _x2000'
+    alert_rule_test:
+      - { eval_time: 5000m, alertname: MesureImpactCollecteNonObservable, exp_alerts: [] }
+      - eval_time: 6000m
+        alertname: MesureImpactCollecteNonObservable
+        exp_alerts:
+          - exp_labels:
+              alertname: MesureImpactCollecteNonObservable
+              namespace: mesure-impact-dev
+              cronjob: mesure-impact-sante-basavi-collect
+              environnement: dev
+              severity: warning
+            exp_annotations:
+              summary: "Collecte mesure-impact-sante-basavi-collect n'est plus observable"
+              description: "Plus aucune métrique de planification pour mesure-impact-sante-basavi-collect, et il n'est pas suspendu : CronJob supprimé, produit retiré du chart, kube-state-metrics arrêté, ou schedule que ksm n'arrive pas à lire. Les deux autres alertes sont aveugles dans cet état — elles testent des valeurs, celle-ci une présence."
+
+  # `spec.timeZone` que kube-state-metrics n'arrive pas à résoudre : `next_schedule_time`
+  # n'est JAMAIS émise, alors que le CronJob existe et n'est pas suspendu.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x3000'
+    alert_rule_test:
+      - { eval_time: 20m, alertname: MesureImpactCollecteNonObservable, exp_alerts: [] }
+      - eval_time: 3000m
+        alertname: MesureImpactCollecteNonObservable
+        exp_alerts:
+          - exp_labels:
+              alertname: MesureImpactCollecteNonObservable
+              namespace: mesure-impact-dev
+              cronjob: mesure-impact-sante-basavi-collect
+              environnement: dev
+              severity: warning
+            exp_annotations:
+              summary: "Collecte mesure-impact-sante-basavi-collect n'est plus observable"
+              description: "Plus aucune métrique de planification pour mesure-impact-sante-basavi-collect, et il n'est pas suspendu : CronJob supprimé, produit retiré du chart, kube-state-metrics arrêté, ou schedule que ksm n'arrive pas à lire. Les deux autres alertes sont aveugles dans cet état — elles testent des valeurs, celle-ci une présence."
+
+  # Suspendu délibérément : `next_schedule_time` disparaît de la même façon, mais
+  # `spec_suspend == 1` distingue les deux. C'est tout l'intérêt de cette ancre.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '1+0x3000'
+    alert_rule_test:
+      - { eval_time: 3000m, alertname: MesureImpactCollecteNonObservable, exp_alerts: [] }
+
+  # Sain : la métrique est là, rien ne sonne.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_next_schedule_time{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '86400+86400x2000'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x2000'
+    alert_rule_test:
+      - { eval_time: 5000m, alertname: MesureImpactCollecteNonObservable, exp_alerts: [] }
+
+  # Planification morte, et un second exportateur figé sur une échéance FUTURE.
+  # `max by` retiendrait le plus optimiste et éteindrait l'alerte : sur une échéance,
+  # « le plus grand » veut dire « le plus loin ».
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_next_schedule_time{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect", instance="ksm"}'
+        values: '432000+0x8000'
+      - series: 'kube_cronjob_next_schedule_time{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect", instance="kubecost"}'
+        values: '3240000+0x8000'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x8000'
+    alert_rule_test:
+      - eval_time: 30000m
+        alertname: MesureImpactCollecteNonPlanifiee
+        exp_alerts:
+          - exp_labels:
+              alertname: MesureImpactCollecteNonPlanifiee
+              namespace: mesure-impact-dev
+              cronjob: mesure-impact-sante-basavi-collect
+              environnement: dev
+              severity: warning
+            exp_annotations:
+              summary: "Collecte mesure-impact-sante-basavi-collect n'est plus planifiée"
+              description: "Aucun Job n'a été créé pour mesure-impact-sante-basavi-collect depuis plus d'une cadence : quota atteint, webhook d'admission, ou contrôleur en défaut. La collecte est arrêtée, et rien d'autre ne le signale."
+
+  # `for: 26h` : un retard d'une seule cadence ne doit pas sonner. Sans cette borne,
+  # toute maintenance de quelques heures déclencherait.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_next_schedule_time{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '432000+0x8000'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x8000'
+    alert_rule_test:
+      - { eval_time: 8600m, alertname: MesureImpactCollecteNonPlanifiee, exp_alerts: [] }
+      - eval_time: 8900m
+        alertname: MesureImpactCollecteNonPlanifiee
+        exp_alerts:
+          - exp_labels:
+              alertname: MesureImpactCollecteNonPlanifiee
+              namespace: mesure-impact-dev
+              cronjob: mesure-impact-sante-basavi-collect
+              environnement: dev
+              severity: warning
+            exp_annotations:
+              summary: "Collecte mesure-impact-sante-basavi-collect n'est plus planifiée"
+              description: "Aucun Job n'a été créé pour mesure-impact-sante-basavi-collect depuis plus d'une cadence : quota atteint, webhook d'admission, ou contrôleur en défaut. La collecte est arrêtée, et rien d'autre ne le signale."
+
+  # Le sélecteur borne au namespace ET au préfixe : un CronJob étranger ne doit pas
+  # être étiqueté `environnement: dev` et routé vers l'astreinte de ce produit.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_next_schedule_time{namespace="autre-namespace", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '432000+0x8000'
+      - series: 'kube_cronjob_next_schedule_time{namespace="mesure-impact-dev", cronjob="autre-chart-collect"}'
+        values: '432000+0x8000'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '0+0x8000'
+      - series: 'kube_cronjob_next_schedule_time{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect"}'
+        values: '86400+86400x2000'
+    alert_rule_test:
+      - { eval_time: 30000m, alertname: MesureImpactCollecteNonPlanifiee, exp_alerts: [] }
+
+  # Deux exportateurs en désaccord sur la suspension, l'un figé sur « suspendu ».
+  # Taire demande le consensus : `max by` prendrait le figé et éteindrait le garde-fou.
+  - interval: 5m
+    input_series:
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect", instance="kubecost"}'
+        values: '1+0x3000'
+      - series: 'kube_cronjob_spec_suspend{namespace="mesure-impact-dev", cronjob="mesure-impact-sante-basavi-collect", instance="ksm"}'
+        values: '0+0x3000'
+    alert_rule_test:
+      - eval_time: 3000m
+        alertname: MesureImpactCollecteNonObservable
+        exp_alerts:
+          - exp_labels:
+              alertname: MesureImpactCollecteNonObservable
+              namespace: mesure-impact-dev
+              cronjob: mesure-impact-sante-basavi-collect
+              environnement: dev
+              severity: warning
+            exp_annotations:
+              summary: "Collecte mesure-impact-sante-basavi-collect n'est plus observable"
+              description: "Plus aucune métrique de planification pour mesure-impact-sante-basavi-collect, et il n'est pas suspendu : CronJob supprimé, produit retiré du chart, kube-state-metrics arrêté, ou schedule que ksm n'arrive pas à lire. Les deux autres alertes sont aveugles dans cet état — elles testent des valeurs, celle-ci une présence."
 

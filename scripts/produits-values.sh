@@ -140,6 +140,29 @@ while IFS= read -r manifeste; do
 
   # Optionnel : le chart applique son schedule par défaut si absent.
   schedule=$(yq -r '.collecte.schedule // ""' "$manifeste")
+  # Seul champ de produit.yaml qui échappait à toute validation, et il pilote une
+  # ressource Kubernetes. Il doit aussi rester AU MOINS quotidien : l'alerte
+  # MesureImpactCollecteNonPlanifiee tolère un retard de 26 h, donc une cadence plus
+  # lâche la ferait sonner à chaque cycle normal. C'est vrai dès que jour-du-mois,
+  # mois ou jour-de-semaine cessent de valoir `*`.
+  if [ -n "$schedule" ]; then
+    case "$schedule" in
+      *[!0-9\ ,\*/-]*) echo "$slug : collecte.schedule contient un caractère interdit" >&2; exit 1 ;;
+    esac
+    # `set -f` est indispensable : sans lui le shell développe les `*` du cron en
+    # noms de fichiers, et le découpage compte autant de champs qu'il y a d'entrées
+    # dans le répertoire courant.
+    set -f
+    # shellcheck disable=SC2086
+    set -- $schedule
+    set +f
+    [ "$#" -eq 5 ] || { echo "$slug : collecte.schedule doit avoir 5 champs, pas $# (« $schedule »)" >&2; exit 1; }
+    if [ "$3" != '*' ] || [ "$4" != '*' ] || [ "$5" != '*' ]; then
+      echo "$slug : collecte.schedule « $schedule » est moins fréquent que quotidien —" >&2
+      echo "  l'alerte de non-planification tolère 26 h et sonnerait à chaque cycle." >&2
+      exit 1
+    fi
+  fi
 
   # L'entrée est construite par yq, jamais par concaténation : les valeurs passent
   # par strenv() et sont échappées par l'émetteur YAML. Un heredoc laisserait un
