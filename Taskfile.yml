@@ -30,6 +30,14 @@ tasks:
     internal: true
     cmd: ./scripts/produits-values.sh $ENV > {{.PRODUITS_VALUES}}-$ENV
 
+  test:
+    desc: Tests — tableau de bord, ETL, collecteur (Node) et règles d’alerte (promtool)
+    cmds:
+      - node produits/sante/basavi/dashboard.test.mjs
+      - node produits/sante/basavi/etl.test.mjs
+      - node produits/sante/basavi/collecte.test.mjs
+      - ./scripts/test-alerts.sh $ENV
+
   lint:
     desc: Lint du chart Helm
     deps: [produits:values]
@@ -96,6 +104,9 @@ tasks:
         set -eu
         [ -n "${PRODUIT:-}" ] || { echo "ERREUR: PRODUIT non défini (ex. PRODUIT=sante/basavi)" >&2; exit 1; }
         [ -f "produits/$PRODUIT/produit.yaml" ] || { echo "ERREUR: produits/$PRODUIT/produit.yaml introuvable" >&2; exit 1; }
+        # Un env inconnu produirait un fichier chiffré, commité dans un dépôt public,
+        # que la CI ne cherchera jamais — scellé pour un namespace qui n'existe pas.
+        case "$ENV" in dev|prod) ;; *) echo "ERREUR: ENV inconnu '$ENV' (attendu: dev, prod)" >&2; exit 1 ;; esac
         for v in MATOMO_TOKEN_AUTH GRIST_API_KEY; do
           eval "value=\${$v:-}"
           [ -n "$value" ] || { echo "ERREUR: $v non défini dans l'environnement" >&2; exit 1; }

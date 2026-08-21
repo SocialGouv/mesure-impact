@@ -18,15 +18,20 @@ spec:
     - name: mesure-impact-collecte
       rules:
         - alert: MesureImpactCollecteEnEchec
-          # Borné à la fenêtre récente : `kube_job_status_failed > 0` reste vrai tant
-          # que l'objet Job existe, et failedJobsHistoryLimit le conserve jusqu'à trois
-          # échecs suivants — l'alerte ne se résoudrait jamais après un échec isolé.
+          # `kube_job_failed{condition="true"}`, pas `kube_job_status_failed` : ce dernier
+          # compte les PODS passés en Failed, jamais remis à zéro quand le Job réussit
+          # ensuite. Un pod perdu (éviction, drain, préemption) suivi d'un réessai réussi
+          # faisait donc sonner 24 h sur une collecte qui avait abouti.
+          #
+          # Borné à la fenêtre récente : la condition reste vraie tant que l'objet Job
+          # existe, et failedJobsHistoryLimit le conserve jusqu'à trois échecs suivants —
+          # l'alerte ne se résoudrait jamais après un échec isolé.
           # `max by` déduplique : plusieurs exportateurs publient la même métrique
           # (kube-state-metrics, kubernetes-pods, kubecost…), soit autant d'alertes
           # identiques pour un seul job en échec.
           expr: |
             max by (namespace, job_name) (
-              kube_job_status_failed{namespace="{{ .Release.Namespace }}", job_name=~"mesure-impact-.*"}
+              kube_job_failed{namespace="{{ .Release.Namespace }}", job_name=~"mesure-impact-.*", condition="true"}
             ) > 0
             and on (namespace, job_name) (
               time() - max by (namespace, job_name) (kube_job_created{namespace="{{ .Release.Namespace }}"})
@@ -42,28 +47,41 @@ spec:
               Le job {{ `{{ $labels.job_name }}` }} du namespace {{ .Release.Namespace }}
               a échoué. Le tableau de bord concerné n'est plus alimenté.
 
-        # kube_cronjob_status_last_successful_time n'est PAS exporté tant qu'un
-        # CronJob n'a jamais réussi. La seule expression « trop vieux » serait donc
-        # aveugle au cas le plus grave : celui qui n'a jamais collecté. D'où la
-        # seconde branche, qui repère les CronJobs connus et sans succès, en
-        # excluant ceux qu'on a délibérément suspendus.
+        # Six versions de cette règle ont été écrites en tentant de déduire « ce CronJob
+        # a-t-il eu sa chance de tourner ? » de l'historique de `kube_cronjob_spec_suspend` :
+        # test ponctuel, fenêtre glissante, moyenne, seuil de rapport cyclique. Chacune a
+        # troqué un faux positif contre un faux négatif — un clignotement qui rend muet
+        # 48 h, une suspension de maintenance qui fait sonner, un rapport cyclique qui
+        # tait à jamais.
+        #
+        # Kubernetes répond directement à la question : `last_schedule_time` n'avance que
+        # lorsque le CronJob a RÉELLEMENT déclenché. Un CronJob suspendu ne déclenche pas,
+        # donc son horodatage vieillit ; un CronJob réactivé n'alerte pas tant qu'il n'a
+        # pas eu son exécution. Aucune fenêtre, aucun seuil, aucun rapport cyclique.
+        #
+        # `unless` plutôt que `and` sur la seconde clause : `last_successful_time` n'est
+        # pas exporté tant qu'un CronJob n'a jamais réussi, et c'est le cas le plus grave.
+        # Une métrique de succès absente doit donc faire sonner, pas taire.
+        #
+        # `max by` : « le déclenchement / le succès le plus récent qu'un exportateur
+        # connaisse ». Une série périmée ne peut ni retarder le réveil ni le masquer.
+        #
+        # Cette règle ne couvre QUE « il déclenche et il n'aboutit pas ». Elle ne peut
+        # structurellement pas voir « il ne déclenche plus » : sa fenêtre de tir a pour
+        # largeur `last_schedule − last_successful`, donc elle est VIDE dès lors que la
+        # dernière exécution planifiée avait réussi. Une collecte qui s'arrête proprement
+        # — quota atteint, webhook d'admission qui refuse, CronJob suspendu ou supprimé —
+        # ne la déclencherait jamais. C'est MesureImpactCollecteNonPlanifiee qui couvre
+        # ce cas ; les deux règles sont nécessaires et aucune ne remplace l'autre.
         - alert: MesureImpactCollecteMuette
           expr: |
-            (
-              time() - max by (cronjob) (
+            time() - max by (namespace, cronjob) (
+              kube_cronjob_status_last_schedule_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
+            ) < {{ .Values.alerts.silenceMaxSeconds }}
+            unless on (namespace, cronjob) (
+              time() - max by (namespace, cronjob) (
                 kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
-              ) > {{ .Values.alerts.silenceMaxSeconds }}
-              unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
-            )
-            or
-            (
-              max by (cronjob) (kube_cronjob_info{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
-              unless on (cronjob) kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}"}
-              unless on (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}"} == 1)
-              and on (cronjob) (
-                time() - max by (cronjob) (kube_cronjob_created{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
-                > {{ .Values.alerts.silenceMaxSeconds }}
-              )
+              ) <= {{ .Values.alerts.silenceMaxSeconds }}
             )
           for: 30m
           labels:
@@ -72,7 +90,38 @@ spec:
           annotations:
             summary: "Collecte {{ `{{ $labels.cronjob }}` }} sans succès depuis trop longtemps"
             description: >-
-              Aucune collecte réussie pour {{ `{{ $labels.cronjob }}` }} depuis plus de
-              {{ div .Values.alerts.silenceMaxSeconds 3600 }} h. Panne silencieuse probable :
-              les données affichées vieillissent sans que rien ne casse.
+              {{ `{{ $labels.cronjob }}` }} déclenche mais n'aboutit pas : aucun succès depuis
+              plus de {{ div .Values.alerts.silenceMaxSeconds 3600 }} h, ou aucun succès depuis
+              la création du CronJob. Les données affichées vieillissent sans que rien ne casse.
+        # « Il ne déclenche plus du tout » — l'autre moitié de la panne silencieuse, que
+        # MesureImpactCollecteMuette ne peut pas voir. `next_schedule_time` vaut
+        # `schedule.Next(lastScheduleTime)` : il reste figé dans le passé tant qu'aucun
+        # Job n'est créé, quelle qu'en soit la cause — quota, webhook d'admission,
+        # schedule illisible, contrôleur en retard.
+        #
+        # kube-state-metrics n'émet PAS cette métrique pour un CronJob suspendu
+        # (internal/store/cronjob.go : `j.Spec.Suspend == nil || !*j.Spec.Suspend`).
+        # La suspension éteint donc l'alerte à l'instant, exactement — c'est le prédicat
+        # que six versions de la règle précédente ont cherché dans l'historique de
+        # `spec_suspend`, et qu'il suffisait de demander.
+        #
+        # `for: 26h` : une cadence quotidienne plus deux heures de marge. Absorbe un
+        # retard de contrôleur et la réactivation après maintenance — le CronJob
+        # redéclenche au prochain créneau, donc en moins de 24 h — sans jamais
+        # s'éteindre sur une planification réellement arrêtée.
+        - alert: MesureImpactCollecteNonPlanifiee
+          expr: |
+            time() - max by (namespace, cronjob) (
+              kube_cronjob_next_schedule_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
+            ) > 0
+          for: 26h
+          labels:
+            severity: warning
+            environnement: {{ .Values.environment | quote }}
+          annotations:
+            summary: "Collecte {{ `{{ $labels.cronjob }}` }} n'est plus planifiée"
+            description: >-
+              Aucun Job n'a été créé pour {{ `{{ $labels.cronjob }}` }} depuis plus d'une
+              cadence : quota atteint, webhook d'admission, schedule illisible ou contrôleur
+              en défaut. La collecte est arrêtée, et rien d'autre ne le signale.
 {{- end }}

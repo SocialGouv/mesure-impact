@@ -5,6 +5,8 @@ web:
   replicas: 2
 
 cron:
-  # Repasser à false une fois envs/prod/sealed-secrets/tokens.sealedsecret.yaml en place.
+  # Aucun produit ne cible encore la prod. Repasser à false quand le premier produit
+  # y sera collecté ET aura son produits/<dept>/<nom>/secrets/prod.sealedsecret.yaml :
+  # ce réglage vaut pour tous les produits de l'env, pas pour un seul.
   suspend: true
   schedule: "0 6 * * *"

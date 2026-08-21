@@ -12,3 +12,6 @@ doc
 envs
 chart
 *.md
+
+# Les fichiers de test ne servent qu'au dépôt, pas aux images publiées.
+**/*.test.mjs

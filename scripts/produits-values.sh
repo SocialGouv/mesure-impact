@@ -29,6 +29,32 @@ echo "produits:"
 
 vus=""
 
+# Le doc Grist est ÉCRIT, et les clés naturelles des tables (day|device) ne portent
+# aucun discriminant, ni de produit ni d'env : deux collectes sur le même doc
+# s'écrasent chaque nuit, la dernière gagnant, en silence. L'invariant est donc
+# GLOBAL — il ne suffit pas de le vérifier entre produits d'un même env, ni entre
+# envs d'un même produit : la diagonale (produit A en dev, produit B en prod)
+# passerait à travers les deux.
+docs_vus=""
+while IFS= read -r manifeste; do
+  [ -n "$manifeste" ] || continue
+  dossier=$(dirname "$manifeste")
+  slug_doc="$(basename "$(dirname "$dossier")")/$(basename "$dossier")"
+  for e in $(yq -r '.chaine.grist.doc_id // {} | keys | .[]' "$manifeste"); do
+    d=$(E="$e" yq -r '.chaine.grist.doc_id[strenv(E)] // ""' "$manifeste")
+    [ -n "$d" ] && [ "$d" != "null" ] || continue
+    case " $docs_vus " in
+      *" $d "*)
+        echo "doc Grist $d déclaré par $slug_doc ($e) et déjà par un autre couple produit/env — les deux collectes s'écraseraient" >&2
+        exit 1 ;;
+    esac
+    docs_vus="$docs_vus $d"
+  done
+done <<EOF
+$manifests
+EOF
+
+
 while IFS= read -r manifeste; do
   [ -n "$manifeste" ] || continue
   dossier=$(dirname "$manifeste")

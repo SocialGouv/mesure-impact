@@ -16,10 +16,11 @@ task             # liste des commandes
 |---|---|
 | `docker/cron/` | image du CronJob de collecte |
 | `docker/web/` | image nginx servant `site/` |
-| `site/` | tableau de bord statique |
+| `site/` | page d'accueil listant les tableaux de bord |
+| `produits/<dept>/<nom>/` | un produit : fiche, ETL, tableau de bord, secrets scellés |
 | `chart/` | chart Helm (CronJob, Deployment, Service, Ingress) |
 | `envs/<env>/values.yaml` | surcharges par environnement |
-| `envs/<env>/sealed-secrets/` | tokens chiffrés (SealedSecrets) |
+| `produits/<dept>/<nom>/secrets/` | tokens chiffrés du produit, un SealedSecret par env |
 | `.github/workflows/deploy.yml` | build des images + déploiement |
 
 ## Environnements
@@ -34,6 +35,6 @@ Push sur `main` → déploiement `dev`. Déploiement `prod` : `workflow_dispatch
 
 ## Contribuer
 
-Les secrets ne sont jamais commités en clair : `task seal ENV=dev` produit un SealedSecret
+Les secrets ne sont jamais commités en clair : `PRODUIT=<dept>/<nom> ENV=dev task seal` produit un SealedSecret
 chiffré à partir de variables d'environnement. Voir [CLAUDE.md](CLAUDE.md) pour le détail de
 l'infrastructure (projet Rancher, bot de déploiement, certificats).

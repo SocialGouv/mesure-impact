@@ -40,5 +40,25 @@ le site Matomo et le doc Grist restent en clair dans `produit.yaml`. Voir `doc/c
 
 ## État
 
-Pilote. Le CronJob reste suspendu tant que les tokens ne sont pas scellés.
-Front en préprod, itéré au fil des retours équipe.
+Pilote, **collecte de préprod activée le 20/08/2026**. Les deux tokens sont scellés
+(`secrets/dev.sealedsecret.yaml`) et `cron.suspend` est repassé à `false` dans
+`envs/dev/values.yaml` : le CronJob tourne chaque nuit à 6h sur le site Matomo 168, vers le
+doc Grist « Preprod - BASAVI ».
+
+L'accès Grist passe par un **compte de service** (décision 0003), pas par une clé personnelle.
+Il a l'accès éditeur au doc, vérifié en lecture et en écriture avant scellement.
+
+Front en préprod, itéré au fil des retours de l'équipe produit. `dashboard.html` est aligné sur
+la version servie aujourd'hui dans le doc Grist.
+
+Trois points de vigilance :
+
+- **La clé du compte de service expire le 31/12/2027.** Passé cette date la collecte s'arrête.
+- Le compte de service est rattaché à un compte personnel. Le rattacher à une identité DNUM
+  durable reste le point ouvert de la décision 0003.
+- Un ETL local (LaunchAgent, toutes les heures) écrit encore sur le même doc. **À couper au
+  merge**, pas « dès la première collecte réussie » : les deux écrivent avec le même `run_id`
+  (`basavi`) et `Extractions` est clé sur ce seul champ. L'ETL local rafraîchit donc
+  `extracted_at` chaque heure, et le bandeau de fraîcheur du tableau de bord resterait vert
+  même si la collecte de la fabrique était morte — c'est précisément le signal que cette
+  table existe pour donner. Les données, elles, sont bien idempotentes.

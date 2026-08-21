@@ -9,7 +9,8 @@
 // fichier `.env` local (gitignoré) en développement. Contrat de variables commun au
 // socle (cf. chart/ et Taskfile.yml) :
 //   MATOMO_URL, MATOMO_TOKEN_AUTH, MATOMO_SITE_ID, GRIST_URL, GRIST_API_KEY, GRIST_DOC_ID
-// Optionnelles : COLLECT_FROM (date de début), GRIST_DOC_NAME (vérif de sécurité), RUN_ID.
+// Optionnelles : ALLOW_EMPTY_COLLECT (liste de slugs, séparés par des virgules, dont
+//   une collecte vide est tolérée alors qu'ils n'ont encore jamais rien collecté), COLLECT_FROM (date de début), GRIST_DOC_NAME (vérif de sécurité), RUN_ID.
 //
 // Usage local : node produits/sante/basavi/etl.mjs [--reset] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
 import { readFileSync, existsSync } from 'node:fs';
@@ -92,8 +93,13 @@ async function mapi(method, extra = {}) {
   const r = await fetch(`${MURL}/index.php`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   // Un amont en erreur peut renvoyer un corps JSON parfaitement valide — souvent
   // un tableau vide. Sans ce contrôle, une panne se lit comme « zéro visite ».
-  if (!r.ok) throw new Error(redact(`${method} → HTTP ${r.status} : ${(await r.text()).slice(0, 300)}`));
-  const j = await r.json();
+  if (!r.ok) throw new Error(redact(`${method} → HTTP ${r.status} : ${JSON.stringify((await r.text()).slice(0, 300))}`));
+  // Lire en texte puis parser : une page de proxy ou de maintenance est du HTML servi
+  // en 200, et `r.json()` lèverait une SyntaxError qui ne dit pas d'où vient le corps.
+  const brut = await r.text();
+  let j;
+  try { j = JSON.parse(brut); }
+  catch { throw new Error(redact(`${method} : réponse non-JSON (content-type ${r.headers.get('content-type')}) : ${JSON.stringify(brut.slice(0, 300))}`)); }
   if (j && j.result === 'error') throw new Error(redact(method + ': ' + j.message));
   return j;
 }
@@ -116,11 +122,14 @@ const S = "Sessions.lookupOne(sess_id=$ind_id)";
 const INDIC_COLS = [
   { id: 'ind_id', type: 'Text' }, { id: 'day', type: 'Text' }, { id: 'date', type: 'Date' }, { id: 'device', type: 'Text' },
   { id: 'visites', type: 'Int', formula: `${S}.visites or 0` },
-  { id: 'lancement_pct', type: 'Numeric', formula: `round(100*(${S}.s_recherche or 0)/$visites,1) if $visites else 0` },
-  { id: 'clictel_pct', type: 'Numeric', formula: `round(100*(${S}.s_tel or 0)/$visites,1) if $visites else 0` },
-  { id: 'copieadr_pct', type: 'Numeric', formula: `round(100*(${S}.s_copie or 0)/$visites,1) if $visites else 0` },
-  { id: 'abandon_pct', type: 'Numeric', formula: `round(100*(1-(${S}.s_contact or 0)/$visites),1) if $visites else 0` },
-  { id: 'partalv_pct', type: 'Numeric', formula: `${S}.part_alv_pct or 0` },
+  // Sans visite, un taux vaut None et non 0 : un 0 se lit comme une mesure, et le
+  // tableau de bord en tire « 100 % de mise en relation » sur une période creuse.
+  { id: 'lancement_pct', type: 'Numeric', formula: `round(100*(${S}.s_recherche or 0)/$visites,1) if $visites else None` },
+  { id: 'clictel_pct', type: 'Numeric', formula: `round(100*(${S}.s_tel or 0)/$visites,1) if $visites else None` },
+  { id: 'copieadr_pct', type: 'Numeric', formula: `round(100*(${S}.s_copie or 0)/$visites,1) if $visites else None` },
+  { id: 'contact_pct', type: 'Numeric', formula: `round(100*(${S}.s_contact or 0)/$visites,1) if $visites else None` },
+  { id: 'abandon_pct', type: 'Numeric', formula: `round(100-$contact_pct,1) if $contact_pct is not None else None` },
+  { id: 'partalv_pct', type: 'Numeric', formula: `${S}.part_alv_pct if $visites else None` },
   { id: 'recherches', type: 'Int', formula: `sum(e.count for e in Events.lookupRecords(day=$day, device=$device, category='recherche', action='lancer'))` },
   { id: 'err404', type: 'Int', formula: `sum(e.count for e in Events.lookupRecords(day=$day, device=$device, category='erreur', action='404'))` },
   { id: 'err500', type: 'Int', formula: `sum(e.count for e in Events.lookupRecords(day=$day, device=$device, category='erreur', action='500'))` },
@@ -131,11 +140,34 @@ const EXTRACT_COLS = [
 ];
 
 // --- Helpers extraction ---
+// Le tracker Matomo est public : catégorie, action et nom sont trois entrées
+// arbitraires. Les trois sont bornées, pas seulement le nom — sinon la cardinalité
+// des lignes Events reste illimitée, et surtout un `|` dans l'action décale le
+// `split('|')` de la clé d'agrégat et réinjecte du texte choisi dans la colonne
+// `name`, par-dessus l'allowlist. Aucune valeur retenue ne contient de `|`.
+const CATEGORIES = new Set(['recherche', 'contact', 'erreur']);
+const ACTIONS = new Set(['lancer', 'filtrer', 'clic_telephone', 'clic_email', 'copie_adresse', 'clic_site', '404', '500']);
+const MODES_ENTREE = new Set(['saisie', 'geoloc', 'ville']);
+const TYPES_FILTRE = new Set(['violences-conjugales', 'violences-sexuelles', 'mutilations-sexuelles', 'prostitution', 'mariages-forces', 'harcelement-sexuel']);
+const RECHERCHE_NAMES = new Set([
+  ...[...MODES_ENTREE].map((n) => `lancer/${n}`),
+  ...[...TYPES_FILTRE].map((n) => `filtrer/${n}`),
+]);
+// Ce qui tombe hors liste est agrégé en `autre` — mais la valeur d'origine est
+// retenue à part : sinon une dérive du plan de tag (l'appli renomme un event) devient
+// indiscernable du bruit du tracker public, et la panne n'a plus de trace.
+const horsListe = new Map();
+const borner = (valeur, liste, quoi) => {
+  if (liste.has(valeur)) return valeur;
+  if (valeur) horsListe.set(`${quoi}=${valeur}`, (horsListe.get(`${quoi}=${valeur}`) || 0) + 1);
+  return 'autre';
+};
 const DEVICE = (t) => /bureau|desktop|ordinateur/i.test(t || '') ? 'desktop' : 'mobile'; // smartphone/phablette/tablette → mobile
 const dayTs = (d) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 1000;
 const isALV = (v) => /arretonslesviolences/i.test((v.referrerUrl || '') + (v.referrerName || ''));
 
 function build(visits) {
+  horsListe.clear();
   // agrégateurs par clé jour|device
   const sess = new Map();   // day|dev -> compteurs + {alv, tot}
   const evAgg = new Map();  // day|dev|cat|action|name -> count
@@ -165,13 +197,14 @@ function build(visits) {
     for (const a of acts) {
       if (a.type === 'action' && /\/search/.test(a.url || '')) reached = true;
       if (a.type !== 'event') continue;
-      const cat = a.eventCategory || '', act = a.eventAction || '', name = a.eventName || '';
+      const cat = borner(a.eventCategory || '', CATEGORIES, 'categorie'), act = borner(a.eventAction || '', ACTIONS, 'action');
+      const name = a.eventName || '';
       // agrégat Events (day|dev|cat|action|name). On ne garde le `nom` que là où il est BORNÉ :
       // recherche/lancer (3 modes) et recherche/filtrer (6 types). Pour contact (nom = id asso) et
       // erreur (nom = URL), on droppe le nom → cardinalité maîtrisée (cf. cadrage scaling Grist).
-      const evName = cat === 'recherche' ? name : '';
+      const evName = cat === 'recherche' ? (RECHERCHE_NAMES.has(`${act}/${name}`) ? name : (name ? 'autre' : '')) : '';
       const ek = `${day}|${dev}|${cat}|${act}|${evName}`; evAgg.set(ek, (evAgg.get(ek) || 0) + 1);
-      if (cat === 'recherche' && act === 'lancer') { searched = true; if (!entryMode && name) entryMode = name; reached = true; }
+      if (cat === 'recherche' && act === 'lancer') { searched = true; if (!entryMode && MODES_ENTREE.has(name)) entryMode = name; reached = true; }
       if (cat === 'recherche' && act === 'filtrer') reached = true;
       if (cat === 'contact') { contacted = true; if (act === 'clic_telephone') tel = true; if (act === 'copie_adresse') copie = true; }
     }
@@ -217,6 +250,18 @@ function build(visits) {
     for (const [mode, cur] of Object.entries(mAgg)) modes.push({ mode_id: `${day}|tous|${mode}`, day, date: dayTs(day), device: 'tous', mode, ...cur });
   }
   return { sessions, events, modes, indic, days: [...days].sort(), retenues, reelles };
+}
+
+// Résumé des valeurs hors allowlist, remonté dans Extractions.note ET dans les logs
+// du Job : c'est le seul endroit où une dérive du plan de tag reste visible.
+function inconnus() {
+  if (!horsListe.size) return '';
+  const top = [...horsListe.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
+  // JSON.stringify borne et échappe : ces valeurs viennent du tracker public, et un
+  // saut de ligne y forgerait une fausse ligne de succès dans les logs du Job.
+  // Longueur bornée aussi : `JSON.stringify` amplifie ×6 un caractère de contrôle, et
+  // Matomo accepte des noms d'action de plusieurs kilo-octets.
+  return ` ⚠ hors allowlist : ${top.map(([k, n]) => `${JSON.stringify(k.slice(0, 80))}×${n}`).join(', ')}`;
 }
 
 async function main() {
@@ -284,20 +329,55 @@ async function main() {
   const nE = await upsert('Events', events, ['event_id']);
   const nM = await upsert('Modes', modes, ['mode_id']);
   const nI = await upsert('Indicateurs', indic, ['ind_id']);
+  // Une fenêtre sans trafic exploitable n'est PAS une panne quand le produit a DÉJÀ
+  // collecté : c'est l'état nominal d'un site de préprod calme, et échouer ferait
+  // sonner MesureImpactCollecteEnEchec toutes les nuits pour rien.
+  //
+  // Mais n'avoir JAMAIS rien collecté est une erreur de câblage, pas un creux —
+  // `site_id` faux ou tracker absent, l'erreur d'onboarding numéro un. Sortir en 0
+  // dans ce cas rafraîchit `last_successful_time` chaque nuit : les deux alertes
+  // n'observent que l'état Kubernetes, aucune ne regarde la fraîcheur des données
+  // Grist, donc plus rien ne pourrait le signaler. C'est le seul détecteur.
   if (!days.length) {
-    throw new Error(
-      `Aucune journée collectée sur ${FROM} → ${TO} (${arr.length} visites reçues). ` +
-      `L'horodatage d'extraction n'est pas rafraîchi : le tableau de bord doit vieillir visiblement.`
+    // Échappatoire explicite pour un produit qu'on sait branché mais sans trafic :
+    // sans elle, son alerte sonnerait chaque matin sans moyen de l'acquitter.
+    // Elle NOMME les produits tolérés — `cron.env` est une valeur d'environnement, et
+    // un simple booléen y désarmerait ce détecteur pour tous les autres produits, dont
+    // le prochain onboardé avec un site_id faux.
+    // Deux gardes redondants, et c'est voulu : `''.split(',')` vaut `['']` et
+    // `[''].includes('')` vaut `true`, donc une liste vide et un PRODUIT absent
+    // tolèreraient tout — l'inverse de ce que ce drapeau fait. Chacun suffit seul ;
+    // aucun test ne peut donc les tuer séparément, seule leur suppression conjointe
+    // rougit.
+    const toleres = (cfg.ALLOW_EMPTY_COLLECT || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const tolereVide = Boolean(cfg.PRODUIT) && toleres.includes(cfg.PRODUIT);
+    const dejaCollecte = tolereVide || (await getRecords('Sessions')).length > 0;
+    if (!dejaCollecte) {
+      throw new Error(
+        `Aucune donnée sur ${FROM} → ${TO} (${arr.length} visites brutes) et la table Sessions ` +
+        `est vide : ce produit n'a jamais rien collecté. Vérifier MATOMO_SITE_ID (${SITE}) et ` +
+        `la présence du tag sur le site. Si l'absence de trafic est attendue, ajouter ` +
+        `« ${cfg.PRODUIT} » à ALLOW_EMPTY_COLLECT dans cron.env de l'env.`
+      );
+    }
+    // L'horodatage d'extraction n'est pas rafraîchi : le bandeau du tableau de bord
+    // vieillit visiblement, ce qui est le signal attendu pour un creux.
+    console.warn(
+      `⚠ Aucune journée collectée sur ${FROM} → ${TO} (${arr.length} visites brutes, ` +
+      `dont ${arr.length - reelles} de simulation écartées) — rien à publier. ` +
+      `L'horodatage d'extraction reste inchangé.`
     );
+    return;
   }
   const stamp = new Date().toISOString();
   await upsert('Extractions', [{
     run_id: RUN_ID, extracted_at: stamp, source: `Matomo réel, site ${SITE}`,
-    days: days.length ? `${days[0]} → ${days[days.length - 1]}` : '(aucun)', jours: days.length,
+    days: `${days[0]} → ${days[days.length - 1]}`, jours: days.length,
     devices: 'tous, mobile, desktop',
-    note: `${arr.length} visites brutes. Grain jour × device.`,
+    note: `${arr.length} visites brutes. Grain jour × device.${inconnus()}`,
   }], ['run_id']);
 
+  if (horsListe.size) console.warn(`⚠ valeurs hors allowlist rencontrées :${inconnus()}`);
   console.log(`\n✓ Push : Sessions=${nS}, Events=${nE}, Modes=${nM}, Indicateurs=${nI}, Extractions=1`);
   console.log(`  ${arr.length} visites brutes · ${days.length} jours${days.length ? ` (${days[0]} → ${days[days.length - 1]})` : ''}`);
 }

@@ -84,6 +84,75 @@ jobs:
             node --check "$f"
           done
 
+      # Un produit collecté sans secret scellé déploierait un CronJob actif et muet :
+      # `cron.suspend` vaut pour tout l'env, pas par produit. Vu ici, pas au merge.
+      - name: Chaque produit collecté a son secret scellé
+        shell: bash
+        run: |
+          set -euo pipefail
+          for env in dev prod; do
+            for slug in $(yq -r '.produits[].slug' "$RUNNER_TEMP/produits-$env.yaml"); do
+              f="produits/$slug/secrets/$env.sealedsecret.yaml"
+              [ -f "$f" ] || { echo "::error::$slug est collecté en $env sans $f"; exit 1; }
+              attendu="mesure-impact-$(echo "$slug" | tr '/' '-')-tokens"
+              obtenu=$(yq -r '.metadata.name' "$f")
+              [ "$obtenu" = "$attendu" ] || { echo "::error::$f : nom '$obtenu', attendu '$attendu'"; exit 1; }
+              ns=$(yq -r '.metadata.namespace' "$f")
+              [ "$ns" = "mesure-impact-$env" ] || { echo "::error::$f : namespace '$ns', attendu 'mesure-impact-$env'"; exit 1; }
+              echo "$slug/$env : $obtenu dans $ns"
+            done
+          done
+
+      # Le scellement est en scope STRICT : le nom et le namespace font partie du
+      # chiffré. Le nom rendu par le chart et celui du fichier viennent de deux
+      # chaînes indépendantes — les comparer est le seul moyen de voir une dérive.
+      - name: Le secretRef rendu pointe sur un secret fourni
+        shell: bash
+        run: |
+          set -euo pipefail
+          for env in dev prod; do
+            # `yq` sans -N insère un `---` entre documents : il entrerait dans les deux
+            # listes et `grep -qx ---` serait pris pour une option. Invisible à un produit,
+            # rouge sur toutes les PR dès le second.
+            fournis=$(find produits -path "*/secrets/$env.sealedsecret.yaml" -exec yq -r -N '.metadata.name' {} + | sort -u)
+            attendus=$(helm template mesure-impact chart/ \
+              --namespace "mesure-impact-$env" \
+              --values "envs/$env/values.yaml" \
+              --values "$RUNNER_TEMP/produits-$env.yaml" \
+              | yq -r -N 'select(.kind == "CronJob") | .spec.jobTemplate.spec.template.spec.containers[].envFrom[].secretRef.name' | sort -u)
+            # Une liste vide n'affirme rien : exiger autant de références que de produits,
+            # sinon la porte devient muette le jour où le chart cesse d'exposer les tokens.
+            attendu_n=$(yq -r '[.produits[]] | length' "$RUNNER_TEMP/produits-$env.yaml")
+            obtenu_n=$(echo "$attendus" | grep -c . || true)
+            [ "$obtenu_n" -eq "$attendu_n" ] \
+              || { echo "::error::$env : $attendu_n produits dans l'inventaire mais $obtenu_n secretRef rendus"; exit 1; }
+            for nom in $attendus; do
+              echo "$fournis" | grep -qxF -- "$nom" \
+                || { echo "::error::$env : le chart référence le secret '$nom', qu'aucun fichier scellé ne fournit"; exit 1; }
+              echo "$env : $nom fourni"
+            done
+          done
+
+      - name: Tests du tableau de bord, de l'ETL et du collecteur
+        run: |
+          set -eu
+          node produits/sante/basavi/dashboard.test.mjs
+          node produits/sante/basavi/etl.test.mjs
+          node produits/sante/basavi/collecte.test.mjs
+
+      # Version épinglée : une alerte qui ne peut pas se déclencher est aussi grave
+      # qu'une alerte qui hurle, et ça ne se voit qu'en jouant les règles.
+      - name: Installer promtool
+        run: |
+          set -euo pipefail
+          v=2.55.0
+          curl -sSfL "https://github.com/prometheus/prometheus/releases/download/v$v/prometheus-$v.linux-amd64.tar.gz" \
+            | tar xz -C "$RUNNER_TEMP" "prometheus-$v.linux-amd64/promtool"
+          echo "$RUNNER_TEMP/prometheus-$v.linux-amd64" >> "$GITHUB_PATH"
+
+      - name: Tests des règles d'alerte
+        run: ./scripts/test-alerts.sh dev
+
   images:
     name: Build des images
     runs-on: ubuntu-latest

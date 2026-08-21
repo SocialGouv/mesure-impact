@@ -44,7 +44,7 @@ Le chart injecte aussi `PRODUIT` (`<dept>/<nom>`, qui indique au runner quel ETL
 
 ## Secrets
 
-Aucun token en clair dans le dépôt (il est **public**). `task seal ENV=<env>` chiffre les
+Aucun token en clair dans le dépôt (il est **public**). `PRODUIT=<dept>/<nom> ENV=<env> task seal` chiffre les
 tokens en un SealedSecret commitable, déchiffrable uniquement par le cluster. Cf. `decisions/0003`.
 
 ## Front : widget embarqué dans Grist

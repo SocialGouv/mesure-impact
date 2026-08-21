@@ -127,16 +127,61 @@ jobs:
           ./scripts/produits-values.sh "$ENVIRONMENT" > "$RUNNER_TEMP/produits.values.yaml"
           cat "$RUNNER_TEMP/produits.values.yaml"
 
+      # Chaque produit collecté DOIT avoir son secret scellé : `cron.suspend` vaut
+      # false pour tout l'env, donc un produit sans secret naîtrait actif et
+      # échouerait chaque nuit en CreateContainerConfigError, sans rien casser de visible.
+      - name: Chaque produit collecté a son secret scellé
+        run: |
+          set -euo pipefail
+          manquants=""
+          for slug in $(yq -r '.produits[].slug' "$RUNNER_TEMP/produits.values.yaml"); do
+            f="produits/$slug/secrets/$ENVIRONMENT.sealedsecret.yaml"
+            [ -f "$f" ] || manquants="$manquants $slug"
+          done
+          if [ -n "$manquants" ]; then
+            echo "::error::produits collectés en $ENVIRONMENT sans secret scellé :$manquants"
+            echo "Sceller avec : PRODUIT=<dept>/<nom> ENV=$ENVIRONMENT task seal"
+            exit 1
+          fi
+          echo "tous les produits de l'inventaire $ENVIRONMENT ont leur secret"
+
       - name: Apply sealed secrets
         run: |
-          files=$(find produits -path "*/secrets/$ENVIRONMENT.sealedsecret.yaml")
-          if [ -z "$files" ]; then
-            echo "::warning::aucun secret scellé pour $ENVIRONMENT — les CronJobs resteront inopérants"
-            exit 0
-          fi
-          for f in $files; do
+          set -euo pipefail
+          for f in $(find produits -path "*/secrets/$ENVIRONMENT.sealedsecret.yaml"); do
             echo "apply $f"
             kubectl apply -n "mesure-impact-$ENVIRONMENT" -f "$f"
+          done
+
+      # `kubectl apply` d'un SealedSecret réussit dès que l'objet est ACCEPTÉ ; le
+      # déchiffrement est asynchrone et sealed-secrets n'installe aucun webhook
+      # d'admission. Sans cette attente, un fichier indéchiffrable donne une CI verte
+      # et une collecte morte, invisible jusqu'à l'échec du Job le lendemain matin.
+      - name: Les secrets sont réellement déscellés
+        run: |
+          set -euo pipefail
+          ns="mesure-impact-$ENVIRONMENT"
+          for f in $(find produits -path "*/secrets/$ENVIRONMENT.sealedsecret.yaml"); do
+            nom=$(yq -r '.metadata.name' "$f")
+            # Interroger le SealedSecret, pas le Secret : celui du déploiement précédent
+            # existe déjà, donc `get secret` sortirait au premier essai et validerait
+            # l'ancien contenu. Ce qu'on attend, c'est la réconciliation de CETTE version.
+            gen=$(kubectl -n "$ns" get sealedsecret "$nom" -o jsonpath='{.metadata.generation}')
+            for essai in $(seq 30); do
+              lu=$(kubectl -n "$ns" get sealedsecret "$nom" \
+                -o jsonpath='{.status.observedGeneration} {.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null || true)
+              [ "$lu" = "$gen True" ] && break
+              [ "$essai" -lt 30 ] || {
+                echo "::error::$nom non réconcilié après 90 s (génération $gen, status « $lu ») — le contrôleur a refusé le chiffré"
+                kubectl -n "$ns" get sealedsecret "$nom" -o jsonpath='{.status}' || true
+                exit 1; }
+              sleep 3
+            done
+            for cle in MATOMO_TOKEN_AUTH GRIST_API_KEY; do
+              kubectl -n "$ns" get secret "$nom" -o "jsonpath={.data.$cle}" | grep -q . \
+                || { echo "::error::$nom déscellé mais la clé $cle est absente"; exit 1; }
+            done
+            echo "$nom : déscellé, 2 clés présentes"
           done
 
       - name: Helm upgrade
