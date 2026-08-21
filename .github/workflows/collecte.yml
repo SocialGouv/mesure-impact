@@ -1,0 +1,117 @@
+name: Collecte manuelle
+
+# Déclenche la collecte d'un produit sans attendre le créneau du CronJob.
+#
+# Pourquoi ici plutôt que dans le Taskfile : `task run:cron` exige un kubeconfig local,
+# or les kubeconfigs sont des secrets d'ENVIRONNEMENT GitHub, délibérément non
+# distribués (cf. CLAUDE.md, « Authentification CI »). Seul celui qui a regénéré un
+# kubeconfig peut donc lancer la tâche locale. Ce workflow rend le geste disponible à
+# quiconque a le droit de déclencher un workflow, sans copier un secret nulle part.
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environnement cible
+        type: choice
+        options: [dev, prod]
+        default: dev
+      produit:
+        description: Produit à collecter (<departement>/<nom>)
+        type: string
+        default: sante/basavi
+
+# Une collecte à la fois par env : `concurrencyPolicy: Forbid` sur le CronJob ne
+# protège que du chevauchement des exécutions planifiées.
+concurrency:
+  group: collecte-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  collecte:
+    name: Collecte ${{ inputs.produit }} (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment: ${{ inputs.environment }}
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+      PRODUIT: ${{ inputs.produit }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-kubectl@v4
+
+      - name: Extract kubeconfig
+        env:
+          KUBECONFIG_B64: ${{ secrets.KUBECONFIG }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$KUBECONFIG_B64" | base64 --decode > "$RUNNER_TEMP/kubeconfig"
+          chmod 600 "$RUNNER_TEMP/kubeconfig"
+          echo "KUBECONFIG=$RUNNER_TEMP/kubeconfig" >> "$GITHUB_ENV"
+
+      # Le slug devient un nom de ressource Kubernetes : mêmes bornes que
+      # scripts/produits-values.sh, et il doit désigner un produit qui existe.
+      - name: Produit valide et collecté dans cet env
+        run: |
+          set -euo pipefail
+          case "$PRODUIT" in
+            [a-z0-9-]*/[a-z0-9-]*) ;;
+            *) echo "::error::PRODUIT invalide « $PRODUIT » : attendu <departement>/<nom> en minuscules"; exit 1 ;;
+          esac
+          ./scripts/produits-values.sh "$ENVIRONMENT" > "$RUNNER_TEMP/produits.yaml"
+          yq -e ".produits[] | select(.slug == \"$PRODUIT\")" "$RUNNER_TEMP/produits.yaml" >/dev/null 2>&1 || {
+            echo "::error::« $PRODUIT » n'est pas collecté en $ENVIRONMENT — vérifier le champ envs de son produit.yaml"
+            exit 1; }
+          echo "CRONJOB=mesure-impact-$(echo "$PRODUIT" | tr '/' '-')-collect" >> "$GITHUB_ENV"
+
+      - name: Déclencher
+        run: |
+          set -euo pipefail
+          ns="mesure-impact-$ENVIRONMENT"
+          job="${CRONJOB}-manuel-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "JOB=$job" >> "$GITHUB_ENV"
+          kubectl -n "$ns" create job "$job" --from="cronjob/$CRONJOB"
+
+      # `kubectl wait --for=condition=complete` ne rend jamais la main sur un Job qui
+      # échoue : il faut guetter les DEUX conditions. Sans ça, un échec ressort en
+      # timeout, ce qui ne dit pas la même chose.
+      - name: Attendre l'issue
+        run: |
+          set -euo pipefail
+          ns="mesure-impact-$ENVIRONMENT"
+          for _ in $(seq 120); do
+            etat=$(kubectl -n "$ns" get job "$JOB" \
+              -o 'jsonpath={.status.conditions[?(@.status=="True")].type}' 2>/dev/null || true)
+            case "$etat" in
+              *Complete*) echo "ISSUE=Complete" >> "$GITHUB_ENV"; exit 0 ;;
+              *Failed*)   echo "ISSUE=Failed"   >> "$GITHUB_ENV"; exit 0 ;;
+            esac
+            sleep 5
+          done
+          echo "ISSUE=Timeout" >> "$GITHUB_ENV"
+
+      # Toujours, y compris en échec : les logs SONT le diagnostic. L'ETL masque les
+      # deux tokens dans ses messages d'erreur (redact), ils ne fuient pas ici.
+      - name: Logs de la collecte
+        if: always()
+        run: |
+          ns="mesure-impact-$ENVIRONMENT"
+          kubectl -n "$ns" logs "job/$JOB" --tail=200 --prefix || true
+
+      - name: Verdict
+        if: always()
+        run: |
+          set -eu
+          ns="mesure-impact-$ENVIRONMENT"
+          case "${ISSUE:-Inconnue}" in
+            Complete) echo "✓ collecte de $PRODUIT terminée en $ENVIRONMENT" ;;
+            Failed)   echo "::error::la collecte de $PRODUIT a échoué — voir les logs ci-dessus"; exit 1 ;;
+            *)        echo "::error::issue indéterminée après 10 min (${ISSUE:-aucune condition})"
+                      kubectl -n "$ns" describe job "$JOB" || true
+                      exit 1 ;;
+          esac
+
+      # Le Job manuel n'est pas dans l'historique du CronJob : sans ça il s'accumule.
+      - name: Nettoyer le Job manuel
+        if: always()
+        run: kubectl -n "mesure-impact-$ENVIRONMENT" delete job "$JOB" --ignore-not-found
