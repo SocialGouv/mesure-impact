@@ -10,7 +10,9 @@ Chaque tableau de bord vit dans `produits/<département>/<produit>/`. Le socle t
 3. **Adapter `etl.mjs`** : la recette de collecte propre au produit (pour l'instant un script
    par produit ; un moteur générique sera extrait quand le pattern se stabilisera).
 4. **Poser `dashboard.html`** : le front, embarqué dans le doc Grist.
-5. **Sceller les tokens** : `task seal ENV=dev` (voir `doc/conventions.md`).
+5. **Sceller les tokens** : `PRODUIT=<dept>/<nom> ENV=dev task seal` (voir `doc/conventions.md`).
+   Sans ce fichier, la CI refuse la PR : `cron.suspend` vaut pour tout l'env, donc un
+   produit sans secret naîtrait actif et échouerait chaque nuit.
 6. **Documenter** : mettre à jour `doc/produit.md` et ouvrir la PR (le modèle de PR rappelle
    la checklist).
 

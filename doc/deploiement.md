@@ -21,10 +21,13 @@ config et les secrets changent, portés par le secret scellé de chaque env.
 
 1. Copier le moule `produits/<dept>/<produit>/`, remplir `produit.yaml`, adapter `etl.mjs`,
    poser `dashboard.html`.
-2. Sceller les tokens de l'env (`task seal ENV=dev`) → fichier chiffré commité.
+2. Sceller les tokens du produit (`PRODUIT=<dept>/<nom> ENV=dev task seal`) → fichier chiffré commité.
 3. PR → la CI vérifie → relecture → merge sur `main` → **déploiement dev auto**.
-4. Réveiller la collecte (`suspend: false`), vérifier que Grist se peuple, **repointer** le
-   widget du doc Grist vers l'URL fabrique.
+4. Vérifier que Grist se peuple, **repointer** le widget du doc Grist vers l'URL fabrique.
+   La collecte démarre dès l'étape 3 : `cron.suspend` vaut pour **tout l'env**, et `dev`
+   est déjà à `false`. C'est pourquoi l'étape 2 n'est pas optionnelle — la CI refuse un
+   produit d'inventaire sans son secret scellé, précisément pour éviter un CronJob actif
+   et muet.
 5. Itérer le front à chaque push.
 
 ## Passer de préprod à prod
@@ -57,8 +60,9 @@ leurs identifiants, puis ajouter `prod` à `envs`.
 - **Emplacement des secrets** : un secret scellé par produit et par env, dans
   `produits/<dept>/<nom>/secrets/<env>.sealedsecret.yaml`. Il ne porte que
   `MATOMO_TOKEN_AUTH` et `GRIST_API_KEY`.
-- **Cadence** : défaut quotidien (`0 6 * * *`), surchargeable par produit via
-  `collecte.schedule` dans `produit.yaml`, et par env via `envs/<env>/values.yaml`.
+- **Cadence** : `envs/<env>/values.yaml` fixe le défaut de l'env (`0 6 * * *`), et un
+  produit qui déclare `collecte.schedule` dans son `produit.yaml` s'en affranchit — la
+  valeur du produit gagne toujours, l'env ne la surcharge pas.
 - **Un CronJob par produit** : nommé `mesure-impact-<dept>-<nom>-collect`. Un ETL qui échoue
   n'empêche pas les autres de collecter.
 
