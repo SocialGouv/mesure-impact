@@ -163,10 +163,16 @@ jobs:
           ns="mesure-impact-$ENVIRONMENT"
           for f in $(find produits -path "*/secrets/$ENVIRONMENT.sealedsecret.yaml"); do
             nom=$(yq -r '.metadata.name' "$f")
+            # Interroger le SealedSecret, pas le Secret : celui du déploiement précédent
+            # existe déjà, donc `get secret` sortirait au premier essai et validerait
+            # l'ancien contenu. Ce qu'on attend, c'est la réconciliation de CETTE version.
+            gen=$(kubectl -n "$ns" get sealedsecret "$nom" -o jsonpath='{.metadata.generation}')
             for essai in $(seq 30); do
-              kubectl -n "$ns" get secret "$nom" >/dev/null 2>&1 && break
+              lu=$(kubectl -n "$ns" get sealedsecret "$nom" \
+                -o jsonpath='{.status.observedGeneration} {.status.conditions[?(@.type=="Synced")].status}' 2>/dev/null || true)
+              [ "$lu" = "$gen True" ] && break
               [ "$essai" -lt 30 ] || {
-                echo "::error::$nom jamais déscellé après 90 s — le contrôleur a refusé le chiffré"
+                echo "::error::$nom non réconcilié après 90 s (génération $gen, status « $lu ») — le contrôleur a refusé le chiffré"
                 kubectl -n "$ns" get sealedsecret "$nom" -o jsonpath='{.status}' || true
                 exit 1; }
               sleep 3

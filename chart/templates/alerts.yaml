@@ -42,94 +42,38 @@ spec:
               Le job {{ `{{ $labels.job_name }}` }} du namespace {{ .Release.Namespace }}
               a échoué. Le tableau de bord concerné n'est plus alimenté.
 
-        # kube_cronjob_status_last_successful_time n'est PAS exporté tant qu'un
-        # CronJob n'a jamais réussi. La seule expression « trop vieux » serait donc
-        # aveugle au cas le plus grave : celui qui n'a jamais collecté. D'où la
-        # seconde branche, qui repère les CronJobs connus et sans succès, en
-        # excluant ceux qu'on a délibérément suspendus.
+        # Six versions de cette règle ont été écrites en tentant de déduire « ce CronJob
+        # a-t-il eu sa chance de tourner ? » de l'historique de `kube_cronjob_spec_suspend` :
+        # test ponctuel, fenêtre glissante, moyenne, seuil de rapport cyclique. Chacune a
+        # troqué un faux positif contre un faux négatif — un clignotement qui rend muet
+        # 48 h, une suspension de maintenance qui fait sonner, un rapport cyclique qui
+        # tait à jamais.
         #
-        # L'ancienneté demande DEUX conditions, pas une :
-        #  - l'objet existe depuis plus de la fenêtre (sinon un CronJob neuf est déclaré
-        #    muet 30 min après sa création, avant même sa première exécution) ;
-        #  - il n'a pas été suspendu sur toute la fenêtre (sinon un CronJob déployé
-        #    suspendu pendant des semaines puis activé est déclaré muet immédiatement).
-        # Chacune prise seule laisse passer l'un des deux faux positifs.
+        # Kubernetes répond directement à la question : `last_schedule_time` n'avance que
+        # lorsque le CronJob a RÉELLEMENT déclenché. Un CronJob suspendu ne déclenche pas,
+        # donc son horodatage vieillit ; un CronJob réactivé n'alerte pas tant qu'il n'a
+        # pas eu son exécution. Aucune fenêtre, aucun seuil, aucun rapport cyclique.
         #
-        # `min by`, pas `max by`, sur les clauses de SILENCE. `max` convient à la règle
-        # d'échec (n'importe quel exportateur qui crie « échec » doit faire sonner), il
-        # s'inverse ici : une seule série parasite ou périmée disant « suspendu »
-        # éteindrait l'alerte. Taire demande un consensus, alerter n'en demande pas.
-        # Ça couvre aussi le CronJob supprimé puis recréé, dont l'ancienne série
-        # suspendue cohabite avec la nouvelle sous le même nom.
+        # `unless` plutôt que `and` sur la seconde clause : `last_successful_time` n'est
+        # pas exporté tant qu'un CronJob n'a jamais réussi, et c'est le cas le plus grave.
+        # Une métrique de succès absente doit donc faire sonner, pas taire.
         #
-        # Deux clauses, pas une, et elles ne disent pas la même chose :
-        #  - `== 1` couvre la suspension EN COURS, immédiatement ;
-        #  - la moyenne couvre la GRÂCE après réactivation.
-        # La seconde seule laisse 24 h de fausse alerte à chaque suspension volontaire
-        # d'un CronJob qui collectait : l'alerte mûrit à dernier_succès + 48 h, la
-        # moyenne à début_suspension + 48 h, et on ne suspend qu'après un succès.
+        # `max by` : « le déclenchement / le succès le plus récent qu'un exportateur
+        # connaisse ». Une série périmée ne peut ni retarder le réveil ni le masquer.
         #
-        # Le délai de grâce mesure la DURÉE de suspension, pas sa présence, et son seuil
-        # sépare un clignotement d'une vraie suspension : 1 % de 48 h ≈ 30 min. Un scrape
-        # isolé (5 min) ne déclenche donc aucune grâce, une suspension de maintenance en
-        # déclenche une, quelle que soit sa durée. Un seuil à la moitié de la fenêtre
-        # laissait au contraire sans grâce toute suspension de moins de 48 h — soit la
-        # fenêtre de maintenance la plus banale.
-        #
-        # Les deux s'écrivent en `unless <négation>`, jamais en `and <condition>` :
-        # `and` avec un membre droit vide ne renvoie rien, donc une métrique absente
-        # ÉTEINDRAIT l'alerte. Pour un garde-fou contre la panne silencieuse, une
-        # métrique manquante doit faire sonner, pas taire.
+        # LIMITE ASSUMÉE : un CronJob qui cesse complètement d'être planifié — contrôleur
+        # gelé — voit son horodatage vieillir comme une suspension, et sort du périmètre
+        # de cette règle au bout de la fenêtre. `startingDeadlineSeconds` existe pour
+        # empêcher ce gel, et le bandeau de fraîcheur du tableau de bord vieillit à vue.
         - alert: MesureImpactCollecteMuette
           expr: |
-            (
-              time() - max by (cronjob) (
+            time() - max by (namespace, cronjob) (
+              kube_cronjob_status_last_schedule_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
+            ) < {{ .Values.alerts.silenceMaxSeconds }}
+            unless on (namespace, cronjob) (
+              time() - max by (namespace, cronjob) (
                 kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
-              ) > {{ .Values.alerts.silenceMaxSeconds }}
-              {{/* Même délai de grâce que la branche 2, et pour la même raison : un test
-                   ponctuel sur `spec_suspend` fait sonner 30 min après une réactivation de
-                   maintenance, alors que la première exécution n'a pas encore eu lieu. */}}
-              {{/* Suspension EN COURS : silence immédiat. Un CronJob volontairement
-                   suspendu ne doit pas alerter, et l'attente d'une moyenne arriverait
-                   toujours après la maturation de l'alerte — une suspension ne peut
-                   avoir lieu qu'après le dernier succès. */}}
-              unless on (cronjob) (
-                min by (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}) == 1
-              )
-              {{/* Après RÉACTIVATION : grâce proportionnelle à la durée réellement
-                   passée suspendue, pour laisser au CronJob le temps d'une exécution.
-                   La moyenne, ici, ne peut que retarder le réveil — jamais masquer une
-                   suspension en cours, que la clause précédente couvre déjà. */}}
-              unless on (cronjob) (
-                min by (cronjob) (
-                  avg_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ .Values.alerts.silenceMaxSeconds }}s])
-                ) > 0.01
-              )
-            )
-            or
-            (
-              max by (cronjob) (kube_cronjob_info{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
-              unless on (cronjob) kube_cronjob_status_last_successful_time{namespace="{{ .Release.Namespace }}"}
-              unless on (cronjob) (
-                time() - max by (cronjob) (kube_cronjob_created{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"})
-                <= {{ .Values.alerts.silenceMaxSeconds }}
-              )
-              {{/* Suspension EN COURS : silence immédiat. Un CronJob volontairement
-                   suspendu ne doit pas alerter, et l'attente d'une moyenne arriverait
-                   toujours après la maturation de l'alerte — une suspension ne peut
-                   avoir lieu qu'après le dernier succès. */}}
-              unless on (cronjob) (
-                min by (cronjob) (kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}) == 1
-              )
-              {{/* Après RÉACTIVATION : grâce proportionnelle à la durée réellement
-                   passée suspendue, pour laisser au CronJob le temps d'une exécution.
-                   La moyenne, ici, ne peut que retarder le réveil — jamais masquer une
-                   suspension en cours, que la clause précédente couvre déjà. */}}
-              unless on (cronjob) (
-                min by (cronjob) (
-                  avg_over_time(kube_cronjob_spec_suspend{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}[{{ .Values.alerts.silenceMaxSeconds }}s])
-                ) > 0.01
-              )
+              ) <= {{ .Values.alerts.silenceMaxSeconds }}
             )
           for: 30m
           labels:

@@ -41,6 +41,13 @@ const CORPS_MATOMO = {
   vide: () => ({ statut: 200, type: 'application/json', corps: '[]' }),
   simulation: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify([visiteSimulee]) }),
   reel: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify([visiteReelle]) }),
+  // 300 jours × 2 devices = 600 lignes Sessions : au-delà de la page de 400 de `upsert`.
+  volumineux: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify(
+    Array.from({ length: 300 }, (_, i) => ({
+      ...visiteReelle,
+      visitorId: `ffff0000ffff${String(i).padStart(4, '0')}`,
+      serverDate: new Date(Date.UTC(2026, 0, 1) + i * 86400000).toISOString().slice(0, 10),
+    }))) }),
   // Une page de proxy ou de maintenance : du HTML servi en 200. Le corps contient une
   // fausse ligne de succès : l'amont ne doit pas pouvoir écrire dans nos logs.
   html: () => ({ statut: 200, type: 'text/html',
@@ -79,8 +86,8 @@ async function jouer(scenario, options = {}) {
       res.writeHead(200, { 'content-type': 'application/json' });
       if (req.url.includes('/columns')) return res.end('{"columns":[]}');
       // `sessionsExistantes` simule un produit qui a déjà collecté par le passé.
-      if (/\/tables\/Sessions\/records/.test(req.url) && options.sessionsExistantes) {
-        return res.end('{"records":[{"id":1,"fields":{"sess_id":"2026-01-01|tous"}}]}');
+      if (/\/tables\/[^/]+\/records/.test(req.url) && options.sessionsExistantes) {
+        return res.end('{"records":[{"id":1,"fields":{}}]}');
       }
       if (req.url.includes('/records')) return res.end('{"records":[]}');
       if (req.url.includes('/tables')) return res.end('{"tables":[]}');
@@ -101,6 +108,7 @@ async function jouer(scenario, options = {}) {
         GRIST_DOC_ID: 'doc-test',
         GRIST_API_KEY: 'CLE-SECRETE',
         COLLECT_FROM: '2026-08-06',
+        PRODUIT: 'sante/basavi',
         // En dernier : ces surcharges doivent gagner sur les valeurs nominales ci-dessus.
         ...(options.env || {}),
       },
@@ -140,9 +148,29 @@ for (const [scenario, titre] of [['vide', 'aucune visite'], ['simulation', 'que 
 // Sans échappatoire, son alerte sonnerait chaque matin sans moyen de l'acquitter.
 {
   const { code, texte } = await jouer('vide',
-    { sessionsExistantes: false, env: { ALLOW_EMPTY_COLLECT: '1' } });
+    { sessionsExistantes: false, env: { PRODUIT: 'sante/basavi', ALLOW_EMPTY_COLLECT: 'sante/autre,sante/basavi' } });
   verifier('ALLOW_EMPTY_COLLECT : le Job réussit malgré une table vide', code === 0, `code ${code}`);
   verifier('ALLOW_EMPTY_COLLECT : le silence reste signalé', /Aucune journée collectée/.test(texte));
+}
+{
+  // Le drapeau nomme les produits : il ne doit pas désarmer le détecteur d un autre.
+  const { code, texte } = await jouer('vide',
+    { sessionsExistantes: false, env: { PRODUIT: 'sante/basavi', ALLOW_EMPTY_COLLECT: 'travail/beta' } });
+  verifier('ALLOW_EMPTY_COLLECT : un autre produit toléré ne couvre pas celui-ci', code === 1, `code ${code}`);
+  verifier('ALLOW_EMPTY_COLLECT : le message nomme le produit à ajouter',
+    /« sante\/basavi » à ALLOW_EMPTY_COLLECT/.test(texte),
+    texte.split('\n').filter((l) => l.startsWith('✗')).join(' | '));
+}
+
+// --- Sans PRODUIT ni liste, la tolérance ne s'applique pas ------------------------
+// `''.split(',')` vaut `['']` et `[''].includes('')` vaut `true` : sans garde, une
+// liste vide et un PRODUIT absent tolèrent tout, l'inverse de ce que ce drapeau fait.
+{
+  const { code, texte } = await jouer('vide',
+    { sessionsExistantes: false, env: { PRODUIT: '', ALLOW_EMPTY_COLLECT: '' } });
+  verifier('sans PRODUIT ni liste : la tolérance ne s’applique pas', code === 1, `code ${code}`);
+  verifier('sans PRODUIT ni liste : le message reste celui du câblage',
+    /n'a jamais rien collecté/.test(texte));
 }
 
 // --- Le cas nominal publie RÉELLEMENT --------------------------------------------
@@ -160,6 +188,31 @@ for (const [scenario, titre] of [['vide', 'aucune visite'], ['simulation', 'que 
   const crees = trafic.filter((r) => r.methode === 'POST' && /\/tables$/.test(r.url));
   verifier('collecte nominale : les tables absentes sont créées', crees.length > 0);
   verifier('collecte nominale : le résumé annonce la publication', /Extractions=1/.test(texte));
+}
+
+// --- Au-delà d'une page, le push doit être complet ------------------------------
+// `upsert` pagine par 400. Un push tronqué à la première page perdrait les données
+// les plus anciennes sans un mot — la fenêtre de collecte n'est pas bornée.
+{
+  const { code, texte, trafic } = await jouer('volumineux', { sessionsExistantes: true, env: { COLLECT_FROM: '2026-01-01' } });
+  verifier('gros volume : le Job réussit', code === 0, `code de sortie ${code}`);
+  const puts = trafic.filter((r) => r.methode === 'PUT' && /tables\/Sessions\/records/.test(r.url));
+  const lignes = puts.reduce((n, r) => n + (JSON.parse(r.corps).records || []).length, 0);
+  // Le nombre annoncé par le résumé doit être celui réellement transmis : c'est ce
+  // que compare cette assertion, plutôt qu'un total codé en dur qui dépend de la date.
+  const annonce = Number((texte.match(/Sessions=(\d+)/) || [])[1]);
+  verifier(`gros volume : pagination effective (${puts.length} PUT)`, puts.length > 1);
+  verifier(`gros volume : rien n'est perdu entre les pages (${lignes} transmises, ${annonce} annoncées)`,
+    lignes > 400 && lignes === annonce);
+}
+
+// --- L'upsert doit porter sa clé naturelle, sinon il ajoute au lieu de mettre à jour
+{
+  const { trafic } = await jouer('reel');
+  const extraction = trafic.find((r) => r.methode === 'PUT' && /Extractions/.test(r.url));
+  const corps = JSON.parse(extraction.corps);
+  verifier(`Extractions : l'upsert est clé sur run_id (${JSON.stringify(corps.records[0].require)})`,
+    corps.records[0] && corps.records[0].require && 'run_id' in corps.records[0].require);
 }
 
 // --- Une panne amont doit échouer BRUYAMMENT, et sans fuiter les tokens ----------
@@ -223,6 +276,21 @@ for (const [scenario, titre, motif] of [
   verifier('--reset avec --from : refusé', code === 1, `code de sortie ${code}`);
   verifier('--reset avec --from : le message dit pourquoi', /effacerait tout l/.test(texte),
     texte.split('\n').filter((l) => l.startsWith('✗')).join(' | '));
+}
+{
+  // Le chemin ACCEPTANT : c'est la seule opération destructrice du dépôt, et seuls ses
+  // refus étaient testés. Trois mutants y survivaient, dont « vider APRÈS le push ».
+  const { code, trafic } = await jouer('reel', { sessionsExistantes: true, argv: ['--reset'] });
+  verifier('--reset nominal : le Job réussit', code === 0, `code de sortie ${code}`);
+  const vidages = trafic.filter((r) => /data\/delete/.test(r.url))
+    .map((r) => r.url.match(/tables\/([^/]+)\/data/)[1]);
+  for (const table of ['Sessions', 'Events', 'Modes', 'Indicateurs', 'Extractions']) {
+    verifier(`--reset nominal : la table ${table} est vidée`, vidages.includes(table));
+  }
+  const premierVidage = trafic.findIndex((r) => /data\/delete/.test(r.url));
+  const premierPut = trafic.findIndex((r) => r.methode === 'PUT' && /\/records$/.test(r.url));
+  verifier(`--reset nominal : le vidage précède le push (${premierVidage} < ${premierPut})`,
+    premierVidage >= 0 && premierPut >= 0 && premierVidage < premierPut);
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');

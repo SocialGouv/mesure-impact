@@ -9,8 +9,8 @@
 // fichier `.env` local (gitignoré) en développement. Contrat de variables commun au
 // socle (cf. chart/ et Taskfile.yml) :
 //   MATOMO_URL, MATOMO_TOKEN_AUTH, MATOMO_SITE_ID, GRIST_URL, GRIST_API_KEY, GRIST_DOC_ID
-// Optionnelles : ALLOW_EMPTY_COLLECT (tolère une collecte vide sur un produit qui n'a
-//   encore jamais rien collecté), COLLECT_FROM (date de début), GRIST_DOC_NAME (vérif de sécurité), RUN_ID.
+// Optionnelles : ALLOW_EMPTY_COLLECT (liste de slugs, séparés par des virgules, dont
+//   une collecte vide est tolérée alors qu'ils n'ont encore jamais rien collecté), COLLECT_FROM (date de début), GRIST_DOC_NAME (vérif de sécurité), RUN_ID.
 //
 // Usage local : node produits/sante/basavi/etl.mjs [--reset] [--from YYYY-MM-DD] [--to YYYY-MM-DD]
 import { readFileSync, existsSync } from 'node:fs';
@@ -340,16 +340,24 @@ async function main() {
   // Grist, donc plus rien ne pourrait le signaler. C'est le seul détecteur.
   if (!days.length) {
     // Échappatoire explicite pour un produit qu'on sait branché mais sans trafic :
-    // sans elle, son alerte sonnerait chaque matin sans moyen de l'acquitter. Se pose
-    // dans `cron.env` de l'env, et se retire dès la première collecte réussie.
-    const tolereVide = /^(1|true|oui)$/i.test(cfg.ALLOW_EMPTY_COLLECT || '');
+    // sans elle, son alerte sonnerait chaque matin sans moyen de l'acquitter.
+    // Elle NOMME les produits tolérés — `cron.env` est une valeur d'environnement, et
+    // un simple booléen y désarmerait ce détecteur pour tous les autres produits, dont
+    // le prochain onboardé avec un site_id faux.
+    // Deux gardes redondants, et c'est voulu : `''.split(',')` vaut `['']` et
+    // `[''].includes('')` vaut `true`, donc une liste vide et un PRODUIT absent
+    // tolèreraient tout — l'inverse de ce que ce drapeau fait. Chacun suffit seul ;
+    // aucun test ne peut donc les tuer séparément, seule leur suppression conjointe
+    // rougit.
+    const toleres = (cfg.ALLOW_EMPTY_COLLECT || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const tolereVide = Boolean(cfg.PRODUIT) && toleres.includes(cfg.PRODUIT);
     const dejaCollecte = tolereVide || (await getRecords('Sessions')).length > 0;
     if (!dejaCollecte) {
       throw new Error(
         `Aucune donnée sur ${FROM} → ${TO} (${arr.length} visites brutes) et la table Sessions ` +
         `est vide : ce produit n'a jamais rien collecté. Vérifier MATOMO_SITE_ID (${SITE}) et ` +
-        `la présence du tag sur le site. Si l'absence de trafic est attendue, poser ` +
-        `ALLOW_EMPTY_COLLECT=1 dans cron.env de l'env.`
+        `la présence du tag sur le site. Si l'absence de trafic est attendue, ajouter ` +
+        `« ${cfg.PRODUIT} » à ALLOW_EMPTY_COLLECT dans cron.env de l'env.`
       );
     }
     // L'horodatage d'extraction n'est pas rafraîchi : le bandeau du tableau de bord
