@@ -122,6 +122,10 @@ La CI le vérifie et casse la PR sinon.
 
 ## CI
 
+[.github/workflows/collecte.yml](.github/workflows/collecte.yml) déclenche une collecte à la
+demande : `task run:cron` exige un kubeconfig local, or les kubeconfigs sont des secrets
+d'environnement GitHub et ne sont pas distribués — la CI est le seul endroit où ils sont.
+
 [.github/workflows/deploy.yml](.github/workflows/deploy.yml) : push sur `main` → `dev` ;
 `workflow_dispatch` avec choix d'env → `dev` ou `prod`. Build des deux images en matrice,
 puis `kubectl apply` des sealed secrets et `helm upgrade --install --atomic`.
