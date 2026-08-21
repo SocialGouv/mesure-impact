@@ -105,13 +105,18 @@ spec:
         # que six versions de la règle précédente ont cherché dans l'historique de
         # `spec_suspend`, et qu'il suffisait de demander.
         #
+        # `min by`, pas `max by` : sur une ÉCHÉANCE FUTURE, « le plus grand » veut dire
+        # « le plus loin », donc l'exportateur le plus optimiste. La polarité s'inverse
+        # par rapport à la règle précédente, où `max` sur un horodatage passé retenait
+        # le plus récent — le même mot n'a pas le même sens sur les deux métriques.
+        #
         # `for: 26h` : une cadence quotidienne plus deux heures de marge. Absorbe un
         # retard de contrôleur et la réactivation après maintenance — le CronJob
         # redéclenche au prochain créneau, donc en moins de 24 h — sans jamais
         # s'éteindre sur une planification réellement arrêtée.
         - alert: MesureImpactCollecteNonPlanifiee
           expr: |
-            time() - max by (namespace, cronjob) (
+            time() - min by (namespace, cronjob) (
               kube_cronjob_next_schedule_time{namespace="{{ .Release.Namespace }}", cronjob=~"mesure-impact-.*"}
             ) > 0
           for: 26h
@@ -122,6 +127,46 @@ spec:
             summary: "Collecte {{ `{{ $labels.cronjob }}` }} n'est plus planifiée"
             description: >-
               Aucun Job n'a été créé pour {{ `{{ $labels.cronjob }}` }} depuis plus d'une
-              cadence : quota atteint, webhook d'admission, schedule illisible ou contrôleur
-              en défaut. La collecte est arrêtée, et rien d'autre ne le signale.
+              cadence : quota atteint, webhook d'admission, ou contrôleur en défaut.
+              La collecte est arrêtée, et rien d'autre ne le signale.
+{{- if .Values.cron.enabled }}
+{{- range $p := $inv }}
+{{- $cj := printf "%s-%s-%s-collect" (include "mesure-impact.name" $) $p.departement $p.nom }}
+
+        # Garde-fou de dernier recours, un par produit de l'inventaire.
+        #
+        # Les deux règles ci-dessus testent des VALEURS. Aucune ne vérifie une PRÉSENCE :
+        # une série absente ne se distingue pas d'une série saine, et l'alerte reste verte
+        # sur une collecte morte. `kube_cronjob_next_schedule_time` disparaît pour toutes
+        # ces raisons à la fois — CronJob supprimé, produit retiré du chart,
+        # kube-state-metrics arrêté, `spec.timeZone` que ksm n'arrive pas à résoudre,
+        # schedule illisible. Aucune n'est exotique, et aucune ne serait vue.
+        #
+        # L'ancre est `kube_cronjob_spec_suspend` : c'est la seule métrique CronJob que
+        # ksm émette INCONDITIONNELLEMENT (internal/store/cronjob.go, aucun chemin
+        # d'erreur, stabilité STABLE). Elle répond donc à « ce CronJob existe-t-il, et
+        # est-il délibérément suspendu ? » quand plus rien d'autre ne répond.
+        #
+        # `min by` sur la clause de silence : taire demande le consensus des exportateurs.
+        - alert: MesureImpactCollecteNonObservable
+          expr: |
+            absent(kube_cronjob_next_schedule_time{namespace="{{ $.Release.Namespace }}", cronjob="{{ $cj }}"}) == 1
+            unless on (namespace, cronjob) (
+              min by (namespace, cronjob) (
+                kube_cronjob_spec_suspend{namespace="{{ $.Release.Namespace }}", cronjob="{{ $cj }}"}
+              ) == 1
+            )
+          for: 30m
+          labels:
+            severity: warning
+            environnement: {{ $.Values.environment | quote }}
+          annotations:
+            summary: "Collecte {{ $cj }} n'est plus observable"
+            description: >-
+              Plus aucune métrique de planification pour {{ $cj }}, et il n'est pas
+              suspendu : CronJob supprimé, produit retiré du chart, kube-state-metrics
+              arrêté, ou schedule que ksm n'arrive pas à lire. Les deux autres alertes
+              sont aveugles dans cet état — elles testent des valeurs, celle-ci une présence.
+{{- end }}
+{{- end }}
 {{- end }}
