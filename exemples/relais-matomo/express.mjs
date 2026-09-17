@@ -39,7 +39,9 @@ export function relaisMatomo({
       for (const nom of ENTETES_TRANSMIS) if (req.headers[nom]) entetes[nom] = req.headers[nom];
       // Une seule IP, celle vue par le produit : conserver l'en-tête reçu laisserait le
       // visiteur choisir l'IP enregistrée par Matomo. Derrière un proxy de confiance,
-      // poser app.set("trust proxy", ...) et utiliser req.ip.
+      // désigner précisément le saut : app.set("trust proxy", 1) (nombre de proxys) ou le
+      // CIDR du proxy. Jamais `true` : req.ip prendrait alors la première entrée de
+      // l'en-tête reçu, donc une valeur choisie par le visiteur.
       entetes["x-forwarded-for"] = req.ip ?? req.socket.remoteAddress;
 
       const query = req.originalUrl.split("?")[1] ?? "";
