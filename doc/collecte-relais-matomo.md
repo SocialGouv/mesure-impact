@@ -32,7 +32,7 @@ changent. Exception : les heatmaps, enregistrements de session et l'Overlay (voi
 | `<préfixe>/a.js` | `GET` uniquement, relayé vers `matomo.js` |
 | `<préfixe>/c` | `GET` et `POST`, relayé vers `matomo.php` |
 | Tout le reste | Jamais relayé vers Matomo : ni l'API, ni l'interface, ni d'autres fichiers. |
-| En-têtes transmis | `User-Agent`, `Accept-Language`, `Content-Type`, l'IP dans `X-Forwarded-For`, et `Accept-Encoding` pour le script |
+| En-têtes transmis | `User-Agent`, `Accept-Language`, `Content-Type`, l'IP dans `X-Forwarded-For`. `Accept-Encoding` pour le script est facultatif (script compressé) |
 | En-têtes jamais transmis | Tous les autres : cookies, `Authorization`, jetons, en-têtes d'authentification ajoutés en amont. La session du produit ne part pas chez Matomo. |
 | Corps | 64 Ko au plus, lus en entier par le relais, jamais par un middleware avant lui |
 | Délai | Requête vers Matomo abandonnée après 5 secondes sans réponse |
@@ -99,6 +99,10 @@ const FICHIERS = [
   process.env.NEXT_PUBLIC_MATOMO_PROXY_JS_TRACKER_FILE,
   process.env.NEXT_PUBLIC_MATOMO_PROXY_PHP_TRACKER_FILE,
 ];
+// Sans ces variables (posées au build par withMatomoProxy), tout serait refusé en silence.
+if (FICHIERS.some((f) => !f)) {
+  throw new Error("Relais Matomo : withMatomoProxy n'a pas posé les noms de fichiers");
+}
 
 async function filtrer(methode: "GET" | "POST", req: Request, ctx: { params: Promise<{ path?: string[] }> }) {
   const { path = [] } = await ctx.params;
@@ -110,7 +114,8 @@ export const GET = (req: Request, ctx: any) => filtrer("GET", req, ctx);
 export const POST = (req: Request, ctx: any) => filtrer("POST", req, ctx);
 ```
 
-Ce filtre ne couvre que les chemins. Le gestionnaire de `matomo-next` n'applique pas le reste
+Filtre testé avec Next.js 15.5 et `matomo-next` 1.14.2 : seuls les deux fichiers générés au
+build sont relayés. Il ne couvre que les chemins. Le gestionnaire de `matomo-next` n'applique pas le reste
 du contrat : pas de limite de corps ni de délai, et il transmet tel quel le `X-Forwarded-For`
 reçu. À compléter côté plateforme (limite de taille et délai à l'ingress) ou dans `filtrer`.
 
@@ -119,7 +124,8 @@ reçu. À compléter côté plateforme (limite de taille et délai à l'ingress)
 1. **Depuis n'importe quel poste** :
    `exemples/relais-matomo/verifier-relais.sh https://monproduit.gouv.fr/k7f3a9`
    (script servi par Matomo, `POST` relayé jusqu'à Matomo, aucune réponse de Matomo sur
-   d'autres chemins). Aucun hit n'est enregistré.
+   d'autres chemins). Aucun hit n'est enregistré. Pour Next.js, passer en plus les deux noms
+   générés au build : `verifier-relais.sh https://monproduit.gouv.fr/api/a1b2c3 s1234.js t5678`.
 2. **Depuis un poste agent équipé du bloqueur**, le seul test qui compte : naviguer sur le
    produit, puis vérifier dans Matomo (Visites en temps réel) que la visite et ses events
    arrivent.
@@ -150,6 +156,12 @@ reçu. À compléter côté plateforme (limite de taille et délai à l'ingress)
   Seule différence, ces requêtes portent l'IP du serveur du produit. Filtrer `token_auth` a été
   écarté : les variantes d'écriture que Matomo accepte sont trop nombreuses pour un filtre
   fiable, et le filtre bloquait des hits légitimes.
+- **Pas de limite de débit dans les exemples.** Tous les hits relayés portant l'IP du serveur du
+  produit, Matomo ne peut pas bloquer un abus sans bloquer tout le produit. Si le risque
+  compte, limiter le débit au niveau de l'ingress ou du relais.
+- **Les redirections ne sont pas suivies.** Une redirection changerait le `POST` en `GET` et
+  perdrait le corps : `MATOMO_URL` doit pointer directement sur l'instance (`https`, sans
+  redirection). Le relais renvoie alors une erreur visible plutôt qu'un hit tronqué.
 - **Le cookie Matomo reste déposé.** Les obligations d'information des utilisateurs sont
   inchangées par rapport à une intégration classique.
 - **Préfixe fixe.** Les exemples utilisent un préfixe choisi une fois. Le changer à chaque

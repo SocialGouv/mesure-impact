@@ -47,6 +47,8 @@ export function relaisMatomo({
           method: req.method,
           headers: entetes,
           body: corps,
+          // Une redirection changerait le POST en GET et perdrait le corps : on échoue (502).
+          redirect: "error",
           signal: AbortSignal.timeout(5000),
         });
         const contenu = Buffer.from(await reponse.arrayBuffer());

@@ -27,6 +27,15 @@ ENTETES_RETOUR = ["Content-Type", "Cache-Control", "ETag", "Last-Modified"]
 TAILLE_MAX = 64_000
 
 
+class _SansRedirection(urllib.request.HTTPRedirectHandler):
+    # Une redirection changerait le POST en GET et perdrait le corps : on renvoie la 3xx telle quelle.
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+OUVREUR = urllib.request.build_opener(_SansRedirection)
+
+
 def relais_matomo(matomo_url=None, prefixe=None):
     matomo_url = matomo_url or os.environ["MATOMO_URL"]
     prefixe = prefixe or os.environ["RELAIS_PREFIXE"]
@@ -58,7 +67,7 @@ def relais_matomo(matomo_url=None, prefixe=None):
         url = f"{matomo_url}{cible}" + (f"?{query}" if query else "")
         requete = urllib.request.Request(url, data=corps, headers=entetes, method=request.method)
         try:
-            with urllib.request.urlopen(requete, timeout=5) as reponse:
+            with OUVREUR.open(requete, timeout=5) as reponse:
                 garder = {k: reponse.headers[k] for k in ENTETES_RETOUR if reponse.headers.get(k)}
                 return Response(reponse.read(), status=reponse.status, headers=garder)
         except urllib.error.HTTPError as erreur:
