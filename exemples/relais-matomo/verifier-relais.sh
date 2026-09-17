@@ -43,4 +43,22 @@ for chemin in "index.php?module=API&method=API.getMatomoVersion&format=json" "$C
   else ok "Rien de Matomo sur /$chemin"; fi
 done
 
+# 4. Seules les méthodes du contrat sont relayées.
+verifier_methode() {
+  : > "$tmp/methode"
+  curl -s -o "$tmp/methode" -X "$1" "$BASE/$2"
+  if grep -qE "$SIGNATURE_MATOMO" "$tmp/methode"; then ko "$1 /$2 est relayé jusqu'à Matomo, hors contrat"
+  else ok "$1 /$2 n'est pas relayé"; fi
+}
+verifier_methode PUT "$COLLECTE"
+verifier_methode OPTIONS "$COLLECTE"
+verifier_methode POST "$SCRIPT"
+
+# 5. Un corps de plus de 64 Ko est refusé avant Matomo.
+head -c 70000 /dev/zero | tr '\0' 'a' > "$tmp/gros"
+code=$(curl -s -o "$tmp/refus" -w '%{http_code}' -X POST \
+  -H 'Content-Type: application/x-www-form-urlencoded' --data-binary "@$tmp/gros" "$BASE/$COLLECTE")
+if grep -qE "$SIGNATURE_MATOMO" "$tmp/refus"; then ko "Un corps de plus de 64 Ko atteint Matomo (statut $code)"
+else ok "Un corps de plus de 64 Ko n'est pas relayé (statut $code)"; fi
+
 exit $echec

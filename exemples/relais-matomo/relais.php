@@ -47,8 +47,10 @@ function relais_matomo(string $matomoUrl, string $prefixe): bool
             $entetes[] = "$nom: {$_SERVER[$cle]}";
         }
     }
-    $ip = trim(($_SERVER['HTTP_X_FORWARDED_FOR'] ?? '') . ', ' . $_SERVER['REMOTE_ADDR'], ', ');
-    $entetes[] = "X-Forwarded-For: $ip";
+    // Une seule IP, celle vue par le produit : conserver l'en-tête reçu laisserait le
+    // visiteur choisir l'IP enregistrée par Matomo. Derrière un proxy de confiance,
+    // reprendre l'IP réelle résolue par l'application.
+    $entetes[] = "X-Forwarded-For: {$_SERVER['REMOTE_ADDR']}";
 
     $retour = [];
     $query = $_SERVER['QUERY_STRING'] ?? '';

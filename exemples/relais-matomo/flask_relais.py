@@ -59,9 +59,10 @@ def relais_matomo(matomo_url=None, prefixe=None):
                 abort(500, "relais Matomo : corps déjà lu avant le relais")
 
         entetes = {nom: request.headers[nom] for nom in ENTETES_TRANSMIS if nom in request.headers}
-        entetes["X-Forwarded-For"] = ", ".join(
-            filter(None, [request.headers.get("X-Forwarded-For"), request.remote_addr])
-        )
+        # Une seule IP, celle vue par le produit : conserver l'en-tête reçu laisserait le
+        # visiteur choisir l'IP enregistrée par Matomo. Derrière un proxy de confiance,
+        # appliquer ProxyFix pour que remote_addr porte l'IP réelle.
+        entetes["X-Forwarded-For"] = request.remote_addr or ""
 
         query = request.query_string.decode()
         url = f"{matomo_url}{cible}" + (f"?{query}" if query else "")

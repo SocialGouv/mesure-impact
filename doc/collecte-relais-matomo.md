@@ -32,7 +32,7 @@ changent. Exception : les heatmaps, enregistrements de session et l'Overlay (voi
 | `<préfixe>/a.js` | `GET` uniquement, relayé vers `matomo.js` |
 | `<préfixe>/c` | `GET` et `POST`, relayé vers `matomo.php` |
 | Tout le reste | Jamais relayé vers Matomo : ni l'API, ni l'interface, ni d'autres fichiers. |
-| En-têtes transmis | `User-Agent`, `Accept-Language`, `Content-Type`, l'IP dans `X-Forwarded-For`. `Accept-Encoding` pour le script est facultatif (script compressé) |
+| En-têtes transmis | `User-Agent`, `Accept-Language`, `Content-Type`, et l'IP du client vue par le produit dans `X-Forwarded-For`, qui **remplace** l'en-tête reçu. `Accept-Encoding` pour le script est facultatif (script compressé) |
 | En-têtes jamais transmis | Tous les autres : cookies, `Authorization`, jetons, en-têtes d'authentification ajoutés en amont. La session du produit ne part pas chez Matomo. |
 | Corps | 64 Ko au plus, lus en entier par le relais, jamais par un middleware avant lui |
 | Délai | Requête vers Matomo abandonnée après 5 secondes sans réponse |
@@ -143,17 +143,19 @@ reçu. À compléter côté plateforme (limite de taille et délai à l'ingress)
   plugins appellent d'autres fichiers de Matomo (`plugins/...`), que le contrat n'expose pas.
   Un produit qui les utilise les garde en direct ou demande l'extension du contrat.
 - **L'adresse IP.** Matomo ignore `X-Forwarded-For` tant que l'instance n'est pas réglée pour
-  lui faire confiance. Sinon, tous les hits portent l'IP du serveur du produit : la
+  lui faire confiance. Sans ce réglage, tous les hits portent l'IP du serveur du produit : la
   géolocalisation devient fausse et la distinction des visiteurs repose sur le cookie Matomo.
-  Le réglage se fait sur l'instance : `proxy_client_headers[] = HTTP_X_FORWARDED_FOR`, et dans
-  `proxy_ips[]` les IP des relais **et des proxys placés devant eux** (ingress, répartiteur de
-  charge), en gardant `proxy_ip_read_last_in_list = 1`. Matomo lit alors l'en-tête quelle que
-  soit la source : un visiteur qui appelle l'instance en direct peut fixer l'IP enregistrée,
-  sauf si le proxy devant Matomo ajoute l'IP réelle en fin d'en-tête. À valider avec les
+  Réglage côté instance : `proxy_client_headers[] = HTTP_X_FORWARDED_FOR` et les IP des relais
+  dans `proxy_ips[]`. Les exemples n'envoient **qu'une seule IP**, celle que le produit voit,
+  et écrasent l'en-tête reçu : un visiteur ne peut donc pas choisir l'IP enregistrée. Un relais
+  qui se contenterait d'ajouter son IP à l'en-tête reçu rendrait cette IP falsifiable dès que
+  son adresse figure dans `proxy_ips[]`. Si le produit est lui-même derrière un ingress, c'est
+  à lui de résoudre l'IP réelle du client avant de la transmettre. À valider avec les
   opérateurs de l'instance.
-- **Le relais n'ajoute pas de droits.** `matomo.php` est déjà public : ce qui passe par le relais
-  (y compris une requête portant un `token_auth`) pouvait être envoyé directement à l'instance.
-  Seule différence, ces requêtes portent l'IP du serveur du produit. Filtrer `token_auth` a été
+- **Le relais n'ajoute pas de droits**, à condition d'écraser `X-Forwarded-For` comme le font
+  les exemples. `matomo.php` est déjà public : ce qui passe par le relais (y compris une requête
+  portant un `token_auth`) pouvait être envoyé directement à l'instance. Seule différence, ces
+  requêtes portent l'IP du serveur du produit. Filtrer `token_auth` a été
   écarté : les variantes d'écriture que Matomo accepte sont trop nombreuses pour un filtre
   fiable, et le filtre bloquait des hits légitimes.
 - **Pas de limite de débit dans les exemples.** Tous les hits relayés portant l'IP du serveur du
