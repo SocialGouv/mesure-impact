@@ -2,24 +2,42 @@
 # Vérifie un relais Matomo déployé, depuis n'importe quel poste.
 #   ./verifier-relais.sh https://monproduit.gouv.fr/k7f3a9
 # Ne remplace pas le test depuis un poste agent équipé du bloqueur (voir doc).
+# Aucun hit n'est enregistré : les requêtes envoyées ne portent pas d'identifiant de site.
 set -u
 BASE="${1:?Usage : $0 https://domaine-du-produit/prefixe}"
+BASE="${BASE%/}"
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
 echec=0
 
-verifier() { # libellé, code attendu (regex), code obtenu
-  if [[ "$3" =~ ^($2)$ ]]; then echo "OK   $1 ($3)"; else echo "KO   $1 : attendu $2, obtenu $3"; echec=1; fi
-}
+ok() { echo "OK   $1"; }
+ko() { echo "KO   $1"; echec=1; }
 
-code=$(curl -s -o /tmp/relais-script.js -w '%{http_code}' "$BASE/a.js")
-verifier "Le script de mesure est servi" "200" "$code"
-if grep -qi "matomo" /tmp/relais-script.js 2>/dev/null; then echo "OK   Le script servi est bien celui de Matomo"
-else echo "KO   Le script servi n'est pas celui de Matomo"; echec=1; fi
+# Signatures propres aux réponses de Matomo (le mot « matomo » seul peut figurer dans la page du produit).
+SIGNATURE_MATOMO='free/libre analytics platform|Matomo tracking API|GIF89a|^\{"(value|result)":'
 
-verifier "Le point de collecte répond" "200|204" \
-  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/c")"
-verifier "Un autre chemin est refusé" "404|403" \
-  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/index.php?module=API")"
-verifier "Un token_auth est refusé" "400" \
-  "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/c?idsite=0&token_auth=test")"
+# 1. Le script servi est celui de Matomo.
+code=$(curl -s -o "$tmp/script" -w '%{http_code}' "$BASE/a.js")
+if [ "$code" = "200" ] && grep -q "free/libre analytics platform" "$tmp/script"; then ok "Le script de mesure est servi par Matomo"
+else ko "Le script de mesure n'est pas servi par Matomo (statut $code)"; fi
+
+# 2. Un POST avec un corps atteint Matomo, comme les hits envoyés par sendBeacon.
+#    Un 403 trahit une protection CSRF, un 500 un parseur de corps monté avant le relais.
+entetes=$(curl -s -D - -o "$tmp/collecte" -X POST -H 'Content-Type: application/x-www-form-urlencoded' --data 'relais=verification' "$BASE/c")
+code=$(printf '%s' "$entetes" | head -1 | awk '{print $2}')
+# Selon sa version, Matomo répond 200 ou 400 à cette requête sans site. Seul le GIF prouve que le corps
+# est arrivé : sans corps, Matomo renvoie une page HTML qui ne doit pas suffire.
+if printf '%s' "$entetes" | grep -qi '^content-type: image/gif' || grep -q 'GIF89a' "$tmp/collecte"
+then ok "Le point de collecte relaie un POST jusqu'à Matomo (statut $code)"
+else ko "Le point de collecte ne relaie pas un POST jusqu'à Matomo (statut ${code:-aucun})"; fi
+
+# 3. Rien d'autre n'est relayé. Le statut dépend du produit (404 ou page de l'application) :
+#    on vérifie que la réponse ne vient pas de Matomo.
+for chemin in "index.php?module=API&method=API.getMatomoVersion&format=json" "c/index.php" "x/matomo.php"; do
+  : > "$tmp/autre"
+  curl -s -o "$tmp/autre" "$BASE/$chemin"
+  if grep -qE "$SIGNATURE_MATOMO" "$tmp/autre"; then ko "Matomo répond sur /$chemin : le relais en expose trop"
+  else ok "Rien de Matomo sur /$chemin"; fi
+done
 
 exit $echec

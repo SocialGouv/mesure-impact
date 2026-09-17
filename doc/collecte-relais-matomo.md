@@ -5,7 +5,7 @@
 ## Le problème
 
 Les bloqueurs de publicité installés sur les postes agents (uBlock) coupent la mesure Matomo.
-Ils reconnaissent l'adresse de l'instance et les fichiers `matomo.js` et `matomo.php`. Les
+Leurs listes bloquent l'adresse de l'instance et les fichiers `matomo.js` et `matomo.php`. Les
 visites bloquées n'apparaissent nulle part : le tableau de bord sous-estime l'usage sans le
 signaler.
 
@@ -20,8 +20,9 @@ Avant   navigateur ────────────────────�
 Après   navigateur ──> monproduit.gouv.fr/k7f3a9/c ──(relais)──> matomo.fabrique.social.gouv.fr/matomo.php
 ```
 
-La mesure reste **côté navigateur** : cookie Matomo, events, dimensions et plan de tagging ne
-changent pas. Seules les deux adresses du snippet changent.
+La mesure reste **côté navigateur** : cookie Matomo, pages vues, events et dimensions
+fonctionnent comme avant, le plan de tagging ne change pas. Seules les deux adresses du snippet
+changent. Exception : les heatmaps, enregistrements de session et l'Overlay (voir les limites).
 
 ## Le contrat, identique pour tous les produits
 
@@ -30,11 +31,11 @@ changent pas. Seules les deux adresses du snippet changent.
 | Préfixe | Un segment neutre propre au produit, par exemple `/k7f3a9`. Jamais `matomo`, `piwik`, `stats`, `track`, `analytics`. |
 | `<préfixe>/a.js` | `GET` uniquement, relayé vers `matomo.js` |
 | `<préfixe>/c` | `GET` et `POST`, relayé vers `matomo.php` |
-| Tout le reste | Refusé (404). Le relais ne donne jamais accès à l'API ni à l'interface de Matomo. |
-| En-têtes transmis | `User-Agent`, `Accept-Language`, `Content-Type`, et l'IP dans `X-Forwarded-For` |
-| En-têtes jamais transmis | `Cookie`, `Authorization` : la session du produit ne part pas chez Matomo |
-| Refus | Toute requête contenant `token_auth` (400), corps de plus de 64 Ko |
-| Délai | 5 secondes au plus vers Matomo |
+| Tout le reste | Jamais relayé vers Matomo : ni l'API, ni l'interface, ni d'autres fichiers. |
+| En-têtes transmis | `User-Agent`, `Accept-Language`, `Content-Type`, l'IP dans `X-Forwarded-For`, et `Accept-Encoding` pour le script |
+| En-têtes jamais transmis | Tous les autres : cookies, `Authorization`, jetons, en-têtes d'authentification ajoutés en amont. La session du produit ne part pas chez Matomo. |
+| Corps | 64 Ko au plus, lus en entier par le relais, jamais par un middleware avant lui |
+| Délai | Requête vers Matomo abandonnée après 5 secondes sans réponse |
 
 ## Le snippet dans la page
 
@@ -63,23 +64,31 @@ Les events (`_paq.push(["trackEvent", ...])`) s'écrivent exactement comme avant
 
 Choisir **une** implémentation, de préférence la première.
 
-| Stack du produit | Exemple | Code applicatif |
+| Stack du produit | Exemple | Intégration |
 |---|---|---|
-| Tout produit derrière nginx | [`nginx.conf`](../exemples/relais-matomo/nginx.conf) | Aucun |
-| Node.js (Express) | [`express.mjs`](../exemples/relais-matomo/express.mjs) | Un `app.use` |
-| PHP | [`relais.php`](../exemples/relais-matomo/relais.php) | Deux lignes dans le front controller |
-| Python (Flask, logique transposable à Django) | [`flask_relais.py`](../exemples/relais-matomo/flask_relais.py) | Un `register_blueprint` |
+| Tout produit derrière nginx | [`nginx.conf`](../exemples/relais-matomo/nginx.conf) | Trois blocs `location`, aucun code |
+| Node.js (Express) | [`express.mjs`](../exemples/relais-matomo/express.mjs) | Un `app.use`, **avant** les parseurs de corps et le CSRF |
+| PHP | [`relais.php`](../exemples/relais-matomo/relais.php) | Un `require` et un `if` en tête du front controller |
+| Python (Flask, logique transposable à Django) | [`flask_relais.py`](../exemples/relais-matomo/flask_relais.py) | Un `register_blueprint`, sans hook qui lit le corps sur ces chemins |
 | Next.js | [`@socialgouv/matomo-next`](https://github.com/SocialGouv/matomo-next), voir ci-dessous | Configuration du paquet |
 
-Chaque exemple applique le contrat ci-dessus. Les quatre premiers ont été vérifiés contre un
-Matomo simulé : script et hits relayés (`GET` et `POST`), en-têtes transmis, cookie retiré,
-autres chemins, `token_auth` et méthodes non prévues refusés. L'exemple Express a aussi été
-branché sur une vraie instance Matomo : les events envoyés en `GET` et en `POST` via le relais
-sont bien enregistrés.
+**Pourquoi l'ordre compte.** Par défaut, `matomo.js` envoie **tous** ses hits en `POST`
+(`sendBeacon`), le corps n'étant rempli que pour les hits longs et les envois groupés. Un
+parseur de corps ou une protection CSRF placés avant le relais font perdre les hits sans
+aucune erreur dans la page. Les exemples Express et Flask répondent 500 si le corps a déjà été
+lu, ce qui se voit dans les journaux du serveur et fait échouer `verifier-relais.sh`. Pour
+Django, exempter la vue du CSRF.
+
+Les quatre premiers exemples ont été vérifiés contre un Matomo simulé et contre une vraie
+instance : hits `GET`, `POST` et groupés enregistrés, seuls les en-têtes du navigateur prévus par le
+contrat transmis, autres chemins et méthodes non relayés, corps de plus de 64 Ko refusé (y
+compris envoyé par morceaux), abandon après 5 secondes sans réponse. Le
+snippet a été vérifié dans un vrai navigateur à travers le relais Express : page vue, event et
+lien sortant enregistrés.
 
 **Next.js.** `matomo-next` fournit déjà le relais, avec un préfixe et des noms de fichiers
 régénérés à chaque build. Son gestionnaire relaie cependant **tout chemin** vers l'instance.
-Pour respecter le contrat, n'exposer que ses deux fichiers :
+Le filtre ci-dessous limite le relais à ses deux fichiers :
 
 ```ts
 // app/api/mp/[...path]/route.ts
@@ -101,11 +110,16 @@ export const GET = (req: Request, ctx: any) => filtrer("GET", req, ctx);
 export const POST = (req: Request, ctx: any) => filtrer("POST", req, ctx);
 ```
 
+Ce filtre ne couvre que les chemins. Le gestionnaire de `matomo-next` n'applique pas le reste
+du contrat : pas de limite de corps ni de délai, et il transmet tel quel le `X-Forwarded-For`
+reçu. À compléter côté plateforme (limite de taille et délai à l'ingress) ou dans `filtrer`.
+
 ## Recette
 
 1. **Depuis n'importe quel poste** :
    `exemples/relais-matomo/verifier-relais.sh https://monproduit.gouv.fr/k7f3a9`
-   (script servi, collecte joignable, autres chemins et `token_auth` refusés).
+   (script servi par Matomo, `POST` relayé jusqu'à Matomo, aucune réponse de Matomo sur
+   d'autres chemins). Aucun hit n'est enregistré.
 2. **Depuis un poste agent équipé du bloqueur**, le seul test qui compte : naviguer sur le
    produit, puis vérifier dans Matomo (Visites en temps réel) que la visite et ses events
    arrivent.
@@ -114,14 +128,28 @@ export const POST = (req: Request, ctx: any) => filtrer("POST", req, ctx);
 
 ## Limites connues
 
-- **Aucune garantie définitive.** Les noms sont masqués, mais chaque hit porte toujours les
-  paramètres Matomo (`idsite`, `rec`, `action_name`). Une liste de blocage qui filtre sur ces
-  paramètres bloquerait encore. D'où l'étape 2 de la recette, à refaire si le bloqueur change
-  de listes.
-- **L'adresse IP.** Matomo n'utilise l'IP de `X-Forwarded-For` que si l'instance est réglée
-  pour lui faire confiance. Sinon, tous les hits portent l'IP du serveur du produit : la
-  géolocalisation devient fausse, et la distinction des visiteurs repose sur le cookie Matomo.
-  À régler au niveau de l'instance.
+- **Aucune garantie définitive.** Vérifié le 17/09/2026 : EasyList, EasyPrivacy, les listes
+  uBlock, Peter Lowe et AdGuard Tracking bloquent `matomo.js` et `matomo.php` mais laissent
+  passer les adresses du relais. Une liste future pourrait filtrer sur les paramètres des
+  hits (`idsite`, `rec`, `action_name`). D'où l'étape 2 de la recette, à refaire si le
+  bloqueur change de listes.
+- **Heatmaps, enregistrements de session et Overlay** ne passent pas par le relais : ces
+  plugins appellent d'autres fichiers de Matomo (`plugins/...`), que le contrat n'expose pas.
+  Un produit qui les utilise les garde en direct ou demande l'extension du contrat.
+- **L'adresse IP.** Matomo ignore `X-Forwarded-For` tant que l'instance n'est pas réglée pour
+  lui faire confiance. Sinon, tous les hits portent l'IP du serveur du produit : la
+  géolocalisation devient fausse et la distinction des visiteurs repose sur le cookie Matomo.
+  Le réglage se fait sur l'instance : `proxy_client_headers[] = HTTP_X_FORWARDED_FOR`, et dans
+  `proxy_ips[]` les IP des relais **et des proxys placés devant eux** (ingress, répartiteur de
+  charge), en gardant `proxy_ip_read_last_in_list = 1`. Matomo lit alors l'en-tête quelle que
+  soit la source : un visiteur qui appelle l'instance en direct peut fixer l'IP enregistrée,
+  sauf si le proxy devant Matomo ajoute l'IP réelle en fin d'en-tête. À valider avec les
+  opérateurs de l'instance.
+- **Le relais n'ajoute pas de droits.** `matomo.php` est déjà public : ce qui passe par le relais
+  (y compris une requête portant un `token_auth`) pouvait être envoyé directement à l'instance.
+  Seule différence, ces requêtes portent l'IP du serveur du produit. Filtrer `token_auth` a été
+  écarté : les variantes d'écriture que Matomo accepte sont trop nombreuses pour un filtre
+  fiable, et le filtre bloquait des hits légitimes.
 - **Le cookie Matomo reste déposé.** Les obligations d'information des utilisateurs sont
   inchangées par rapport à une intégration classique.
 - **Préfixe fixe.** Les exemples utilisent un préfixe choisi une fois. Le changer à chaque

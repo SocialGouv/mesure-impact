@@ -3,18 +3,27 @@
     from flask_relais import relais_matomo
     app.register_blueprint(relais_matomo())
 
+Aucun hook `before_request` ne doit lire `request.form` ou `request.data` sur ces
+deux chemins (CSRF compris) : le corps du hit serait consommé avant le relais.
+
 Variables : MATOMO_URL (instance) et RELAIS_PREFIXE (ex. /k7f3a9).
 Pour Django, la même logique tient dans une vue branchée sur les deux chemins.
 """
 
+import http.client
 import os
 import urllib.error
 import urllib.request
 
 from flask import Blueprint, Response, abort, request
 
-ROUTES = {"a.js": "/matomo.js", "c": "/matomo.php"}
+# Fichier exposé -> fichier Matomo et méthodes acceptées.
+ROUTES = {
+    "a.js": ("/matomo.js", {"GET"}),
+    "c": ("/matomo.php", {"GET", "POST"}),
+}
 ENTETES_TRANSMIS = ["User-Agent", "Accept-Language", "Content-Type"]
+ENTETES_RETOUR = ["Content-Type", "Cache-Control", "ETag", "Last-Modified"]
 TAILLE_MAX = 64_000
 
 
@@ -23,35 +32,38 @@ def relais_matomo(matomo_url=None, prefixe=None):
     prefixe = prefixe or os.environ["RELAIS_PREFIXE"]
     bp = Blueprint("relais_matomo", __name__)
 
-    @bp.route(f"{prefixe}/<fichier>", methods=["GET", "POST"])
+    @bp.route(f"{prefixe}/<fichier>", methods=["GET", "POST"], provide_automatic_options=False)
     def relais(fichier):
-        cible = ROUTES.get(fichier)
-        if cible is None:
+        route = ROUTES.get(fichier)
+        # Flask ajoute HEAD aux routes GET : on s'en tient aux méthodes prévues.
+        if route is None or request.method not in route[1]:
             abort(404)
+        cible = route[0]
 
-        query = request.query_string.decode()
         corps = None
         if request.method == "POST":
-            if (request.content_length or 0) > TAILLE_MAX:
+            # Lecture bornée, y compris sans Content-Length (envoi par morceaux).
+            corps = request.stream.read(TAILLE_MAX + 1)
+            if len(corps) > TAILLE_MAX:
                 abort(413)
-            corps = request.get_data()
-        if "token_auth" in query or (corps and b"token_auth" in corps):
-            abort(400)
+            if not corps and (request.content_length or 0) > 0:
+                abort(500, "relais Matomo : corps déjà lu avant le relais")
 
         entetes = {nom: request.headers[nom] for nom in ENTETES_TRANSMIS if nom in request.headers}
         entetes["X-Forwarded-For"] = ", ".join(
             filter(None, [request.headers.get("X-Forwarded-For"), request.remote_addr])
         )
 
+        query = request.query_string.decode()
         url = f"{matomo_url}{cible}" + (f"?{query}" if query else "")
         requete = urllib.request.Request(url, data=corps, headers=entetes, method=request.method)
         try:
             with urllib.request.urlopen(requete, timeout=5) as reponse:
-                garder = {k: reponse.headers[k] for k in ("Content-Type", "Cache-Control") if reponse.headers.get(k)}
+                garder = {k: reponse.headers[k] for k in ENTETES_RETOUR if reponse.headers.get(k)}
                 return Response(reponse.read(), status=reponse.status, headers=garder)
         except urllib.error.HTTPError as erreur:
             return Response(erreur.read(), status=erreur.code)
-        except OSError:
+        except (OSError, http.client.HTTPException):
             abort(502)
 
     return bp

@@ -16,7 +16,8 @@ exemples : [`doc/collecte-relais-matomo.md`](../collecte-relais-matomo.md).
   calculé, un envoi asynchrone et un point de collecte sécurisé : trop lourd à reproduire
   sur tout le portefeuille.
 - Le relais ne change **ni le plan de tagging ni le code des events**. Il se résume à deux
-  adresses dans le snippet et à une règle sur le serveur web, sans token dans le produit.
+  adresses dans le snippet et à une règle sur le serveur web ou quelques lignes dans
+  l'application, sans token dans le produit.
 - Une solution existe déjà à la DNUM pour Next.js (`@socialgouv/matomo-next`).
 
 ## Conséquences
