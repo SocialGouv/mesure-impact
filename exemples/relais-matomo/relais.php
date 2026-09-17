@@ -74,6 +74,8 @@ function relais_matomo(string $matomoUrl, string $prefixe): bool
 
     $reponse = curl_exec($ch);
     if ($reponse === false) {
+        // Sans cette trace, un relais cassé fait disparaître la mesure en silence.
+        error_log('relais Matomo : échec de l\'appel à Matomo : ' . curl_error($ch));
         http_response_code(502);
         return true;
     }

@@ -59,7 +59,9 @@ export function relaisMatomo({
           if (valeur) res.set(nom, valeur);
         }
         res.send(contenu);
-      } catch {
+      } catch (erreur) {
+        // Sans cette trace, un relais cassé fait disparaître la mesure en silence.
+        console.error("relais Matomo : échec de l'appel à Matomo", erreur);
         res.sendStatus(502);
       }
     },

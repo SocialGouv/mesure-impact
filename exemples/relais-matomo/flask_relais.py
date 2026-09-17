@@ -15,7 +15,7 @@ import os
 import urllib.error
 import urllib.request
 
-from flask import Blueprint, Response, abort, request
+from flask import Blueprint, Response, abort, current_app, request
 
 # Fichier exposé -> fichier Matomo et méthodes acceptées.
 ROUTES = {
@@ -74,6 +74,8 @@ def relais_matomo(matomo_url=None, prefixe=None):
         except urllib.error.HTTPError as erreur:
             return Response(erreur.read(), status=erreur.code)
         except (OSError, http.client.HTTPException):
+            # Sans cette trace, un relais cassé fait disparaître la mesure en silence.
+            current_app.logger.exception("relais Matomo : échec de l'appel à Matomo")
             abort(502)
 
     return bp

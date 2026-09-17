@@ -107,7 +107,15 @@ if (FICHIERS.some((f) => !f)) {
 async function filtrer(methode: "GET" | "POST", req: Request, ctx: { params: Promise<{ path?: string[] }> }) {
   const { path = [] } = await ctx.params;
   if (path.length !== 1 || !FICHIERS.includes(path[0])) return new Response(null, { status: 404 });
-  return relais[methode](req, ctx);
+
+  // Le gestionnaire transmet le X-Forwarded-For reçu tel quel : on ne garde que la dernière
+  // entrée, celle ajoutée par l'ingress, sinon un visiteur choisirait l'IP enregistrée.
+  const entetes = new Headers(req.headers);
+  const chaine = (req.headers.get("x-forwarded-for") ?? "").split(",").map((v) => v.trim()).filter(Boolean);
+  if (chaine.length > 0) entetes.set("x-forwarded-for", chaine[chaine.length - 1]);
+  const requete = new Request(req.url, { method: req.method, headers: entetes, body: req.body, duplex: "half" } as RequestInit);
+
+  return relais[methode](requete, ctx);
 }
 
 export const GET = (req: Request, ctx: any) => filtrer("GET", req, ctx);
@@ -115,7 +123,9 @@ export const POST = (req: Request, ctx: any) => filtrer("POST", req, ctx);
 ```
 
 Filtre testé avec Next.js 15.5 et `matomo-next` 1.14.2 : seuls les deux fichiers générés au
-build sont relayés. Il ne couvre que les chemins. Le gestionnaire de `matomo-next` n'applique pas le reste
+build sont relayés, et l'IP transmise est celle ajoutée par le proxy placé devant l'application.
+Sans un tel proxy de confiance, retirer l'en-tête au lieu de le réécrire, et ne pas déclarer
+l'IP du produit dans `proxy_ips[]` côté instance. Le filtre ne couvre que les chemins. Le gestionnaire de `matomo-next` n'applique pas le reste
 du contrat : pas de limite de corps ni de délai, et il transmet tel quel le `X-Forwarded-For`
 reçu. À compléter côté plateforme (limite de taille et délai à l'ingress) ou dans `filtrer`.
 
