@@ -17,6 +17,7 @@ task             # liste des commandes
 | `docker/cron/` | image du CronJob de collecte |
 | `docker/web/` | image nginx servant `site/` |
 | `site/` | page d'accueil listant les tableaux de bord |
+| `exemples/relais-matomo/` | relais anti-bloqueur à poser dans les produits (cf. `doc/collecte-relais-matomo.md`) |
 | `produits/<dept>/<nom>/` | un produit : fiche, ETL, tableau de bord, secrets scellés |
 | `chart/` | chart Helm (CronJob, Deployment, Service, Ingress) |
 | `envs/<env>/values.yaml` | surcharges par environnement |
