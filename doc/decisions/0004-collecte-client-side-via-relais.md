@@ -1,6 +1,11 @@
 # 0004 — Collecte côté navigateur via un relais sur le domaine du produit
 
-**Date** : 17/09/2026 · **Statut** : proposé (Philippe), à valider par le studio tech (Jo)
+**Date** : 17/09/2026 · **Statut** : **proposé**
+
+Passe en **accepté** quand, et seulement quand, l'étape 2 de la recette est faite : une visite
+depuis un poste agent réellement équipé du bloqueur, retrouvée dans Matomo. Tout le reste est
+vérifié ; cette étape porte la prémisse entière de la décision et ne peut pas l'être depuis un
+poste de développement.
 
 ## Décision
 
@@ -24,5 +29,14 @@ exemples : [`doc/collecte-relais-matomo.md`](../collecte-relais-matomo.md).
 
 - Chaque produit choisit un préfixe neutre et met en place le relais selon sa stack.
 - La recette inclut un test depuis un poste agent équipé du bloqueur.
-- Le réglage de l'instance Matomo sur `X-Forwarded-For` est à trancher avec ses opérateurs.
+- Le relais masque l'IP avant de la transmettre (`/16` en IPv4, `/48` en IPv6). Côté instance,
+  il reste à activer `proxy_client_headers[]`, `proxy_ip_read_last_in_list` et `proxy_ips[]` —
+  à trancher avec les opérateurs de l'instance. Sans ce réglage, la mesure fonctionne mais la
+  géolocalisation est fausse et les visiteurs sans cookie fusionnent.
+- **Les exemples sont un catalogue, pas encore un artefact partagé.** Cinq implémentations
+  portent le même contrat : chaque correction doit être rejouée cinq fois, et cette PR l'a déjà
+  fait deux fois (écrasement de `X-Forwarded-For`, puis masquage de l'IP). Dès le **deuxième
+  produit adoptant**, on publie depuis ce dépôt un sidecar nginx et un fragment de chart, et le
+  catalogue devient la documentation de ce qu'ils font. Avant deux adoptants, l'artefact
+  coûterait plus que la duplication qu'il évite.
 - Le plan de tagging HELIOS repasse en client-side avec relais.

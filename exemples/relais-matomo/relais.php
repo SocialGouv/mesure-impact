@@ -7,6 +7,28 @@
 //   if (relais_matomo((string) getenv('MATOMO_URL'), (string) getenv('RELAIS_PREFIXE'))) {
 //       exit;
 //   }
+//
+// Journalisation : exclure les deux chemins du relais du journal d'accès du serveur web
+// placé devant PHP. La query string d'un hit porte l'URL visitée, le titre de page et
+// l'identifiant de visiteur : elle n'a rien à faire dans les journaux du produit.
+
+// Masque l'IP au niveau du contrat : deux octets en IPv4, 48 bits en IPv6. Chaîne vide si
+// la forme n'est pas reconnue — mieux vaut aucune IP qu'une IP entière transmise par
+// inadvertance.
+function relais_matomo_ip_anonymisee(string $ip): string
+{
+    if (stripos($ip, '::ffff:') === 0) {
+        $ip = substr($ip, 7);
+    }
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+        [$a, $b] = explode('.', $ip);
+        return "$a.$b.0.0";
+    }
+    if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+        return (string) inet_ntop(substr((string) inet_pton($ip), 0, 6) . str_repeat("\0", 10));
+    }
+    return '';
+}
 
 function relais_matomo(string $matomoUrl, string $prefixe): bool
 {
@@ -47,10 +69,13 @@ function relais_matomo(string $matomoUrl, string $prefixe): bool
             $entetes[] = "$nom: {$_SERVER[$cle]}";
         }
     }
-    // Une seule IP, celle vue par le produit : conserver l'en-tête reçu laisserait le
-    // visiteur choisir l'IP enregistrée par Matomo. Derrière un proxy de confiance,
-    // reprendre l'IP réelle résolue par l'application.
-    $entetes[] = "X-Forwarded-For: {$_SERVER['REMOTE_ADDR']}";
+    // Une seule IP, masquée, celle vue par le produit : conserver l'en-tête reçu
+    // laisserait le visiteur choisir l'IP enregistrée par Matomo. Derrière un proxy de
+    // confiance, reprendre l'IP réelle résolue par l'application.
+    $ipAnonymisee = relais_matomo_ip_anonymisee((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+    if ($ipAnonymisee !== '') {
+        $entetes[] = "X-Forwarded-For: $ipAnonymisee";
+    }
 
     $retour = [];
     $query = $_SERVER['QUERY_STRING'] ?? '';

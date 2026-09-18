@@ -8,9 +8,15 @@ deux chemins (CSRF compris) : le corps du hit serait consommé avant le relais.
 
 Variables : MATOMO_URL (instance) et RELAIS_PREFIXE (ex. /k7f3a9).
 Pour Django, la même logique tient dans une vue branchée sur les deux chemins.
+
+Journalisation : exclure les deux chemins du relais du journal d'accès du serveur
+WSGI (gunicorn y écrit la ligne de requête complète). La query string d'un hit porte
+l'URL visitée, le titre de page et l'identifiant de visiteur : elle n'a rien à faire
+dans les journaux du produit.
 """
 
 import http.client
+import ipaddress
 import os
 import urllib.error
 import urllib.request
@@ -36,6 +42,22 @@ class _SansRedirection(urllib.request.HTTPRedirectHandler):
 OUVREUR = urllib.request.build_opener(_SansRedirection)
 
 
+def _anonymiser_ip(ip):
+    """Masque l'IP au niveau du contrat : /16 en IPv4, /48 en IPv6.
+
+    Renvoie None si la forme n'est pas reconnue — mieux vaut aucune IP qu'une IP
+    entière transmise par inadvertance.
+    """
+    try:
+        adresse = ipaddress.ip_address(ip)
+    except (ValueError, TypeError):
+        return None
+    if getattr(adresse, "ipv4_mapped", None):
+        adresse = adresse.ipv4_mapped
+    prefixe = 16 if adresse.version == 4 else 48
+    return str(ipaddress.ip_network(f"{adresse}/{prefixe}", strict=False).network_address)
+
+
 def relais_matomo(matomo_url=None, prefixe=None):
     matomo_url = matomo_url or os.environ["MATOMO_URL"]
     prefixe = prefixe or os.environ["RELAIS_PREFIXE"]
@@ -59,10 +81,12 @@ def relais_matomo(matomo_url=None, prefixe=None):
                 abort(500, "relais Matomo : corps déjà lu avant le relais")
 
         entetes = {nom: request.headers[nom] for nom in ENTETES_TRANSMIS if nom in request.headers}
-        # Une seule IP, celle vue par le produit : conserver l'en-tête reçu laisserait le
-        # visiteur choisir l'IP enregistrée par Matomo. Derrière un proxy de confiance,
-        # appliquer ProxyFix pour que remote_addr porte l'IP réelle.
-        entetes["X-Forwarded-For"] = request.remote_addr or ""
+        # Une seule IP, masquée, celle vue par le produit : conserver l'en-tête reçu
+        # laisserait le visiteur choisir l'IP enregistrée par Matomo. Derrière un proxy
+        # de confiance, appliquer ProxyFix pour que remote_addr porte l'IP réelle.
+        ip_anonymisee = _anonymiser_ip(request.remote_addr)
+        if ip_anonymisee:
+            entetes["X-Forwarded-For"] = ip_anonymisee
 
         query = request.query_string.decode()
         url = f"{matomo_url}{cible}" + (f"?{query}" if query else "")
