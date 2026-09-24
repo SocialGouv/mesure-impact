@@ -151,6 +151,8 @@
 const GRAN_LBL = 'par jour';
 const SEG_LBL = { tous:'tous devices', mobile:'mobile', desktop:'desktop' };
 const FUNNEL_LBL = ['Arrivée annuaire','Recherche lancée','Résultats affichés','Clic contact (mise en relation)'];
+// Funnel du mode carte : mêmes colonnes Modes, étapes propres (vue carte, structure consultée depuis un marqueur).
+const FUNNEL_LBL_CARTE = ['Arrivée annuaire','Vue carte','Structure consultée','Clic contact (mise en relation)'];
 // libellés des filtres : clés = slugs réels émis par le tag (site 168)
 const FILTRE_LBL = {
   'violences-conjugales':'Violence au sein du couple', 'violences-sexuelles':'Viol, agression sexuelle',
@@ -168,7 +170,7 @@ const num = v => v==null ? '—' : fmt(v);
 
 // tables Grist brutes + structures dérivées (mêmes formes que l'ancien proto)
 let SESS=[], EVT=[], MOD=[], INDIC=[], META=null;
-let RATES={}, VOL={}, ERR={}, FUNNEL={}, MODES={}, FILTRES={}, CANAUX={};
+let RATES={}, VOL={}, ERR={}, FUNNEL={}, MODES={}, FILTRES={}, CANAUX={}, CLUSTERS={};
 
 const setSrc = (cls, txt) => { const s=document.getElementById('src'); if(s){ s.className='src'+(cls?' '+cls:''); s.textContent=txt; } };
 const rowsFromColumnar = t => { const cols=Object.keys(t).filter(k=>k!=='manualSort'); const n=(t.id||t[cols[0]]||[]).length; const out=[]; for(let i=0;i<n;i++){const o={};for(const c of cols)o[c]=t[c][i];out.push(o);} return out; };
@@ -237,16 +239,21 @@ function buildFixed(){
 // FUNNEL / MODES / FILTRES / CANAUX : dépendants de la période courante (rebâtis à chaque render)
 function buildPeriod(){
   const w=winDays();
-  FUNNEL={}; CANAUX={};
-  MODES={ saisie:{lbl:'Saisie manuelle',part:{},f:{}}, geoloc:{lbl:'Géolocalisation',part:{},f:{}}, ville:{lbl:'Lien ville / territoire',part:{},f:{}} };
+  FUNNEL={}; CANAUX={}; CLUSTERS={};
+  MODES={ saisie:{lbl:'Saisie manuelle',part:{},f:{}}, geoloc:{lbl:'Géolocalisation',part:{},f:{}}, ville:{lbl:'Lien ville / territoire',part:{},f:{}}, carte:{lbl:'Carte',part:{},f:{}} };
+  for(const k in MODES) MODES[k].n={};
   for(const dev of ['tous','mobile','desktop']){
     const S=pick(SESS,w,dev), vis=sum(S,r=>r.visites);
     // `null` plutôt qu'un dénominateur de secours : un funnel bâti sur zéro session
     // affiche « Arrivée 100 % » puis « −100 pts ⚠ principal décrochage ».
     FUNNEL[dev]= vis? [100, Math.round(100*sum(S,r=>r.s_recherche)/vis), Math.round(100*sum(S,r=>r.s_resultats)/vis), Math.round(100*sum(S,r=>r.s_contact)/vis)] : null;
-    for(const mode of ['saisie','geoloc','ville']){
+    // Repère carte : clics sur cluster de la période, toutes sessions (y compris carte ouverte après une recherche).
+    CLUSTERS[dev]= vis? sum(pick(EVT,w,dev).filter(e=>e.category==='recherche'&&e.action==='ouvrir_cluster'),e=>e.count) : null;
+    for(const mode of ['saisie','geoloc','ville','carte']){
       const M=pick(MOD,w,dev).filter(r=>r.mode===mode), arr=sum(M,r=>r.s_arrivee);
       MODES[mode].part[dev]= vis? Math.round(100*arr/vis) : null;
+      // Effectif réel, pas reconstruit depuis le % arrondi (1 entrée sur 300 afficherait « 0 »).
+      MODES[mode].n[dev]= vis? arr : null;
       MODES[mode].f[dev]= arr? [100, Math.round(100*sum(M,r=>r.s_recherche)/arr), Math.round(100*sum(M,r=>r.s_resultats)/arr), Math.round(100*sum(M,r=>r.s_contact)/arr)] : null;
     }
     // Objets nus : les clés viennent de Matomo, et `byX['toString']` partirait
@@ -359,7 +366,7 @@ function funnelBlock(steps, labels, opts){
     const largeur = max? Math.min(100, Math.max(0, Math.round(p/max*100))) : 0;
     html += `<div class="step"><div class="nm">${labels[i]}</div><div class="bw"><div class="bar" style="width:${largeur}%">${p}%${eff}</div></div></div>`;
     if(i<steps.length-1){ const drop=steps[i]-steps[i+1], big=(i===flag);
-      html += `<div class="conv${big?' big':''}">↓ −${drop} pts ${big?'⚠ principal décrochage':''}</div>`; }
+      html += `<div class="conv${big?' big':''}">${drop>=0? '↓ −'+drop : '↑ +'+(-drop)} pts ${big?'⚠ principal décrochage':''}</div>`; }
   });
   html += '</div>';
   return html;
@@ -404,17 +411,17 @@ function renderUtilisable(){
     <div style="display:flex;gap:1.4rem;margin:.2rem 0 .1rem"><div><div class="kpi-mid">${num(e.c404)}</div><div class="kpi-note">erreurs 404</div></div><div><div class="kpi-mid">${num(e.c500)}</div><div class="kpi-note">erreurs 500</div></div></div>${delta(e.d,'')}
     <div class="defbox"><b>Source :</b> events <code>erreur/404</code> + <code>erreur/500</code> (déclenchés au rendu de la page d’erreur). Le <code>nom</code> porte l’URL fautive.</div>`;
 
-  // Mode d'entrée (3 modes). `part` est un pourcentage de VISITES : l'effectif se
+  // Mode d'entrée (4 modes : 3 lancements de recherche + carte ouverte avant toute recherche). `part` est un pourcentage de VISITES : l'effectif se
   // reconstruit sur les visites, pas sur le nombre de recherches lancées (plusieurs
   // par session), sinon la ligne affiche un effectif supérieur à sa propre base.
-  const S = pick(SESS, winDays(), seg), visites = sum(S, x=>x.visites), modes=['saisie','geoloc','ville'];
-  const modeRow=(lbl,part)=> part==null
-    ? `<div class="step"><div class="nm">${lbl}</div><div class="bw"><div class="bar" style="width:0%">—</div></div></div>`
-    : `<div class="step"><div class="nm">${lbl}</div><div class="bw"><div class="bar" style="width:${part}%">${part}% · ${fmt(Math.round(visites*part/100))}</div></div></div>`;
+  const S = pick(SESS, winDays(), seg), visites = sum(S, x=>x.visites), modes=['saisie','geoloc','ville','carte'];
+  const modeRow=(lbl,part,n)=> part==null
+    ? `<div class="step"><div class="nm">${lbl}</div><div class="bw"><div class="bar" style="width:0%;min-width:4.6rem">—</div></div></div>`
+    : `<div class="step"><div class="nm">${lbl}</div><div class="bw"><div class="bar" style="width:${part}%;min-width:4.6rem">${part}% · ${fmt(n)}</div></div></div>`;
   const modeEntree = `<h2 class="sec">Mode d’entrée dans la recherche <small>: comment la recherche démarre · segment ${SEG_LBL[seg]}</small></h2>
-    <div class="card"><div class="ph"><span class="role">Répartition des entrées (3 modes)</span></div>
-      <div style="padding:.7rem .9rem"><div class="funnel">${modes.map(k=>modeRow(MODES[k].lbl, MODES[k].part[seg])).join('')}</div>
-      <div class="hint" style="margin-top:.35rem">Base : ${S.length? fmt(visites) : '—'} sessions. Source : event <code>recherche/lancer</code> (nom = saisie | geoloc | ville).</div></div></div>`;
+    <div class="card"><div class="ph"><span class="role">Répartition des entrées (4 modes)</span></div>
+      <div style="padding:.7rem .9rem"><div class="funnel">${modes.map(k=>modeRow(MODES[k].lbl, MODES[k].part[seg], MODES[k].n[seg])).join('')}</div>
+      <div class="hint" style="margin-top:.35rem">Base : ${S.length? fmt(visites) : '—'} sessions. Source : event <code>recherche/lancer</code> (nom = saisie | geoloc | ville) ; mode carte = <code>recherche/changer_vue</code> (carte) avant toute recherche lancée.</div></div></div>`;
 
   document.getElementById('p1').innerHTML = `<h2 class="sec">Utilisable <small>: entrée dans la recherche et fiabilité technique</small></h2>
     <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier vérifie que l'annuaire est <b>utilisable</b> : par quel mode d'entrée la recherche démarre, et ce que le produit renvoie comme pages d'erreur.</div>${segNote()}
@@ -467,10 +474,10 @@ function renderUtile(){
     ${cap('Taux d’abandon sans mise en relation','Miroir de la conversion : part des sessions repartant sans aucun clic contact. Complément exact du taux d’interaction.')} ${srcBadge('Matomo · dérivé')}
     <div class="kpi-mid">${pct(ab.v)}</div>${delta(ab.d,' pts')}`;
 
-  // sous-funnels par mode d'entrée (3 modes, device courant), 4 étapes
+  // sous-funnels par mode d'entrée (4 modes, device courant), 4 étapes
   const modeBlock = (k)=>{ const m=MODES[k], f=m.f[seg], part=m.part[seg];
     return `<div class="card"><div class="ph"><span class="role">${m.lbl}</span><span class="hint" style="margin-left:auto">${part==null?'—':part+'%'} des entrées</span></div>
-      <div style="padding:.6rem .9rem">${f? funnelBlock(f, FUNNEL_LBL, {}) : '<p class="hint">Aucune entrée par ce mode sur la période.</p>'}</div></div>`; };
+      <div style="padding:.6rem .9rem">${f? funnelBlock(f, k==='carte'? FUNNEL_LBL_CARTE : FUNNEL_LBL, {}) : '<p class="hint">Aucune entrée par ce mode sur la période.</p>'}${k==='carte'? `<p class="hint" style="margin:.4rem 0 0">Repère : <b>${num(CLUSTERS[seg])}</b> clics sur un cluster sur la période, toutes sessions confondues.</p>` : ''}</div></div>`; };
 
   // canaux de contact
   const canaux = `<h2 class="sec">Canaux de contact utilisés <small>: répartition des mises en relation · ${SEG_LBL[seg]}</small></h2>
@@ -490,10 +497,10 @@ function renderUtile(){
     </div>
     ${canaux}
     <h2 class="sec">Funnel de mise en relation par mode d’entrée <small>: 4 étapes · segment ${SEG_LBL[seg]}</small></h2>
-    <div class="pilier">${modeBlock('saisie')}${modeBlock('geoloc')}${modeBlock('ville')}</div>
+    <div class="pilier">${modeBlock('saisie')}${modeBlock('geoloc')}${modeBlock('ville')}${modeBlock('carte')}</div>
     <h2 class="sec">Évolution des taux de contact <small>: téléphone &amp; copie adresse (%, ${GRAN_LBL})</small></h2>
     <div class="chartcard"><div class="ct">Ligne pleine : clic téléphone · ligne pointillée : copie adresse</div>${dual}</div>
-    <p class="src">Source : Matomo, clics contact = events ; abandon = dérivé des sessions ; funnel = reconstruit (composant maison). Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+    <p class="src">Source : Matomo, clics contact = events ; abandon = dérivé des sessions ; funnel = reconstruit (composant maison), funnel carte = events <code>changer_vue</code>, <code>consulter_structure</code>, <code>ouvrir_cluster</code>. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
 }
 
 function dualChart(s1,s2){

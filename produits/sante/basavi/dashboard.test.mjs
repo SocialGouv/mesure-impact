@@ -102,8 +102,8 @@ const indicateur = (day, device, champs = {}) => ({
     (els.p1.innerHTML.match(/kpi-mid">—</g) || []).length === 2);
   verifier('fenêtre vide : le volume de recherches vaut —', els.p2.innerHTML.includes('kpi-mid">—<'));
   verifier('fenêtre vide : la part ALV vaut —', els.p2.innerHTML.includes('kpi-mid">—<'));
-  verifier('fenêtre vide : les 3 modes d’entrée valent — et non 0 %',
-    (els.p1.innerHTML.match(/class="bar" style="width:0%">—</g) || []).length === 3);
+  verifier('fenêtre vide : les 4 modes d’entrée valent — et non 0 %',
+    (els.p1.innerHTML.match(/class="bar" style="width:0%;min-width:4.6rem">—</g) || []).length === 4);
   verifier('fenêtre vide : la base du pilier vaut —', els.p1.innerHTML.includes('Base : — sessions'));
 }
 
@@ -431,6 +431,38 @@ const indicateur = (day, device, champs = {}) => ({
     ['p1', 'p2', 'p3'].every((k) => els[k].innerHTML.includes('border-left-color:var(--ko)')));
   verifier('exception au changement de segment : elle est aussi journalisée',
     journal.some((l) => l.includes('TypeError')));
+}
+
+// --- Carte : 4e mode d'entrée, 4e funnel, repère cluster -------------------------
+// Sans fixture carte, aucune de ces valeurs n'est jamais rendue : une régression
+// (carte retirée de la boucle, libellés perdus, repère figé) passerait au vert.
+{
+  const J1 = '2026-09-20', J2 = '2026-09-21';
+  const modeRow = (day, device, mode, arr, vue, consult, contact) => ({
+    mode_id: `${day}|${device}|${mode}`, day, device, mode,
+    s_arrivee: arr, s_recherche: vue, s_resultats: consult, s_contact: contact,
+  });
+  const cluster = (day, device, count) => ({ event_id: `${day}|${device}|recherche|ouvrir_cluster|`, day, device, category: 'recherche', action: 'ouvrir_cluster', name: '', count });
+  const { els, api } = executer((t) => {
+    t.SESS = [session(J1, 'tous', 100, 10), session(J2, 'tous', 200, 20), session(J1, 'mobile', 100, 10), session(J2, 'mobile', 200, 20)];
+    t.MOD = [modeRow(J1, 'tous', 'carte', 10, 10, 2, 5), modeRow(J2, 'tous', 'carte', 1, 1, 1, 0),
+      modeRow(J1, 'mobile', 'carte', 10, 10, 2, 5), modeRow(J2, 'mobile', 'carte', 1, 1, 1, 0)];
+    t.EVT = [cluster(J1, 'tous', 7), cluster(J2, 'tous', 3), cluster(J1, 'mobile', 7), cluster(J2, 'mobile', 3)];
+    t.INDIC = [indicateur(J1, 'tous'), indicateur(J2, 'tous'), indicateur(J1, 'mobile'), indicateur(J2, 'mobile')];
+    t.META = null; t.buildFixed(); t.renderAll();
+  });
+  verifier('carte : ligne de la répartition avec son effectif réel (11 entrées sur 300)',
+    els.p1.innerHTML.includes('>Carte</div>') && els.p1.innerHTML.includes('4% · 11<'));
+  verifier('carte : funnel rendu avec ses propres étapes',
+    els.p3.innerHTML.includes('Vue carte') && els.p3.innerHTML.includes('Structure consultée'));
+  verifier('carte : repère cluster sur toute la période', els.p3.innerHTML.includes('Repère : <b>10</b>'));
+  verifier('funnel : une étape qui remonte s’écrit ↑ +, jamais « −- »',
+    !els.p3.innerHTML.includes('−-') && els.p3.innerHTML.includes('↑ +18 pts'));
+  api.fromD = J2; api.buildFixed(); api.renderAll();
+  verifier('carte : le repère suit la période', els.p3.innerHTML.includes('Repère : <b>3</b>'));
+  verifier('carte : 1 entrée sur 200 garde son effectif (« 1% · 1 »)', els.p1.innerHTML.includes('1% · 1<'));
+  api.fromD = null; api.setSeg('desktop');
+  verifier('carte : sans session sur le segment, le repère vaut —', els.p3.innerHTML.includes('Repère : <b>—</b>'));
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
