@@ -9,19 +9,19 @@ description: >
 
 # Envs où ce produit est collecté. Un env absent d'ici ne reçoit aucun CronJob :
 # c'est ainsi qu'on empêche la prod de collecter la source de préprod par défaut.
-envs: [dev]
+envs: [dev, prod]
 
 chaine:
   matomo:
     url: https://matomo.fabrique.social.gouv.fr
     site_id:
       dev: 168              # site de préprod
-      # prod: <à créer>     # ajouter l'env à `envs` en même temps que le site
+      prod: 170             # « GPS - BASAVI - PROD », annuaire.arretonslesviolences.gouv.fr
   grist:
     url: https://grist.numerique.gouv.fr
     doc_id:
       dev: 1kb1wHNCjAns     # « Preprod - BASAVI »
-      # prod: <à créer>     # doc prod séparé, pour que la préprod ne pollue jamais la prod
+      prod: bYiVrDCi85T6XGW7SSUC4G   # « Prod - BASAVI », doc séparé : la préprod ne pollue jamais la prod
     tables: [Sessions, Events, Modes, Indicateurs, Extractions]
   grain: jour × device      # device natif Matomo (mobile / desktop / tous)
 
