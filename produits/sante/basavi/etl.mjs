@@ -146,12 +146,16 @@ const EXTRACT_COLS = [
 // `split('|')` de la clé d'agrégat et réinjecte du texte choisi dans la colonne
 // `name`, par-dessus l'allowlist. Aucune valeur retenue ne contient de `|`.
 const CATEGORIES = new Set(['recherche', 'contact', 'erreur']);
-const ACTIONS = new Set(['lancer', 'filtrer', 'clic_telephone', 'clic_email', 'copie_adresse', 'clic_site', '404', '500']);
+const ACTIONS = new Set(['lancer', 'filtrer', 'changer_vue', 'ouvrir_cluster', 'consulter_structure', 'clic_telephone', 'clic_email', 'copie_adresse', 'clic_site', '404', '500']);
 const MODES_ENTREE = new Set(['saisie', 'geoloc', 'ville']);
+const VUES = new Set(['carte', 'liste']);
+// Les 4 funnels du tableau de bord : les 3 modes de lancement + la carte ouverte d'emblée.
+const MODES_FUNNEL = new Set([...MODES_ENTREE, 'carte']);
 const TYPES_FILTRE = new Set(['violences-conjugales', 'violences-sexuelles', 'mutilations-sexuelles', 'prostitution', 'mariages-forces', 'harcelement-sexuel']);
 const RECHERCHE_NAMES = new Set([
   ...[...MODES_ENTREE].map((n) => `lancer/${n}`),
   ...[...TYPES_FILTRE].map((n) => `filtrer/${n}`),
+  ...[...VUES].map((n) => `changer_vue/${n}`),
 ]);
 // Ce qui tombe hors liste est agrégé en `autre` — mais la valeur d'origine est
 // retenue à part : sinon une dérive du plan de tag (l'appli renomme un event) devient
@@ -193,7 +197,10 @@ function build(visits) {
     const dev = DEVICE(v.deviceType);
     const acts = v.actionDetails || [];
     // signaux de visite
-    let searched = false, contacted = false, tel = false, copie = false, reached = false, entryMode = null;
+    // Mode d'entrée = premier geste de recherche de la visite. Un passage en vue carte
+    // AVANT tout lancement fait de la carte le mode d'entrée : les 4 modes restent
+    // exclusifs, une visite n'est comptée que dans un seul funnel.
+    let searched = false, contacted = false, tel = false, copie = false, reached = false, entryMode = null, consulte = false, contactCarte = false;
     for (const a of acts) {
       if (a.type === 'action' && /\/search/.test(a.url || '')) reached = true;
       if (a.type !== 'event') continue;
@@ -202,10 +209,20 @@ function build(visits) {
       // agrégat Events (day|dev|cat|action|name). On ne garde le `nom` que là où il est BORNÉ :
       // recherche/lancer (3 modes) et recherche/filtrer (6 types). Pour contact (nom = id asso) et
       // erreur (nom = URL), on droppe le nom → cardinalité maîtrisée (cf. cadrage scaling Grist).
-      const evName = cat === 'recherche' ? (RECHERCHE_NAMES.has(`${act}/${name}`) ? name : (name ? 'autre' : '')) : '';
+      // consulter_structure porte l'id de la structure, comme contact : nom écarté aussi.
+      // ouvrir_cluster n'a pas de nom attendu : un nom éventuel est écarté, pas signalé.
+      const sansNom = act === 'consulter_structure' || act === 'ouvrir_cluster';
+      // Action déjà signalée hors liste : son nom n'ajoute rien au canari.
+      const evName = cat === 'recherche' && !sansNom ? (RECHERCHE_NAMES.has(`${act}/${name}`) ? name : (!name ? '' : act === 'autre' ? 'autre' : borner(`${act}/${name}`, RECHERCHE_NAMES, 'nom'))) : '';
       const ek = `${day}|${dev}|${cat}|${act}|${evName}`; evAgg.set(ek, (evAgg.get(ek) || 0) + 1);
       if (cat === 'recherche' && act === 'lancer') { searched = true; if (!entryMode && MODES_ENTREE.has(name)) entryMode = name; reached = true; }
       if (cat === 'recherche' && act === 'filtrer') reached = true;
+      // La carte affiche des structures : elle vaut « résultats affichés » dans le funnel global.
+      if (cat === 'recherche' && act === 'changer_vue' && name === 'carte') { reached = true; if (!entryMode && !searched) entryMode = 'carte'; }
+      // Consultation retenue seulement une fois la carte devenue le mode d'entrée.
+      if (cat === 'recherche' && act === 'consulter_structure') { reached = true; if (entryMode === 'carte') consulte = true; }
+      // Contact attribué à la carte seulement s'il suit une structure consultée depuis la carte.
+      if (cat === 'contact' && consulte) contactCarte = true;
       if (cat === 'contact') { contacted = true; if (act === 'clic_telephone') tel = true; if (act === 'copie_adresse') copie = true; }
     }
     const s = getSess(day, dev);
@@ -217,7 +234,10 @@ function build(visits) {
     if (copie) s.s_copie += 1;
     if (isALV(v)) s.alv += 1;
     // funnel par mode d'entrée (une visite = son 1er mode de lancement)
-    if (entryMode) { const m = getMode(day, dev, entryMode); m.s_arrivee += 1; m.s_recherche += 1; if (reached) m.s_resultats += 1; if (contacted) m.s_contact += 1; }
+    // Mode `carte` : mêmes colonnes, étapes propres. s_recherche = vue carte ouverte,
+    // s_resultats = structure consultée depuis un marqueur.
+    if (entryMode === 'carte') { const m = getMode(day, dev, 'carte'); m.s_arrivee += 1; m.s_recherche += 1; if (consulte) m.s_resultats += 1; if (contactCarte) m.s_contact += 1; }
+    else if (entryMode) { const m = getMode(day, dev, entryMode); m.s_arrivee += 1; m.s_recherche += 1; if (reached) m.s_resultats += 1; if (contacted) m.s_contact += 1; }
   }
 
   // --- lignes device réel (mobile/desktop) ---

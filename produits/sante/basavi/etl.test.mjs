@@ -19,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ici = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(ici, 'etl.mjs'), 'utf8');
 const sansEntree = source.replace(/^main\(\)\.catch\(.*$/m,
-  'export { build, inconnus, CATEGORIES, ACTIONS, MODES_ENTREE, TYPES_FILTRE };');
+  'export { build, inconnus, CATEGORIES, ACTIONS, MODES_ENTREE, MODES_FUNNEL, TYPES_FILTRE };');
 if (sansEntree === source) throw new Error("le point d'entrée main() n'a pas été trouvé dans etl.mjs");
 
 const copie = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'etl-test-')), 'etl.mjs');
@@ -31,7 +31,7 @@ process.env.GRIST_URL ||= 'https://grist.invalid';
 process.env.GRIST_DOC_ID ||= 'x';
 process.env.GRIST_API_KEY ||= 'x';
 process.env.COLLECT_FROM ||= '2020-01-01';
-const { build, inconnus, ACTIONS, MODES_ENTREE, TYPES_FILTRE } = await import(pathToFileURL(copie).href);
+const { build, inconnus, ACTIONS, MODES_ENTREE, MODES_FUNNEL, TYPES_FILTRE } = await import(pathToFileURL(copie).href);
 
 let echecs = 0;
 const verifier = (titre, condition) => {
@@ -104,6 +104,70 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
     r.modes.some((m) => m.mode === 'saisie' && m.s_arrivee === 1));
 }
 
+// --- Carte : mode d'entrée seulement si elle précède tout lancement ---------------
+{
+  const r = build([visite([
+    ['recherche', 'changer_vue', 'carte'],
+    ['recherche', 'ouvrir_cluster', ''],
+    ['recherche', 'consulter_structure', '1551'],
+    ['contact', 'clic_telephone', '1551'],
+  ])]);
+  const lignes = evenementsReels(r);
+  const trouve = (c, a, n) => lignes.some((l) => l.c === c && l.a === a && l.n === n);
+  verifier('carte : vue conservée avec son nom', trouve('recherche', 'changer_vue', 'carte'));
+  verifier('carte : clic cluster conservé', trouve('recherche', 'ouvrir_cluster', ''));
+  verifier('carte : id de structure droppé', trouve('recherche', 'consulter_structure', ''));
+  const m = r.modes.find((x) => x.mode === 'carte' && x.device === 'mobile');
+  verifier('carte : funnel alimenté (arrivée, vue, consultée, contact)',
+    m && m.s_arrivee === 1 && m.s_recherche === 1 && m.s_resultats === 1 && m.s_contact === 1);
+  verifier('carte : aucune valeur hors allowlist', inconnus() === '');
+}
+{
+  const r = build([visite([['recherche', 'lancer', 'ville'], ['recherche', 'changer_vue', 'carte']])]);
+  verifier('carte après une recherche : la visite reste dans son mode de lancement',
+    r.modes.filter((x) => x.device === 'mobile').map((x) => x.mode).join() === 'ville');
+}
+
+{
+  const modesMobile = (evts) => build([visite(evts)]).modes.filter((x) => x.device === 'mobile');
+  const m = modesMobile([['recherche', 'changer_vue', 'carte']])[0];
+  verifier('carte seule : ni consultation ni contact', m && m.s_resultats === 0 && m.s_contact === 0);
+  verifier('passage en liste : n’ouvre pas le mode carte',
+    modesMobile([['recherche', 'changer_vue', 'liste'], ['recherche', 'lancer', 'saisie']]).map((x) => x.mode).join() === 'saisie');
+  verifier('carte puis lancement : la visite reste en mode carte',
+    modesMobile([['recherche', 'changer_vue', 'carte'], ['recherche', 'lancer', 'saisie']]).map((x) => x.mode).join() === 'carte');
+  const sansConsult = modesMobile([['recherche', 'changer_vue', 'carte'], ['contact', 'clic_telephone', '12']])[0];
+  verifier('carte : pas de contact compté sans structure consultée (funnel monotone)', sansConsult.s_contact === 0);
+  const avant = modesMobile([['recherche', 'consulter_structure', '12'], ['recherche', 'changer_vue', 'carte']])[0];
+  verifier('carte : une consultation antérieure à la carte ne compte pas', avant.s_resultats === 0);
+  const avantCarte = modesMobile([['contact', 'clic_telephone', '9'], ['recherche', 'changer_vue', 'carte'], ['recherche', 'consulter_structure', '9']])[0];
+  verifier('carte : un contact antérieur à la carte ne compte pas', avantCarte.s_resultats === 1 && avantCarte.s_contact === 0);
+  const res = (evts) => build([visite(evts)]).sessions.find((x) => x.device === 'mobile').s_resultats;
+  verifier('passage en liste seul : pas de « résultats affichés »', res([['recherche', 'changer_vue', 'liste']]) === 0);
+  verifier('structure consultée seule : « résultats affichés »', res([['recherche', 'consulter_structure', '9']]) === 1);
+  build([visite([['recherche', 'reinitialiser', 'tout'], ['recherche', 'ouvrir_cluster', '12']])]);
+  verifier('canari : action inconnue signalée une fois, nom de cluster non signalé',
+    inconnus().includes('action=reinitialiser') && !inconnus().includes('nom='));
+  verifier('recherche au nom vide puis carte : pas de mode carte',
+    modesMobile([['recherche', 'lancer', ''], ['recherche', 'changer_vue', 'carte']]).length === 0);
+  const vide = build([visite([['recherche', 'lancer', ''], ['recherche', 'filtrer', '']])]);
+  verifier('noms vides : ni canari ni « autre »',
+    inconnus() === '' && vide.events.every((e) => e.name === ''));
+  const r = build([visite([['recherche', 'changer_vue', 'carte']])]);
+  verifier('carte : la vue carte vaut « résultats affichés » dans le funnel global',
+    r.sessions.find((x) => x.device === 'mobile').s_resultats === 1);
+}
+{
+  const desk = { ...visite([['recherche', 'changer_vue', 'carte']]), deviceType: 'desktop' };
+  const r = build([visite([['recherche', 'changer_vue', 'carte']]), desk]);
+  const tous = r.modes.find((x) => x.mode === 'carte' && x.device === 'tous');
+  verifier('carte : la ligne « tous » agrège mobile et desktop', tous && tous.s_arrivee === 2);
+}
+{
+  build([visite([['recherche', 'changer_vue', 'map']])]);
+  verifier('canari : un nom de vue renommé est nommé dans la note', inconnus().includes('changer_vue/map'));
+}
+
 // --- Un mode d'entrée forgé n'entre pas dans la répartition ----------------------
 {
   const r = build([visite([['recherche', 'lancer', 'mode-invente']])]);
@@ -143,7 +207,7 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
       ecart.length === 0);
   };
   memeEnsemble(TYPES_FILTRE, filtresFront, 'types de violence');
-  memeEnsemble(MODES_ENTREE, modesFront, 'modes d’entrée');
+  memeEnsemble(MODES_FUNNEL, modesFront, 'modes d’entrée');
   // Référence codée en dur, pas dérivée de l'un des deux côtés : sinon la comparaison
   // est tautologique et ne voit ni un canal retiré de l'ETL, ni un libellé retiré du front.
   const CANAUX_ATTENDUS = new Set(['clic_telephone', 'clic_email', 'copie_adresse', 'clic_site']);
