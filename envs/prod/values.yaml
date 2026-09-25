@@ -5,8 +5,14 @@ web:
   replicas: 2
 
 cron:
-  # Aucun produit ne cible encore la prod. Repasser à false quand le premier produit
-  # y sera collecté ET aura son produits/<dept>/<nom>/secrets/prod.sealedsecret.yaml :
-  # ce réglage vaut pour tous les produits de l'env, pas pour un seul.
-  suspend: true
+  # BASAVI, premier produit collecté en prod (secrets scellés le 24/09/2026 dans
+  # produits/sante/basavi/secrets/prod.sealedsecret.yaml). Ce réglage vaut pour tous les
+  # produits de l'env.
+  suspend: false
   schedule: "0 6 * * *"
+  env:
+    # Mise en ligne publique de BASAVI le 23/09/2026 : le site 170 porte avant cette date
+    # des visites de développement (localhost, URL technique) à ne jamais collecter.
+    # ⚠ Vaut pour tous les produits de l'env : à déplacer dans produit.yaml avant d'en
+    # ouvrir un second en prod.
+    COLLECT_FROM: "2026-09-23"
