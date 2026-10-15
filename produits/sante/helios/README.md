@@ -39,8 +39,9 @@ visiteur n'est écrit sur la fabrique. Conséquences :
   `COLLECT_FROM` n'est qu'un plancher. Un run manuel (`--from` ou `--to`) publie sous le
   `run_id` `helios-manuel` : il ne compte pas comme dernier succès nocturne, ni pour le
   widget qui en déduit les mois partiels. Lors de la migration depuis l'ancien grain brut, le
-  run nocturne relit dans le même run les mois qu'il couvrait (jamais sous le plancher) ; un
-  run manuel dont la fenêtre ne les couvre pas est refusé avant toute écriture ;
+  run nocturne relit dans le même run les mois qu'il couvrait à partir du plancher (plus
+  bas, l'ancien grain est retiré sans relecture). Un run manuel dont la fenêtre ne les couvre
+  pas, ou un mois hérité que Matomo rend vide, fait refuser le run avant toute écriture ;
 - le mois en cours est partiel : le widget le signale « (en cours) » et ne calcule pas
   d'évolution contre un mois complet. Un mois au taux vide (base incomplète ou incohérente)
   n'est ni affiché en pourcentage, ni tracé, ni pris comme référence d'évolution ;
@@ -49,6 +50,8 @@ visiteur n'est écrit sur la fabrique. Conséquences :
 - les lignes d'un mois recalculé que le run n'a pas produites sont retirées (combinaison
   disparue). Les lignes de l'ancien grain brut, dont la clé porte un identifiant de visiteur,
   sont retirées quel que soit leur mois. Un mois revenu vide de Matomo n'est pas touché ;
+- une réponse Matomo en erreur, tronquée ou de forme inattendue n'est journalisée que par sa
+  longueur ou son nombre de clés : son contenu porte des données de visite ;
 - les valeurs hors plan de tag sont comptées par emplacement (`nom=export/lancer/?`), jamais
   recopiées : elles peuvent être une saisie de l'agent. La valeur se retrouve dans Matomo.
 

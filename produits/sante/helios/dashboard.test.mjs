@@ -165,7 +165,7 @@ const { api, els } = executer();
   verifier('panne : le mois de la dernière extraction est signalé partiel, sans delta',
     h.includes('2026-02 (en cours)') && !/pt vs/.test(h));
   verifier('panne : la borne vient de la ligne nocturne, pas d’un run manuel plus récent',
-    /DATA\.nocturne = plusRecente\(ex\.filter\(\(r\) => !\/-manuel\$\//.test(html));
+    /DATA\.nocturne = plusRecente\(ex\.filter\(\(r\) => r\.run_id === 'helios'\)\)/.test(html));
 }
 
 // --- Le bandeau lit l'extraction la plus récente, pas la dernière ligne -----------

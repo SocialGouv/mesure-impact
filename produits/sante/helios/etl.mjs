@@ -152,13 +152,15 @@ async function mapi(method, extra = {}) {
   const r = await fetch(`${MURL}/index.php`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   // Un amont en erreur peut renvoyer un corps JSON parfaitement valide — souvent
   // un tableau vide. Sans ce contrôle, une panne se lit comme « zéro visite ».
-  if (!r.ok) throw new Error(redact(`${method} → HTTP ${r.status} : ${JSON.stringify((await r.text()).slice(0, 300))}`));
+  // Aucun extrait de corps dans les messages : une réponse de visites tronquée ou
+  // renvoyée avec une erreur porte IP, identifiants et titres de page.
+  if (!r.ok) throw new Error(redact(`${method} → HTTP ${r.status} : corps de longueur ${(await r.text()).length}`));
   // Lire en texte puis parser : une page de proxy ou de maintenance est du HTML servi
   // en 200, et `r.json()` lèverait une SyntaxError qui ne dit pas d'où vient le corps.
   const brut = await r.text();
   let j;
   try { j = JSON.parse(brut); }
-  catch { throw new Error(redact(`${method} : réponse non-JSON (content-type ${r.headers.get('content-type')}) : ${JSON.stringify(brut.slice(0, 300))}`)); }
+  catch { throw new Error(redact(`${method} : réponse non-JSON (content-type ${r.headers.get('content-type')}) : corps de longueur ${brut.length}`)); }
   if (j && j.result === 'error') throw new Error(redact(method + ': ' + j.message));
   return j;
 }
@@ -397,8 +399,9 @@ async function main() {
   // Nocturne : la fenêtre s'étend (jamais sous le plancher : plus bas, l'ancien grain
   // est hors périmètre et simplement retiré). Manuel : la fenêtre demandée fait foi, un
   // mois hérité qu'elle ne couvre pas fait refuser le run.
+  let herites = [];
   if ((await getTables()).includes('Events')) {
-    const herites = [...new Set((await getRecords('Events'))
+    herites = [...new Set((await getRecords('Events'))
       .filter((l) => !CLE_AGREGEE.test(String(l.fields.event_id ?? '')))
       .map((l) => String(l.fields.month ?? '')).filter((m) => MOIS_RE.test(m) && m >= PLANCHER))].sort();
     if (MANUEL) {
@@ -429,6 +432,13 @@ async function main() {
     console.log(`  · ${month} : ${visits.length} visites`);
   }
   const r = build(parMois);
+
+  // Un mois hérité revenu VIDE de Matomo ne peut pas être reconstruit : retirer son
+  // ancien grain détruirait la seule copie de ses usages. Le run s'arrête avant écriture.
+  const nonRelus = herites.filter((m) => m >= FROM && m <= TO && !r.moisRelus.has(m));
+  if (nonRelus.length) {
+    throw new Error(`Ancien grain : mois ${nonRelus.join(', ')} revenu(s) vide(s) de Matomo, retrait refusé (ses usages seraient perdus sans être reconstruits).`);
+  }
 
   // Des connexions sans identifiant de visiteur lisible ne peuvent venir que d'un
   // schéma Matomo qui a changé (champ renommé). Publier quand même ferait chuter le

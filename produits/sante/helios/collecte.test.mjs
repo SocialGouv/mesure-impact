@@ -45,6 +45,9 @@ const CORPS_MATOMO = {
     corps: JSON.stringify({ result: 'error', message: 'token_auth JETON-SECRET invalide' }) }),
   cinqCents: () => ({ statut: 500, type: 'text/plain', corps: 'boom\n✓ Push : Events=42' }),
   objet: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify({ 'Jean Dupont, 12 rue des Lilas': { ...visiteReelle, pageTitle: 'Fiche - 12 rue des Lilas' } }) }),
+  // Réponse de visites coupée par un proxy : plus du JSON, mais pleine de données individuelles.
+  tronque: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify([{ ...visiteReelle, visitIp: '10.1.2.3', pageTitle: 'Fiche - 12 rue des Lilas' }]).slice(0, -5) }),
+  cinqCentDeuxVisites: () => ({ statut: 502, type: 'application/json', corps: JSON.stringify([{ ...visiteReelle, pageTitle: 'Fiche - 12 rue des Lilas' }]) }),
   chaine: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify(`Jean Dupont 12 rue des Lilas ${VID}`) }),
   panneSansSchema: () => ({ statut: 500, type: 'text/plain', corps: 'boom' }),
 };
@@ -67,6 +70,8 @@ const DOC_HERITE = {
 };
 // Même doc, sans aucun mois hors fenêtre : le seul où --reset est permis.
 const DOC_DANS_FENETRE = { ...DOC_HERITE, lignes: { Events: [DOC_HERITE.lignes.Events[0]] } };
+// Doc déjà migré : une seule ligne agrégée, aucun ancien grain.
+const DOC_MIGRE = { tables: ['Events'], colonnes: {}, lignes: { Events: [{ id: 1, fields: { event_id: `${MOIS}|ars|liste|creer|`, month: MOIS, count: 1 } }] } };
 // Historique AGRÉGÉ hors fenêtre, sans ligne héritée qui l'englobe : --reset l'effacerait.
 const DOC_HISTORIQUE = { ...DOC_HERITE, lignes: { Events: [DOC_HERITE.lignes.Events[0], DOC_HERITE.lignes.Events[2]] } };
 
@@ -184,7 +189,7 @@ const lignesPoussees = (trafic, table) => puts(trafic, table).flatMap((r) => JSO
 
 // --- Creux et câblage -------------------------------------------------------------
 {
-  const { code, texte, trafic } = await jouer('vide', { doc: DOC_HERITE });
+  const { code, texte, trafic } = await jouer('vide', { doc: DOC_MIGRE });
   verifier('creux : le Job réussit si le produit a déjà collecté', code === 0, `code ${code} · ${erreurs(texte)}`);
   verifier('creux : le silence est signalé', /Aucune visite sur/.test(texte));
   verifier('creux : ni écriture ni suppression', !trafic.some((r) => r.methode === 'PUT' || /data\/delete/.test(r.url)));
@@ -210,6 +215,8 @@ for (const [scenario, motif] of [
   ['erreurToken', /token_auth \*\*\* invalide/],
   ['objet', /Réponse Matomo inattendue/],
   ['chaine', /Réponse Matomo inattendue/],
+  ['tronque', /réponse non-JSON/],
+  ['cinqCentDeuxVisites', /HTTP 502/],
 ]) {
   const { code, texte } = await jouer(scenario, { doc: DOC_HERITE });
   verifier(`panne amont (${scenario}) : le Job échoue`, code === 1, `code ${code}`);
@@ -262,6 +269,11 @@ for (const [scenario, motif] of [
   verifier('run nocturne : run_id helios', ex7 && ex7.run_id === 'helios');
   // Fenêtre vide : jamais un vert sans un seul appel Matomo.
   const docMigre = { ...DOC_VIDE, tables: ['Events'], lignes: { Events: [{ id: 1, fields: { event_id: `${MOIS}|ars|liste|creer|`, month: MOIS, count: 1 } }] } };
+  // Un mois hérité revenu vide de Matomo : son ancien grain n'est pas détruit.
+  const docHeriteVide = { ...DOC_VIDE, tables: ['Events'], lignes: { Events: [{ id: 1, fields: { event_id: 'aa_1_0', month: MOIS } }] } };
+  const hv = await jouer('vide', { doc: docHeriteVide });
+  verifier('ancien grain d’un mois revenu vide : refusé, rien de retiré',
+    hv.code === 1 && /revenu\(s\) vide\(s\)/.test(hv.texte) && !hv.trafic.some((r) => /data\/delete/.test(r.url)), erreurs(hv.texte));
   // Run manuel sur un doc à l'ancien grain hors fenêtre : refusé avant toute écriture.
   const docHerite3 = { ...DOC_VIDE, tables: ['Events'], lignes: { Events: [
     { id: 1, fields: { event_id: 'aa_1_0', month: '2026-06' } }, { id: 2, fields: { event_id: 'aa_2_0', month: MOIS } }] } };
@@ -283,7 +295,7 @@ for (const [scenario, motif] of [
 
 // --- --reset : seule opération qui vide des tables entières -----------------------
 {
-  const { code, texte, trafic } = await jouer('vide', { doc: DOC_HERITE, argv: ['--reset'] });
+  const { code, texte, trafic } = await jouer('vide', { doc: DOC_MIGRE, argv: ['--reset'] });
   verifier('--reset sur extraction creuse : refusé', code === 1 && /aucune ligne construite/.test(texte), erreurs(texte));
   verifier('--reset refusé : aucune suppression', !trafic.some((r) => /data\/delete/.test(r.url)));
 }

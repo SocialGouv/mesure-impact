@@ -144,7 +144,9 @@ async function loadData() {
         DATA.meta = plusRecente(ex);
         // La borne des mois partiels ne vient que de la collecte NOCTURNE : un run manuel
         // ne relit qu'une fenêtre choisie et ne dit rien des mois tronqués par une panne.
-        DATA.nocturne = plusRecente(ex.filter((r) => !/-manuel$/.test(String(r.run_id || ''))));
+        // Seule la ligne de la collecte nocturne (run_id `helios`) fait foi : ni un run
+        // manuel (`helios-manuel`), ni les lignes horodatées de l'ancien script local.
+        DATA.nocturne = plusRecente(ex.filter((r) => r.run_id === 'helios'));
       } catch (e) {}
       setSrc('', '● source Grist (live)');
       return;
