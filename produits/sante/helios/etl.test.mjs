@@ -20,7 +20,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const ici = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(ici, 'etl.mjs'), 'utf8');
-const sansEntree = source.replace(/^main\(\)\.catch\(.*$/m, 'export { build, inconnus, PLAN, ROLES };');
+const sansEntree = source.replace(/^main\(\)\.catch\(.*$/m, 'export { build, inconnus, PLAN, ROLES, EVENTS_COLS, BASE_COLS, KPI_COLS, EXTRACTIONS_COLS };');
 if (sansEntree === source) throw new Error("le point d'entrée main() n'a pas été trouvé dans etl.mjs");
 
 const copie = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'etl-helios-test-')), 'etl.mjs');
@@ -31,7 +31,7 @@ process.env.MATOMO_TOKEN_AUTH ||= 'x';
 process.env.GRIST_URL ||= 'https://grist.invalid';
 process.env.GRIST_DOC_ID ||= 'x';
 process.env.GRIST_API_KEY ||= 'x';
-const { build, inconnus, PLAN } = await import(pathToFileURL(copie).href);
+const { build, inconnus, PLAN, EVENTS_COLS, BASE_COLS, KPI_COLS, EXTRACTIONS_COLS } = await import(pathToFileURL(copie).href);
 
 let echecs = 0;
 const verifier = (titre, condition) => {
@@ -129,6 +129,13 @@ const lignes = (r) => r.events.map((e) => `${e.role}|${e.category}|${e.action}|$
   verifier('ancien format HELIOS : ignoré sans bruit', !inconnus().includes('helios') && r.events.length === 0);
 }
 
+{
+  // Un instantané incomplet (actifs reçus, inactifs perdus) n'est pas publié à 0.
+  const r = build([{ month: MOIS, visits: [visite('c1', null, [['indicateur', 'utilisateurs_actifs', 'ars', 40, 1]])] }]);
+  verifier('base incomplète : non publiée', r.base.length === 0);
+  verifier('base incomplète : signalée', inconnus().includes('base=incomplete/ars'));
+}
+
 // --- RC1 de bout en bout sur la forme d'octobre 2026 : 5 réguliers / 47 agents ----
 {
   const visites = [
@@ -170,8 +177,21 @@ const lignes = (r) => r.events.map((e) => `${e.role}|${e.category}|${e.action}|$
   verifier('nom hors liste : borné à « autre »', l.includes('ars|filtre|appliquer|autre×1'));
   verifier('aucun composant ne contient de « | » ni de « < »',
     r.events.every((e) => ![e.role, e.category, e.action, e.name].some((x) => /[|<]/.test(String(x)))));
-  verifier('canari : les trois dérives sont nommées',
-    ['action=comparaison/lancer|x', 'categorie=<script>', 'nom=filtre/appliquer/<b>zone</b>'].every((k) => inconnus().includes(JSON.stringify(k).slice(1, -1))));
+  verifier(`canari : les trois emplacements sont nommés (${inconnus().trim()})`,
+    ['action=comparaison/?', 'categorie=?', 'nom=filtre/appliquer/?'].every((k) => inconnus().includes(k)));
+}
+{
+  // Le canari part dans Grist (Extractions.note) et dans les logs : une valeur hors
+  // liste peut être une saisie de l'agent. Aucune valeur reçue ne doit y figurer.
+  build([{ month: MOIS, visits: [visite('v', 'ars', [
+    ['export', 'lancer', 'jean dupont ars idf'],
+    ['recherche', 'clinique saint jean'],
+    ['marie.martin@ars.sante.fr', 'x'],
+    ['indicateur', 'utilisateurs_actifs', 'paul.durand', 3, 1],
+  ])] }]);
+  const note = inconnus();
+  verifier(`canari : aucune valeur reçue n'y figure (${note.trim()})`,
+    note && !/jean|dupont|clinique|marie|martin|paul|durand|@/.test(note));
 }
 {
   // Variantes historiques (espaces, libellé long) ramenées au plan de tag.
@@ -213,6 +233,16 @@ const lignes = (r) => r.events.map((e) => `${e.role}|${e.category}|${e.action}|$
   const sansLibelle = noms.filter((n) => ['comparaison', 'export'].some((c) => PLAN[c].lancer.includes(n)) || PLAN.filtre.appliquer.includes(n))
     .filter((n) => !libelles.has(n));
   verifier(`widget : chaque source et critère du plan a un libellé${sansLibelle.length ? ` (manque : ${sansLibelle})` : ''}`, sansLibelle.length === 0);
+}
+
+// --- Aucune formule ne porte la signature que le WAF de Grist rejette -----------
+// Constaté le 15/10/2026 : `… and … < …` sur une même ligne → HTTP 403 Incapsula,
+// et le Job échoue chaque nuit. Le contrôle porte sur toutes les formules du schéma.
+{
+  const formules = [...EVENTS_COLS, ...BASE_COLS, ...KPI_COLS, ...EXTRACTIONS_COLS].filter((c) => c.formula);
+  const fautives = formules.filter((c) => c.formula.split('\n').some((l) => /\band\b.*[<>]/.test(l))).map((c) => c.id);
+  verifier(`WAF Grist : aucune formule « and … < » (${formules.length} formules lues${fautives.length ? `, fautives : ${fautives}` : ''})`,
+    formules.length === 8 && fautives.length === 0);
 }
 
 // --- Le canari est branché sur Extractions.note et sur les logs du Job ------------

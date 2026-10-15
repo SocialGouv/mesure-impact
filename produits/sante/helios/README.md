@@ -22,18 +22,28 @@ Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ─
 RC1 = visiteurs distincts ayant ouvert une session dans le mois (event `session/connexion`)
 ÷ agents en base (actifs + inactifs). La base arrive par des events dédiés
 `indicateur/utilisateurs_actifs|inactifs`, rôle dans le nom, effectif dans la valeur ; on
-retient l'instantané le plus récent du mois.
+retient l'instantané le plus récent du mois. Un instantané incomplet (actifs sans inactifs)
+n'est pas publié, et la base globale n'est calculée que si les trois rôles ont leur
+instantané : sinon le RC1 global vaut « non calculable » plutôt qu'un taux gonflé. Plus de
+réguliers que d'agents en base donne aussi un taux vide.
 
 Le numérateur exige l'identifiant de visiteur Matomo. Il est lu par l'ETL, en mémoire, et
 **seul le nombre** part dans Grist (`KPI.utilisateurs_reguliers`). Aucun identifiant de
 visiteur n'est écrit sur la fabrique. Conséquences :
 
-- chaque run recalcule les mois de la fenêtre **en entier** (un nombre de visiteurs distincts
-  ne se somme pas d'un jour sur l'autre) ;
+- chaque run recalcule les mois de sa fenêtre **en entier** (un nombre de visiteurs distincts
+  ne se somme pas d'un jour sur l'autre). La fenêtre nocturne est le mois précédent + le mois
+  en cours : un mois clos n'est plus réécrit, une purge des logs bruts Matomo ne peut donc
+  pas le faire baisser en silence. `COLLECT_FROM` n'est qu'un plancher ;
+- le mois en cours est partiel : le widget le signale « (en cours) » et ne calcule pas
+  d'évolution contre un mois complet ;
 - une connexion sans identifiant lisible fait échouer le run : publier quand même ferait
   tomber le RC1 à zéro en silence ;
-- les lignes d'un mois recalculé que le run n'a pas produites sont retirées (ancien grain
-  brut, combinaison disparue). Un mois revenu vide de Matomo n'est pas touché.
+- les lignes d'un mois recalculé que le run n'a pas produites sont retirées (combinaison
+  disparue). Les lignes de l'ancien grain brut, dont la clé porte un identifiant de visiteur,
+  sont retirées quel que soit leur mois. Un mois revenu vide de Matomo n'est pas touché ;
+- les valeurs hors plan de tag sont comptées par emplacement (`nom=export/lancer/?`), jamais
+  recopiées : elles peuvent être une saisie de l'agent. La valeur se retrouve dans Matomo.
 
 Rôles : `ars`, `regional`, `central` (dimension de visite `dimension1`), plus le scope
 `global` dans KPI, qui compte aussi les visiteurs sans rôle.
@@ -44,8 +54,15 @@ Poser les 6 variables du contrat dans un fichier `.env` local (gitignoré) à c�
 README, puis :
 
 ```bash
-node produits/sante/helios/etl.mjs --from 2026-10
+node produits/sante/helios/etl.mjs                 # fenêtre nocturne : mois précédent + mois en cours
+node produits/sante/helios/etl.mjs --from 2026-05  # reconstruit l'historique depuis mai
 ```
+
+`--reset` vide les tables entières : il est refusé tant que la fenêtre ne relit pas tous les
+mois déjà présents dans le doc (`--reset --from 2026-05`).
+
+Les formules Grist évitent le motif « `and` … `<` » sur une même ligne : le WAF devant
+`grist.numerique.gouv.fr` le prend pour une injection SQL et répond 403. Un test le vérifie.
 
 ## État
 

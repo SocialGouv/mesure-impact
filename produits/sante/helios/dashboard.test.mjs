@@ -19,7 +19,7 @@ const html = fs.readFileSync(path.join(ici, 'dashboard.html'), 'utf8');
 const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
 if (!scripts.length) throw new Error('aucun <script> inline trouvé dans dashboard.html');
 const source = scripts.reduce((a, b) => (a.length > b.length ? a : b));
-const PASSERELLE = `;this.__t = { set DATA(v){DATA=v}, get state(){return state}, aggEvents, renderAll };`;
+const PASSERELLE = `;this.__t = { set DATA(v){DATA=v}, get DATA(){return DATA}, get state(){return state}, aggEvents, assainir, renderAll };`;
 
 function executer() {
   const els = {};
@@ -76,6 +76,60 @@ const { api, els } = executer();
   verifier('libellé hostile : échappé avant innerHTML', !recherche.includes('<img') && recherche.includes('&lt;img'));
   const fonctio = els['p-fonctionnalites'].innerHTML;
   verifier('fonctionnalités : exports ventilés par source avec effectifs', /Fiche établissement<\/td><td class="num">9</.test(fonctio));
+}
+
+// --- Mois en cours : partiel, signalé, jamais comparé à un mois complet -----------
+{
+  const courant = new Date().toISOString().slice(0, 7);
+  const d = new Date(`${courant}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1);
+  const precedent = d.toISOString().slice(0, 7);
+  const { api: a2, els: e2 } = executer();
+  a2.DATA = a2.assainir({
+    kpi: [
+      { month: precedent, scope: 'global', utilisateurs_reguliers: 30, base_agents: 47, taux_reguliers_pct: 63.8 },
+      { month: courant, scope: 'global', utilisateurs_reguliers: 2, base_agents: 47, taux_reguliers_pct: 4.3 },
+    ], base: [], events: [],
+  });
+  a2.renderAll();
+  const h = e2['p-adoption'].innerHTML;
+  verifier('mois en cours : signalé « (en cours) »', h.includes(`${courant} (en cours)`));
+  verifier('mois en cours : pas de delta contre un mois complet', !/pt vs/.test(h));
+}
+
+// --- Valeurs Grist illisibles : écartées avant innerHTML --------------------------
+{
+  const { api: a3, els: e3 } = executer();
+  a3.DATA = a3.assainir({
+    kpi: [
+      { month: '2026-09"><img src=x onerror=alert(1)>', scope: 'global', base_agents: 47, taux_reguliers_pct: 5 },
+      { month: '2026-10', scope: 'global', utilisateurs_reguliers: 5, base_agents: 47, taux_reguliers_pct: '<svg onload=alert(2)>' },
+    ], base: [], events: [{ month: '<b>x</b>', role: 'ars', category: 'liste', action: 'creer', count: 1 }],
+  });
+  a3.renderAll();
+  const tout = Object.values(e3).map((e) => e.innerHTML).join('');
+  verifier('mois illisible : ligne écartée', a3.DATA.kpi.length === 1 && a3.DATA.events_agg.length === 0);
+  verifier('nombre illisible : ramené à null, rien d’injecté', a3.DATA.kpi[0].taux_reguliers_pct === null && !/<img|<svg onload/.test(tout));
+}
+
+// --- La courbe ne trace que les mois mesurés --------------------------------------
+{
+  const { api: a4, els: e4 } = executer();
+  a4.DATA = a4.assainir({
+    kpi: [
+      { month: '2026-07', scope: 'global', utilisateurs_reguliers: 5, base_agents: 46, taux_reguliers_pct: 10.9 },
+      { month: '2026-08', scope: 'global', utilisateurs_reguliers: 0, base_agents: null, taux_reguliers_pct: null },
+      { month: '2026-09', scope: 'global', utilisateurs_reguliers: 7, base_agents: 46, taux_reguliers_pct: 15.2 },
+    ], base: [], events: [],
+  });
+  a4.renderAll();
+  const pts = (e4['p-adoption'].innerHTML.match(/points="([^"]+)"/) || [])[1] || '';
+  verifier(`courbe : le mois sans base n'est pas tracé à 0 (${pts.split(' ').length} points)`, pts.split(' ').length === 2);
+}
+
+// --- Le bandeau lit l'extraction la plus récente, pas la dernière ligne -----------
+{
+  const html2 = html;
+  verifier('bandeau : choix par extracted_at maximal', /ex\.reduce\(\(a, r\) => \(!a \|\| String\(r\.extracted_at/.test(html2));
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');

@@ -6,6 +6,9 @@
 //   part dans Grist (KPI.utilisateurs_reguliers).
 // - Les mois de la fenêtre sont recalculés en entier à chaque run : un visiteur
 //   distinct ne se somme pas d'un jour sur l'autre, seul le mois complet fait foi.
+//   Par défaut la fenêtre est le mois précédent + le mois en cours : un mois clos
+//   n'est plus réécrit chaque nuit (une purge des logs bruts Matomo le ferait baisser
+//   en silence). L'historique se reconstruit par un `--from` explicite.
 // - Idempotent : PUT AddOrUpdate sur clé naturelle, puis retrait des lignes des mois
 //   recalculés que ce run n'a pas produites. `--reset` vide les 4 tables avant.
 //
@@ -18,6 +21,8 @@
 //   COLLECT_FROM (mois de début), GRIST_DOC_NAME (vérif de sécurité), RUN_ID.
 //
 // Usage local : node produits/sante/helios/etl.mjs [--reset] [--from YYYY-MM] [--to YYYY-MM]
+//   `--reset` vide les tables entières : il n'est accepté que si la fenêtre relit
+//   tous les mois déjà présents dans le doc (typiquement `--reset --from 2026-05`).
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -51,8 +56,13 @@ const versMois = (v, quoi) => {
   if (!MOIS_RE.test(m)) throw new Error(`${quoi} invalide : « ${v} » (attendu YYYY-MM)`);
   return m;
 };
-const FROM = versMois(arg('--from', cfg.COLLECT_FROM || '2026-05'), 'mois de début');
 const TO = versMois(arg('--to', new Date().toISOString()), 'mois de fin');
+const moisPrecedent = (m) => { const d = new Date(`${m}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); };
+// COLLECT_FROM est un plancher (date ou mois), jamais un point de départ nocturne.
+const PLANCHER = versMois(cfg.COLLECT_FROM || '2026-05', 'COLLECT_FROM');
+const FROM = process.argv.includes('--from')
+  ? versMois(arg('--from'), 'mois de début')
+  : [moisPrecedent(TO), PLANCHER].sort().at(-1);
 if (FROM > TO) throw new Error(`Fenêtre vide : ${FROM} est après ${TO}.`);
 const MOIS = [];
 for (let d = new Date(`${FROM}-01T00:00:00Z`); d.toISOString().slice(0, 7) <= TO; d.setUTCMonth(d.getUTCMonth() + 1)) {
@@ -121,12 +131,16 @@ async function supprimer(table, ids) {
 async function clearTable(table) {
   return supprimer(table, (await getRecords(table)).map((r) => r.id));
 }
-// Les lignes d'un mois recalculé que ce run n'a pas produites sont périmées : une
-// combinaison qui a disparu, ou une ligne de l'ancien grain brut (une par event,
-// avec identifiant de visiteur). Seuls les mois effectivement relus sont touchés.
+// Les lignes d'un mois recalculé que ce run n'a pas produites sont périmées (une
+// combinaison qui a disparu). Les lignes de l'ANCIEN grain brut sont retirées quel
+// que soit leur mois : leur clé `<visitorId>_<ts>_<idx>` porte un identifiant de
+// visiteur, et un mois hors fenêtre ne doit pas le conserver. Toute clé produite
+// par cet ETL commence par `YYYY-MM|` ; tout le reste est hérité.
+const CLE_AGREGEE = /^\d{4}-(0[1-9]|1[0-2])\|/;
 async function retirerPerimees(table, cle, gardees, moisRelus) {
   const perimees = (await getRecords(table))
-    .filter((r) => moisRelus.has(r.fields.month) && !gardees.has(r.fields[cle]))
+    .filter((r) => !CLE_AGREGEE.test(String(r.fields[cle] ?? ''))
+      || (moisRelus.has(r.fields.month) && !gardees.has(r.fields[cle])))
     .map((r) => r.id);
   return supprimer(table, perimees);
 }
@@ -169,9 +183,27 @@ const KPI_COLS = [
   { id: 'kpi_id', type: 'Text' }, { id: 'month', type: 'Text' }, { id: 'scope', type: 'Text' },
   // Visiteurs distincts ayant ouvert une session dans le mois : compté par l'ETL.
   { id: 'utilisateurs_reguliers', type: 'Int' },
-  { id: 'base_agents', type: 'Int', formula: `sum((b.actifs or 0)+(b.inactifs or 0) for b in Base.lookupRecords(month=$month) if ($scope=='global' or b.role==$scope))` },
+  // La base globale exige les trois rôles : un rôle sans instantané ce mois-là ferait
+  // baisser le dénominateur global et gonfler le RC1. Le mois est alors non calculable.
+  // Formules en `if` imbriqués : le WAF devant grist.numerique.gouv.fr rejette (403,
+  // signature d'injection SQL) une formule où `and` précède une comparaison `<`.
+  { id: 'base_agents', type: 'Int', formula: [
+    "rows = [b for b in Base.lookupRecords(month=$month) if ($scope == 'global' or b.role == $scope)]",
+    "if $scope == 'global':",
+    "  if len(set(b.role for b in rows)) < 3:",
+    "    return None",
+    "return sum((b.actifs or 0) + (b.inactifs or 0) for b in rows)",
+  ].join('\n') },
   // Sans base, le taux vaut None et non 0 : un 0 se lit comme une mesure.
-  { id: 'taux_reguliers_pct', type: 'Numeric', formula: `round($utilisateurs_reguliers/$base_agents*100, 1) if $base_agents else None` },
+  // Plus de réguliers que d'agents en base ne se mesure pas : base incohérente (ou
+  // forgée via le tracker public). Le taux est alors None plutôt qu'un 200 %.
+  { id: 'taux_reguliers_pct', type: 'Numeric', formula: [
+    'if not $base_agents:',
+    '  return None',
+    'if $utilisateurs_reguliers > $base_agents:',
+    '  return None',
+    'return round($utilisateurs_reguliers / $base_agents * 100, 1)',
+  ].join('\n') },
   { id: 'comparaisons', type: 'Int', formula: somme("category='comparaison', action='lancer'") },
   { id: 'exports', type: 'Int', formula: somme("category='export', action='lancer'") },
   { id: 'listes', type: 'Int', formula: somme("category='liste', action='creer'") },
@@ -217,21 +249,28 @@ const BASE_ACTIONS = { utilisateurs_actifs: 'actifs', utilisateurs_inactifs: 'in
 const CATEGORIES_IGNOREES = new Set(['helios']);
 const roleDe = (v) => { const s = normaliser(v); return ROLES.includes(s) ? s : ''; };
 
-// Ce qui tombe hors liste est agrégé en `autre`, mais la valeur d'origine est
-// retenue à part : sinon une dérive du plan de tag devient indiscernable du bruit.
+// Ce qui tombe hors liste est agrégé en `autre`, et l'EMPLACEMENT est compté à part :
+// sinon une dérive du plan de tag devient indiscernable du bruit. La valeur reçue,
+// elle, n'est jamais retenue : une valeur hors liste peut être une saisie de l'agent
+// (nom, établissement, adresse), et le canari part dans Grist et dans les logs. Seuls
+// des fragments du PLAN (ou `?`) composent une clé du canari ; la valeur se retrouve
+// dans Matomo, qui la détient déjà.
 const horsListe = new Map();
-const signaler = (cle) => horsListe.set(cle, (horsListe.get(cle) || 0) + 1);
+const signaler = (...emplacement) => {
+  const cle = emplacement.join('/');
+  horsListe.set(cle, (horsListe.get(cle) || 0) + 1);
+};
 function borner(category, action, name) {
   const cat = normaliser(category);
-  if (!Object.hasOwn(PLAN, cat)) { if (cat) signaler(`categorie=${cat}`); return ['autre', 'autre', '']; }
+  if (!Object.hasOwn(PLAN, cat)) { if (cat) signaler('categorie=?'); return ['autre', 'autre', '']; }
   const act = normaliser(action);
-  if (!Object.hasOwn(PLAN[cat], act)) { if (act) signaler(`action=${cat}/${act}`); return [cat, 'autre', '']; }
+  if (!Object.hasOwn(PLAN[cat], act)) { if (act) signaler(`action=${cat}`, '?'); return [cat, 'autre', '']; }
   const noms = PLAN[cat][act];
   if (!noms) return [cat, act, ''];
   const nom = normaliser(name);
   if (!nom) return [cat, act, ''];
   if (noms.includes(nom)) return [cat, act, nom];
-  signaler(`nom=${cat}/${act}/${nom}`);
+  signaler(`nom=${cat}`, act, '?');
   return [cat, act, 'autre'];
 }
 // Identifiant de visiteur Matomo. L'API Live le renvoie dans `visitorId` ; `idVisitor`
@@ -265,7 +304,7 @@ function build(parMois) {
           const champ = BASE_ACTIONS[normaliser(a.eventAction)];
           const brole = roleDe(a.eventName);
           const valeur = entier(a.eventValue);
-          if (!champ || !brole || valeur === null) { signaler(`base=${normaliser(a.eventAction)}/${normaliser(a.eventName)}`); continue; }
+          if (!champ || !brole || valeur === null) { signaler(champ ? `base=${champ}` : 'base=?', brole || '?'); continue; }
           const ts = Number(a.timestamp) || 0;
           const k = `${month}|${brole}`;
           const cur = base.get(k) || { actifs: null, inactifs: null, tsActifs: -1, tsInactifs: -1 };
@@ -294,10 +333,14 @@ function build(parMois) {
     const [month, role, category, action, name] = event_id.split('|');
     return { event_id, month, role, category, action, name, count };
   });
-  const baseRows = [...base].map(([base_id, b]) => {
+  // Un instantané incomplet (actifs sans inactifs, ou l'inverse) n'est pas publié :
+  // compter l'absent pour 0 sous-estimerait la base et gonflerait le RC1.
+  const baseRows = [];
+  for (const [base_id, b] of base) {
     const [month, role] = base_id.split('|');
-    return { base_id, month, role, actifs: b.actifs ?? 0, inactifs: b.inactifs ?? 0 };
-  });
+    if (b.actifs === null || b.inactifs === null) { signaler('base=incomplete', role); continue; }
+    baseRows.push({ base_id, month, role, actifs: b.actifs, inactifs: b.inactifs });
+  }
   // Une ligne KPI par mois × scope de la fenêtre. Le nombre de réguliers n'est écrit
   // que pour un mois effectivement relu : un mois revenu vide de Matomo ne doit pas
   // écraser à 0 une valeur déjà publiée.
@@ -327,13 +370,7 @@ async function main() {
   console.log(`▶ Doc cible : « ${doc.name} » (${GDOC})`);
   if (EXPECT_DOC_NAME && doc.name !== EXPECT_DOC_NAME) throw new Error(`Doc inattendu (${doc.name} ≠ ${EXPECT_DOC_NAME}), abandon par sécurité.`);
 
-  console.log('\n1) Schéma');
-  await ensureTable('Events', EVENTS_COLS, EVENTS_RETIREES);
-  await ensureTable('Base', BASE_COLS);
-  await ensureTable('KPI', KPI_COLS);
-  await ensureTable('Extractions', EXTRACTIONS_COLS);
-
-  console.log(`\n2) Extraction Matomo (site ${SITE}, ${FROM} → ${TO})`);
+  console.log(`\n1) Extraction Matomo (site ${SITE}, ${FROM} → ${TO})`);
   const parMois = [];
   for (const month of MOIS) {
     const visits = await mapi('Live.getLastVisitsDetails', { period: 'month', date: `${month}-01`, filter_limit: '-1' });
@@ -358,25 +395,14 @@ async function main() {
     );
   }
 
-  // Le reset ne vide qu'APRÈS une extraction qui a produit de quoi repeupler.
-  if (RESET) {
-    if (!r.events.length && !r.base.length) throw new Error('--reset refusé : aucune ligne construite, les tables seraient vidées sans rien pour les repeupler.');
-    // clearTable vide la table entière : borner la fenêtre supprimerait l'historique
-    // situé hors de [FROM, TO] sans le dire.
-    if (process.argv.includes('--from') || process.argv.includes('--to')) {
-      throw new Error('--reset refusé avec --from/--to : il vide les tables entières, il effacerait tout l\'historique hors de la fenêtre demandée.');
-    }
-    console.log('\n2b) Reset');
-    for (const t of ['Events', 'Base', 'KPI', 'Extractions']) console.log(`  ✗ ${t} : ${await clearTable(t)} lignes`);
-  }
-
+  if (RESET && !r.visites) throw new Error('--reset refusé : aucune ligne construite, les tables seraient vidées sans rien pour les repeupler.');
   if (!r.visites) {
     // Une fenêtre sans trafic n'est pas une panne quand le produit a DÉJÀ collecté.
     // N'avoir JAMAIS rien collecté, si : `site_id` faux ou tag absent. Échappatoire
     // nominative par ALLOW_EMPTY_COLLECT (cf. BASAVI pour le raisonnement complet).
     const toleres = (cfg.ALLOW_EMPTY_COLLECT || '').split(',').map((x) => x.trim()).filter(Boolean);
     const tolereVide = Boolean(cfg.PRODUIT) && toleres.includes(cfg.PRODUIT);
-    const dejaCollecte = tolereVide || (await getRecords('Events')).length > 0;
+    const dejaCollecte = tolereVide || ((await getTables()).includes('Events') && (await getRecords('Events')).length > 0);
     if (!dejaCollecte) {
       throw new Error(
         `Aucune visite sur ${FROM} → ${TO} et la table Events est vide : ce produit n'a jamais ` +
@@ -388,6 +414,34 @@ async function main() {
     // vieillit visiblement, ce qui est le signal attendu pour un creux.
     console.warn(`⚠ Aucune visite sur ${FROM} → ${TO} — rien à publier. L'horodatage d'extraction reste inchangé.`);
     return;
+  }
+
+  // Le schéma n'est touché qu'APRÈS les gardes : une panne amont laisse le doc intact.
+  // KPI est converti avant le retrait des colonnes d'Events, sa formule héritée lisant
+  // `visitor_id` jusqu'à sa conversion.
+  console.log('\n2) Schéma');
+  await ensureTable('Events', EVENTS_COLS);
+  await ensureTable('Base', BASE_COLS);
+  await ensureTable('KPI', KPI_COLS);
+  await ensureTable('Extractions', EXTRACTIONS_COLS);
+  await ensureTable('Events', EVENTS_COLS, EVENTS_RETIREES);
+
+  // Le reset ne vide qu'APRÈS une extraction qui a produit de quoi repeupler, et
+  // seulement si la fenêtre relit TOUS les mois déjà présents : clearTable vide la
+  // table entière, un mois absent de la fenêtre (ou revenu vide de Matomo) serait
+  // effacé sans rien pour le reconstruire. Le contrôle porte sur le contenu du doc,
+  // pas sur la ligne de commande : COLLECT_FROM borne aussi la fenêtre.
+  if (RESET) {
+    if (!r.events.length && !r.base.length) throw new Error('--reset refusé : aucune ligne construite, les tables seraient vidées sans rien pour les repeupler.');
+    const horsFenetre = new Set();
+    for (const t of ['Events', 'Base', 'KPI']) {
+      for (const l of await getRecords(t)) if (!r.moisRelus.has(l.fields.month)) horsFenetre.add(String(l.fields.month ?? '?'));
+    }
+    if (horsFenetre.size) {
+      throw new Error(`--reset refusé : il effacerait tout l'historique hors de la fenêtre relue (mois ${[...horsFenetre].sort().join(', ')}). Relancer avec un --from qui couvre ces mois.`);
+    }
+    console.log('\n2b) Reset');
+    for (const t of ['Events', 'Base', 'KPI', 'Extractions']) console.log(`  ✗ ${t} : ${await clearTable(t)} lignes`);
   }
 
   console.log('\n3) Push');

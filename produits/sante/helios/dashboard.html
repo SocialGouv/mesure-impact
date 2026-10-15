@@ -46,7 +46,7 @@
 <div class="toolbar">
   <label for="f-period">Période</label>
   <select id="f-period">
-    <option value="30d" title="Indicateurs mensuels : équivaut au mois courant">30 derniers jours</option>
+    <option value="30d" title="Indicateurs mensuels : équivaut au dernier mois, en cours le cas échéant">30 derniers jours</option>
     <option value="3m">3 derniers mois</option>
     <option value="12m" selected>12 derniers mois</option>
     <option value="custom">Personnalisé…</option>
@@ -99,7 +99,7 @@ function rowsFromColumnar(t) {
 // regroupe les lignes Events (déjà agrégées par l'ETL au grain mois × rôle) au format
 // { month, role, category, action, name, n }. Chaque ligne porte son effectif dans `count`.
 function aggEvents(rows) {
-  const m = {};
+  const m = Object.create(null);
   for (const e of rows) {
     const k = [e.month, e.role, e.category, e.action, e.name || ''].join('|');
     const n = Number(e.count);
@@ -107,6 +107,23 @@ function aggEvents(rows) {
   }
   return Object.entries(m).map(([k, n]) => { const [month, role, category, action, name] = k.split('|'); return { month, role, category, action, name, n }; });
 }
+// Les mois et les nombres servent de clés et partent dans innerHTML : une ligne au mois
+// illisible (édition manuelle, ancien format) est écartée, un nombre illisible vaut null.
+const MOIS_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+const nombre = v => (v === null || v === undefined || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
+function assainir({ kpi, base, events }) {
+  const NUM_KPI = ['utilisateurs_reguliers', 'base_agents', 'taux_reguliers_pct', 'comparaisons', 'exports', 'listes', 'connexions', 'recherches'];
+  return {
+    kpi: kpi.filter(k => MOIS_RE.test(k.month)).map(k => { const r = { ...k }; for (const f of NUM_KPI) r[f] = nombre(k[f]); return r; }),
+    base: base.filter(b => MOIS_RE.test(b.month)).map(b => ({ ...b, actifs: nombre(b.actifs), inactifs: nombre(b.inactifs) })),
+    events_agg: aggEvents(events.filter(e => MOIS_RE.test(e.month))),
+    meta: null,
+  };
+}
+// Le mois calendaire en cours est PARTIEL : ses visiteurs distincts ne couvrent que les
+// jours écoulés. Il est signalé, et on ne le compare pas à un mois complet.
+const moisEnCours = () => new Date().toISOString().slice(0, 7);
+const libMois = m => m === moisEnCours() ? `${m} (en cours)` : m;
 const setSrc = (cls, txt) => { const s = document.getElementById('src'); s.className = 'src' + (cls ? ' ' + cls : ''); s.textContent = txt; };
 
 async function loadData() {
@@ -116,9 +133,13 @@ async function loadData() {
     try {
       const fetchAll = Promise.all([grist.docApi.fetchTable('KPI'), grist.docApi.fetchTable('Base'), grist.docApi.fetchTable('Events')]);
       const [kpi, base, events] = await Promise.race([fetchAll, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 2500))]);
-      DATA = { kpi: rowsFromColumnar(kpi), base: rowsFromColumnar(base), events_agg: aggEvents(rowsFromColumnar(events)), meta: null };
+      DATA = assainir({ kpi: rowsFromColumnar(kpi), base: rowsFromColumnar(base), events: rowsFromColumnar(events) });
       // table Extractions (optionnelle) : journal ETL → bandeau volumétrie. Isolée pour ne pas casser le load si absente.
-      try { const ex = rowsFromColumnar(await grist.docApi.fetchTable('Extractions')); DATA.meta = ex.length ? ex[ex.length - 1] : null; } catch (e) {}
+      // La plus RÉCENTE, pas la dernière ligne : la collecte met sa ligne à jour en place.
+      try {
+        const ex = rowsFromColumnar(await grist.docApi.fetchTable('Extractions'));
+        DATA.meta = ex.reduce((a, r) => (!a || String(r.extracted_at || '') > String(a.extracted_at || '') ? r : a), null);
+      } catch (e) {}
       setSrc('', '● source Grist (live)');
       return;
     } catch (e) {
@@ -162,7 +183,7 @@ const EV = () => DATA.events_agg || [];
 const evRows = (cur, scope, pred) => EV().filter(e => e.month === cur && (scope === 'global' || e.role === scope) && pred(e));
 const evSum = (cur, scope, pred) => evRows(cur, scope, pred).reduce((s, e) => s + e.n, 0);
 function evGroup(cur, scope, pred, keyFn) {         // groupe + somme, trié desc
-  const m = {};
+  const m = Object.create(null);
   for (const e of evRows(cur, scope, pred)) { const k = keyFn(e); m[k] = (m[k] || 0) + e.n; }
   return Object.entries(m).map(([label, n]) => ({ label, n })).sort((a, b) => b.n - a.n);
 }
@@ -210,12 +231,13 @@ function renderAdoption() {
   const mm = months(), idx = mm.indexOf(cur);
   const prev = mm.slice(0, idx).reverse().find(m => hasData(m, scope));
   const kPrev = prev ? kpiOf(prev, scope) : null;
-  const delta = (kPrev && k.base_agents) ? Math.round((k.taux_reguliers_pct - kPrev.taux_reguliers_pct) * 10) / 10 : null;
+  const delta = (kPrev && k.base_agents && cur !== moisEnCours()) ? Math.round((k.taux_reguliers_pct - kPrev.taux_reguliers_pct) * 10) / 10 : null;
   const deltaTxt = delta == null ? '' : `${delta >= 0 ? '▲ +' : '▼ '}${delta} pt vs ${prev}`;
 
   // fenêtre d'évolution RC1 : plage Du → Au
-  const win = winMonths();
-  const evo = win.map(m => (kpiOf(m, scope) || {}).taux_reguliers_pct ?? 0);
+  // Seuls les mois mesurés (base renseignée) sont tracés : un mois sans base n'est pas un 0 %.
+  const win = winMonths().filter(m => hasData(m, scope));
+  const evo = win.map(m => kpiOf(m, scope).taux_reguliers_pct ?? 0);
   const evoLabels = win.map(m => m.slice(5)); // MM
 
   // répartition par rôle (mois courant) — la segmentation exigée par le proto
@@ -224,7 +246,7 @@ function renderAdoption() {
   document.getElementById('p-adoption').innerHTML = `
     <div class="cards">
       <div class="card">
-        <div class="lbl">Taux d'utilisateurs réguliers · ${cur}</div>
+        <div class="lbl">Taux d'utilisateurs réguliers · ${libMois(cur)}</div>
         ${k.base_agents
           ? `<div class="big">${k.taux_reguliers_pct} %</div>
              <div class="sub">${num(k.utilisateurs_reguliers)} réguliers / base ${num(k.base_agents)}</div>

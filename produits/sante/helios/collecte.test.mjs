@@ -45,6 +45,7 @@ const CORPS_MATOMO = {
     corps: JSON.stringify({ result: 'error', message: 'token_auth JETON-SECRET invalide' }) }),
   cinqCents: () => ({ statut: 500, type: 'text/plain', corps: 'boom\n✓ Push : Events=42' }),
   objet: () => ({ statut: 200, type: 'application/json', corps: '{"value":42}' }),
+  panneSansSchema: () => ({ statut: 500, type: 'text/plain', corps: 'boom' }),
 };
 
 // `existant` décrit le doc Grist avant le run : tables présentes, colonnes, lignes.
@@ -59,9 +60,12 @@ const DOC_HERITE = {
     Events: [
       { id: 11, fields: { event_id: `${VID}_1790845215_0`, month: MOIS, visitor_id: VID } },  // ancien grain, mois relu
       { id: 12, fields: { event_id: `${VID}_1700000000_0`, month: '2020-01', visitor_id: VID } }, // hors fenêtre
+      { id: 13, fields: { event_id: '2020-01|ars|export|lancer|fiche_et', month: '2020-01', count: 3 } }, // agrégé, hors fenêtre
     ],
   },
 };
+// Même doc, sans aucun mois hors fenêtre : le seul où --reset est permis.
+const DOC_DANS_FENETRE = { ...DOC_HERITE, lignes: { Events: [DOC_HERITE.lignes.Events[0]] } };
 
 async function jouer(scenario, options = {}) {
   const reponse = CORPS_MATOMO[scenario]();
@@ -153,8 +157,14 @@ const lignesPoussees = (trafic, table) => puts(trafic, table).flatMap((r) => JSO
   verifier('migration : KPI.utilisateurs_reguliers repasse en colonne de données',
     conv && JSON.parse(conv.corps).columns[0].fields.isFormula === false);
   const suppr = trafic.filter((r) => /Events\/data\/delete/.test(r.url)).flatMap((r) => JSON.parse(r.corps));
-  verifier(`migration : les lignes brutes du mois relu sont retirées, pas celles hors fenêtre (${suppr})`,
-    suppr.includes(11) && !suppr.includes(12));
+  // L'ancien grain porte l'identifiant de visiteur dans sa clé : retiré quel que soit
+  // son mois. Une ligne agrégée hors fenêtre, elle, est de l'historique : conservée.
+  verifier(`migration : toutes les lignes de l'ancien grain sont retirées, l'historique agrégé reste (${suppr})`,
+    suppr.includes(11) && suppr.includes(12) && !suppr.includes(13));
+  const ordre = (motif) => trafic.findIndex(motif);
+  const conversion = ordre((r) => r.methode === 'PATCH' && /KPI\/columns/.test(r.url) && JSON.parse(r.corps).columns[0].id === 'utilisateurs_reguliers');
+  const retraitCol = ordre((r) => r.methode === 'DELETE' && /visitor_id/.test(r.url));
+  verifier(`migration : KPI converti avant le retrait de visitor_id (${conversion} < ${retraitCol})`, conversion >= 0 && conversion < retraitCol);
   const premierPut = trafic.findIndex((r) => r.methode === 'PUT');
   const premiereSuppr = trafic.findIndex((r) => /Events\/data\/delete/.test(r.url));
   verifier('migration : le retrait suit le push (jamais de table vidée sans remplaçant)', premierPut >= 0 && premiereSuppr > premierPut);
@@ -165,8 +175,8 @@ const lignesPoussees = (trafic, table) => puts(trafic, table).flatMap((r) => JSO
   const { code, texte, trafic } = await jouer('sansVisiteur', { doc: DOC_HERITE });
   verifier('visitorId illisible : le Job échoue', code === 1, `code ${code}`);
   verifier('visitorId illisible : le message nomme la cause', /sans identifiant de visiteur/.test(texte), erreurs(texte));
-  verifier('visitorId illisible : rien n’est écrit ni supprimé',
-    !trafic.some((r) => r.methode === 'PUT' || /data\/delete/.test(r.url)));
+  verifier('visitorId illisible : rien n’est écrit, supprimé ni migré',
+    !trafic.some((r) => ['PUT', 'PATCH', 'DELETE'].includes(r.methode) || /data\/delete/.test(r.url) || (r.methode === 'POST' && /\/(tables|columns)$/.test(r.url))));
 }
 
 // --- Creux et câblage -------------------------------------------------------------
@@ -214,7 +224,21 @@ for (const [scenario, motif] of [
 }
 {
   const { code, texte } = await jouer('reel', { env: { COLLECT_FROM: '2026-13' } });
-  verifier('mois de début invalide : refusé', code === 1 && /mois de début invalide/.test(texte), erreurs(texte));
+  verifier('COLLECT_FROM invalide : refusé', code === 1 && /COLLECT_FROM invalide/.test(texte), erreurs(texte));
+}
+{
+  // Fenêtre nocturne : mois précédent + mois en cours, COLLECT_FROM n'étant qu'un plancher.
+  const { trafic } = await jouer('reel', { env: { COLLECT_FROM: '2026-01' } });
+  const kpiMois = [...new Set(lignesPoussees(trafic, 'KPI').map((k) => k.month))].sort();
+  const precedent = new Date(`${MOIS}-01T00:00:00Z`); precedent.setUTCMonth(precedent.getUTCMonth() - 1);
+  verifier(`fenêtre nocturne : deux mois relus (${kpiMois})`,
+    kpiMois.join() === [precedent.toISOString().slice(0, 7), MOIS].join());
+  const { trafic: t2 } = await jouer('reel', { argv: ['--from', '2026-01', '--to', '2026-03'] });
+  verifier('--from explicite : la fenêtre demandée est relue',
+    [...new Set(lignesPoussees(t2, 'KPI').map((k) => k.month))].join() === '2026-01,2026-02,2026-03');
+  const { code, trafic: t3 } = await jouer('panneSansSchema', { doc: DOC_HERITE });
+  verifier('panne Matomo : le schéma du doc n’est pas touché',
+    code === 1 && !t3.some((r) => ['PATCH', 'DELETE'].includes(r.methode)));
 }
 
 // --- --reset : seule opération qui vide des tables entières -----------------------
@@ -224,11 +248,16 @@ for (const [scenario, motif] of [
   verifier('--reset refusé : aucune suppression', !trafic.some((r) => /data\/delete/.test(r.url)));
 }
 {
-  const { code, texte } = await jouer('reel', { argv: ['--reset', '--from', MOIS] });
-  verifier('--reset avec --from : refusé', code === 1 && /effacerait tout l/.test(texte), erreurs(texte));
+  // Le doc contient 2020-01, hors de la fenêtre relue : vider l'effacerait.
+  const { code, texte, trafic } = await jouer('reel', { doc: DOC_HERITE, argv: ['--reset'] });
+  verifier('--reset avec un mois hors fenêtre : refusé', code === 1 && /effacerait tout l.*2020-01/.test(texte), erreurs(texte));
+  verifier('--reset refusé : aucune suppression', !trafic.some((r) => /data\/delete/.test(r.url)));
+  // COLLECT_FROM borne aussi la fenêtre : le contrôle ne doit pas dépendre de la ligne de commande.
+  const viaEnv = await jouer('reel', { doc: DOC_HERITE, argv: ['--reset'], env: { COLLECT_FROM: MOIS } });
+  verifier('--reset borné par COLLECT_FROM : refusé aussi', viaEnv.code === 1, `code ${viaEnv.code}`);
 }
 {
-  const { code, trafic } = await jouer('reel', { doc: DOC_HERITE, argv: ['--reset'] });
+  const { code, trafic } = await jouer('reel', { doc: DOC_DANS_FENETRE, argv: ['--reset'] });
   verifier('--reset nominal : le Job réussit', code === 0, `code ${code}`);
   const premierVidage = trafic.findIndex((r) => /data\/delete/.test(r.url));
   const premierPut = trafic.findIndex((r) => r.methode === 'PUT');

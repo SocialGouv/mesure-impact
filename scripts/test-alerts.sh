@@ -15,6 +15,12 @@ trap 'rm -rf "$travail"' EXIT
 
 "$racine/scripts/produits-values.sh" "$env" > "$travail/produits.yaml"
 
+# alerts.test.yaml décrit les séries d'UN produit témoin, sante/basavi. Les règles
+# sont rendues par produit : sans ce filtre, chaque produit ajouté au catalogue
+# rendrait une règle NonObservable sans série, qui sonnerait dans tous les groupes de
+# test. Le rendu reste celui du chart ; seul l'inventaire est réduit au témoin.
+yq -i '.produits |= map(select(.slug == "sante/basavi"))' "$travail/produits.yaml"
+
 # Un env sans produit collecté ne rend aucune PrometheusRule, et `--show-only`
 # échoue alors sur « could not find template ». Rien à jouer n'est pas un échec.
 if ! helm template mesure-impact "$racine/chart" \
