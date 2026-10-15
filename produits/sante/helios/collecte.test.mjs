@@ -1,0 +1,240 @@
+// Tests de bout en bout du collecteur HELIOS : l'ETL RÉEL est exécuté comme le fera
+// le CronJob, contre des serveurs Matomo et Grist bouchonnés en local. Aucun réseau
+// externe, aucune dépendance.
+//
+// Ce qui se joue ici : le code de SORTIE (0 = le Job réussit, 1 = il échoue et
+// MesureImpactCollecteEnEchec sonne), ce qui part RÉELLEMENT vers Grist (aucun
+// identifiant de visiteur), et la migration depuis l'ancien grain brut.
+//
+// Lancer : task test  —  ou  node produits/sante/helios/collecte.test.mjs
+
+import http from 'node:http';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const ici = path.dirname(fileURLToPath(import.meta.url));
+const MOIS = new Date().toISOString().slice(0, 7);
+const VID = 'feed0000beef0001';
+
+let echecs = 0;
+const verifier = (titre, condition, detail) => {
+  console.log(`${condition ? '  ok  ' : 'ÉCHEC '}${titre}`);
+  if (!condition) { echecs += 1; if (detail) console.log(`        ${detail}`); }
+};
+const erreurs = (texte) => texte.split('\n').filter((l) => l.startsWith('✗')).join(' | ');
+
+const visiteReelle = {
+  visitorId: VID, dimension1: 'ars', serverDate: `${MOIS}-02`,
+  actionDetails: [
+    { type: 'event', eventCategory: 'session', eventAction: 'connexion' },
+    { type: 'event', eventCategory: 'export', eventAction: 'lancer', eventName: 'fiche_et' },
+    { type: 'event', eventCategory: 'indicateur', eventAction: 'utilisateurs_actifs', eventName: 'ars', eventValue: 5, timestamp: 10 },
+    { type: 'event', eventCategory: 'indicateur', eventAction: 'utilisateurs_inactifs', eventName: 'ars', eventValue: 23, timestamp: 10 },
+  ],
+};
+
+const CORPS_MATOMO = {
+  vide: () => ({ statut: 200, type: 'application/json', corps: '[]' }),
+  reel: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify([visiteReelle]) }),
+  // Schéma Matomo qui change : l'identifiant de visiteur est renommé.
+  sansVisiteur: () => ({ statut: 200, type: 'application/json',
+    corps: JSON.stringify([{ ...visiteReelle, visitorId: undefined, visiteur: VID }]) }),
+  html: () => ({ statut: 200, type: 'text/html', corps: '<html>maintenance\n✓ Push : Events=42\n</html>' }),
+  erreurToken: () => ({ statut: 200, type: 'application/json',
+    corps: JSON.stringify({ result: 'error', message: 'token_auth JETON-SECRET invalide' }) }),
+  cinqCents: () => ({ statut: 500, type: 'text/plain', corps: 'boom\n✓ Push : Events=42' }),
+  objet: () => ({ statut: 200, type: 'application/json', corps: '{"value":42}' }),
+};
+
+// `existant` décrit le doc Grist avant le run : tables présentes, colonnes, lignes.
+const DOC_VIDE = { tables: [], colonnes: {}, lignes: {} };
+const DOC_HERITE = {
+  tables: ['Events', 'Base', 'KPI', 'Extractions'],
+  colonnes: {
+    Events: ['event_id', 'month', 'date', 'visitor_id', 'role', 'category', 'action', 'name', 'value'].map((id) => ({ id, fields: { isFormula: false } })),
+    KPI: [{ id: 'kpi_id', fields: { isFormula: false } }, { id: 'utilisateurs_reguliers', fields: { isFormula: true, formula: 'len({...})' } }],
+  },
+  lignes: {
+    Events: [
+      { id: 11, fields: { event_id: `${VID}_1790845215_0`, month: MOIS, visitor_id: VID } },  // ancien grain, mois relu
+      { id: 12, fields: { event_id: `${VID}_1700000000_0`, month: '2020-01', visitor_id: VID } }, // hors fenêtre
+    ],
+  },
+};
+
+async function jouer(scenario, options = {}) {
+  const reponse = CORPS_MATOMO[scenario]();
+  const doc = options.doc || DOC_VIDE;
+  const matomo = http.createServer((req, res) => {
+    res.writeHead(reponse.statut, { 'content-type': reponse.type });
+    res.end(reponse.corps);
+  });
+  const trafic = [];
+  const grist = http.createServer((req, res) => {
+    let recu = '';
+    req.on('data', (c) => { recu += c; });
+    req.on('end', () => {
+      trafic.push({ methode: req.method, url: req.url, corps: recu });
+      if (options.gristStatut && /\/records$/.test(req.url) && req.method === 'PUT') {
+        res.writeHead(options.gristStatut, { 'content-type': 'text/plain' });
+        return res.end('quota dépassé');
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      const table = (req.url.match(/tables\/([^/]+)/) || [])[1];
+      if (/\/columns/.test(req.url)) return res.end(JSON.stringify({ columns: req.method === 'GET' ? (doc.colonnes[table] || []) : [] }));
+      if (/\/records$/.test(req.url) && req.method === 'GET') return res.end(JSON.stringify({ records: doc.lignes[table] || [] }));
+      if (/\/tables$/.test(req.url) && req.method === 'GET') return res.end(JSON.stringify({ tables: doc.tables.map((id) => ({ id })) }));
+      if (/\/docs\/[^/]+$/.test(req.url)) return res.end('{"name":"Préprod - Hélios"}');
+      return res.end('{}');
+    });
+  });
+  await new Promise((r) => matomo.listen(0, '127.0.0.1', r));
+  await new Promise((r) => grist.listen(0, '127.0.0.1', r));
+
+  const sortie = await new Promise((resoudre) => {
+    const enfant = spawn(process.execPath, [path.join(ici, 'etl.mjs'), ...(options.argv || [])], {
+      env: {
+        ...process.env,
+        MATOMO_URL: `http://127.0.0.1:${matomo.address().port}`,
+        MATOMO_SITE_ID: '162',
+        MATOMO_TOKEN_AUTH: 'JETON-SECRET',
+        GRIST_URL: `http://127.0.0.1:${grist.address().port}`,
+        GRIST_DOC_ID: 'doc-test',
+        GRIST_API_KEY: 'CLE-SECRETE',
+        COLLECT_FROM: MOIS,
+        PRODUIT: 'sante/helios',
+        ...(options.env || {}),
+      },
+    });
+    let texte = '';
+    enfant.stdout.on('data', (d) => { texte += d; });
+    enfant.stderr.on('data', (d) => { texte += d; });
+    enfant.on('close', (code) => resoudre({ code, texte }));
+  });
+  matomo.close(); grist.close();
+  return { ...sortie, trafic };
+}
+const puts = (trafic, table) => trafic.filter((r) => r.methode === 'PUT' && new RegExp(`tables/${table}/records$`).test(r.url));
+const lignesPoussees = (trafic, table) => puts(trafic, table).flatMap((r) => JSON.parse(r.corps).records.map((x) => x.fields));
+
+// --- Le cas nominal publie RÉELLEMENT, et rien d'individuel ------------------------
+{
+  const { code, texte, trafic } = await jouer('reel');
+  verifier('collecte nominale : le Job réussit', code === 0, `code ${code} · ${erreurs(texte)}`);
+  for (const table of ['Events', 'Base', 'KPI', 'Extractions']) {
+    verifier(`collecte nominale : la table ${table} reçoit un PUT`, puts(trafic, table).length > 0);
+  }
+  const versGrist = trafic.map((r) => r.url + r.corps).join('\n');
+  verifier('donnée individuelle : aucun identifiant de visiteur envoyé à Grist', !versGrist.includes(VID));
+  verifier('donnée individuelle : aucune colonne visitor_id créée', !/visitor_id/.test(versGrist));
+  const kpi = lignesPoussees(trafic, 'KPI');
+  const glob = kpi.find((k) => k.scope === 'global');
+  verifier(`KPI : le nombre de réguliers part dans le corps (${glob && glob.utilisateurs_reguliers})`,
+    glob && glob.utilisateurs_reguliers === 1 && kpi.length === 4);
+  const base = lignesPoussees(trafic, 'Base')[0];
+  verifier('Base : actifs et inactifs du rôle', base && base.role === 'ars' && base.actifs === 5 && base.inactifs === 23);
+  const ev = lignesPoussees(trafic, 'Events');
+  verifier('Events : grain agrégé avec effectif', ev.length === 2 && ev.every((e) => e.count === 1 && e.event_id.startsWith(`${MOIS}|ars|`)));
+  const ex = puts(trafic, 'Extractions')[0];
+  verifier('Extractions : upsert clé sur run_id', ex && 'run_id' in JSON.parse(ex.corps).records[0].require);
+  verifier('collecte nominale : le résumé annonce la publication', /Extractions=1/.test(texte));
+}
+
+// --- Migration depuis l'ancien grain brut -----------------------------------------
+{
+  const { code, texte, trafic } = await jouer('reel', { doc: DOC_HERITE });
+  verifier('migration : le Job réussit', code === 0, `code ${code} · ${erreurs(texte)}`);
+  const retirees = trafic.filter((r) => r.methode === 'DELETE').map((r) => decodeURIComponent(r.url.split('/columns/')[1] || ''));
+  verifier(`migration : visitor_id, date, value retirées d'Events (${retirees})`,
+    ['visitor_id', 'date', 'value'].every((c) => retirees.includes(c)));
+  const conv = trafic.find((r) => r.methode === 'PATCH' && /KPI\/columns/.test(r.url)
+    && JSON.parse(r.corps).columns[0].id === 'utilisateurs_reguliers');
+  verifier('migration : KPI.utilisateurs_reguliers repasse en colonne de données',
+    conv && JSON.parse(conv.corps).columns[0].fields.isFormula === false);
+  const suppr = trafic.filter((r) => /Events\/data\/delete/.test(r.url)).flatMap((r) => JSON.parse(r.corps));
+  verifier(`migration : les lignes brutes du mois relu sont retirées, pas celles hors fenêtre (${suppr})`,
+    suppr.includes(11) && !suppr.includes(12));
+  const premierPut = trafic.findIndex((r) => r.methode === 'PUT');
+  const premiereSuppr = trafic.findIndex((r) => /Events\/data\/delete/.test(r.url));
+  verifier('migration : le retrait suit le push (jamais de table vidée sans remplaçant)', premierPut >= 0 && premiereSuppr > premierPut);
+}
+
+// --- Identifiant de visiteur illisible : le RC1 n'est pas publié -------------------
+{
+  const { code, texte, trafic } = await jouer('sansVisiteur', { doc: DOC_HERITE });
+  verifier('visitorId illisible : le Job échoue', code === 1, `code ${code}`);
+  verifier('visitorId illisible : le message nomme la cause', /sans identifiant de visiteur/.test(texte), erreurs(texte));
+  verifier('visitorId illisible : rien n’est écrit ni supprimé',
+    !trafic.some((r) => r.methode === 'PUT' || /data\/delete/.test(r.url)));
+}
+
+// --- Creux et câblage -------------------------------------------------------------
+{
+  const { code, texte, trafic } = await jouer('vide', { doc: DOC_HERITE });
+  verifier('creux : le Job réussit si le produit a déjà collecté', code === 0, `code ${code} · ${erreurs(texte)}`);
+  verifier('creux : le silence est signalé', /Aucune visite sur/.test(texte));
+  verifier('creux : ni écriture ni suppression', !trafic.some((r) => r.methode === 'PUT' || /data\/delete/.test(r.url)));
+}
+{
+  const { code, texte } = await jouer('vide');
+  verifier('jamais rien collecté : le Job échoue', code === 1, `code ${code}`);
+  verifier('jamais rien collecté : le message nomme MATOMO_SITE_ID', /MATOMO_SITE_ID \(162\)/.test(texte), erreurs(texte));
+}
+{
+  const { code } = await jouer('vide', { env: { ALLOW_EMPTY_COLLECT: 'sante/helios' } });
+  verifier('ALLOW_EMPTY_COLLECT nominatif : toléré', code === 0, `code ${code}`);
+  const autre = await jouer('vide', { env: { ALLOW_EMPTY_COLLECT: 'sante/basavi' } });
+  verifier('ALLOW_EMPTY_COLLECT d’un autre produit : ne couvre pas HELIOS', autre.code === 1, `code ${autre.code}`);
+  const vide = await jouer('vide', { env: { PRODUIT: '', ALLOW_EMPTY_COLLECT: '' } });
+  verifier('sans PRODUIT ni liste : la tolérance ne s’applique pas', vide.code === 1, `code ${vide.code}`);
+}
+
+// --- Pannes amont : bruyantes, sans fuite de token --------------------------------
+for (const [scenario, motif] of [
+  ['html', /réponse non-JSON \(content-type text\/html/],
+  ['cinqCents', /HTTP 500/],
+  ['erreurToken', /token_auth \*\*\* invalide/],
+  ['objet', /Réponse Matomo inattendue/],
+]) {
+  const { code, texte } = await jouer(scenario, { doc: DOC_HERITE });
+  verifier(`panne amont (${scenario}) : le Job échoue`, code === 1, `code ${code}`);
+  verifier(`panne amont (${scenario}) : le message nomme la cause`, motif.test(texte), erreurs(texte));
+  verifier(`panne amont (${scenario}) : aucun token en clair`, !texte.includes('JETON-SECRET') && !texte.includes('CLE-SECRETE'));
+  verifier(`panne amont (${scenario}) : aucune ligne de log forgée`, !/^✓ Push/m.test(texte));
+}
+{
+  const { code, texte } = await jouer('reel', { gristStatut: 403 });
+  verifier('Grist refuse l’écriture : le Job échoue', code === 1, `code ${code}`);
+  verifier('Grist refuse l’écriture : aucun token en clair', !texte.includes('JETON-SECRET') && !texte.includes('CLE-SECRETE'));
+}
+{
+  const { code, texte } = await jouer('reel', { env: { GRIST_DOC_ID: '' } });
+  verifier('variable manquante : le Job échoue en la nommant', code === 1 && /GRIST_DOC_ID/.test(texte), erreurs(texte));
+}
+{
+  const { code, texte } = await jouer('reel', { env: { COLLECT_FROM: '2026-13' } });
+  verifier('mois de début invalide : refusé', code === 1 && /mois de début invalide/.test(texte), erreurs(texte));
+}
+
+// --- --reset : seule opération qui vide des tables entières -----------------------
+{
+  const { code, texte, trafic } = await jouer('vide', { doc: DOC_HERITE, argv: ['--reset'] });
+  verifier('--reset sur extraction creuse : refusé', code === 1 && /aucune ligne construite/.test(texte), erreurs(texte));
+  verifier('--reset refusé : aucune suppression', !trafic.some((r) => /data\/delete/.test(r.url)));
+}
+{
+  const { code, texte } = await jouer('reel', { argv: ['--reset', '--from', MOIS] });
+  verifier('--reset avec --from : refusé', code === 1 && /effacerait tout l/.test(texte), erreurs(texte));
+}
+{
+  const { code, trafic } = await jouer('reel', { doc: DOC_HERITE, argv: ['--reset'] });
+  verifier('--reset nominal : le Job réussit', code === 0, `code ${code}`);
+  const premierVidage = trafic.findIndex((r) => /data\/delete/.test(r.url));
+  const premierPut = trafic.findIndex((r) => r.methode === 'PUT');
+  verifier(`--reset nominal : le vidage précède le push (${premierVidage} < ${premierPut})`,
+    premierVidage >= 0 && premierPut >= 0 && premierVidage < premierPut);
+}
+
+console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
+process.exit(echecs ? 1 : 0);

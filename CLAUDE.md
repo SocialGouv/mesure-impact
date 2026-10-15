@@ -9,8 +9,9 @@ par GitHub Actions.
 ## État
 
 Le socle est **multitenant** : chaque `produits/<dept>/<nom>/` reçoit son CronJob, son
-SealedSecret et son URL de dashboard. Un seul produit est câblé à ce jour, **BASAVI**, dont la
-collecte de préprod est **active depuis le 20/08/2026**.
+SealedSecret et son URL de dashboard. Deux produits sont câblés : **BASAVI**, dont la
+collecte de préprod est **active depuis le 20/08/2026**, et **HELIOS** (préprod, site Matomo 162,
+grain agrégé mois × rôle, aucun identifiant de visiteur dans Grist).
 
 `cron.suspend` vaut pour **tout l'env**, pas par produit : ajouter un produit à `envs: [dev]`
 le déploie donc actif immédiatement. C'est pourquoi la CI refuse un produit de l'inventaire

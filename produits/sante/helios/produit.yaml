@@ -1,0 +1,45 @@
+# Fiche produit HELIOS — identifiants PUBLICS et critères. Aucun secret ici.
+# Lu par le socle : scripts/produits-values.sh en dérive le CronJob et ses variables.
+# Les deux tokens sont scellés à part, dans secrets/<env>.sealedsecret.yaml.
+nom: HELIOS
+departement: Santé
+description: >
+  Outil de consultation des établissements sanitaires et médico-sociaux, pour les agents
+  des ARS, les référents régionaux et l'administration centrale. Tableau de bord d'adoption :
+  taux d'utilisateurs réguliers (RC1) par rôle, fonctionnalités utilisées, recherche, navigation.
+
+# Envs où ce produit est collecté. La prod (site Matomo 72) viendra avec son propre
+# doc Grist : tant qu'elle n'est pas déclarée ici, elle ne reçoit aucun CronJob.
+envs: [dev]
+
+chaine:
+  matomo:
+    url: https://matomo.fabrique.social.gouv.fr
+    site_id:
+      dev: 162              # site de préprod (type intranet depuis le 12/10/2026)
+  grist:
+    url: https://grist.numerique.gouv.fr
+    doc_id:
+      dev: 9vAxVCXu46T88ieM7s3NhF   # « Préprod - Hélios »
+    tables: [Events, Base, KPI, Extractions]
+  grain: mois × rôle        # rôles ars / regional / central, scope global en plus dans KPI
+
+collecte:
+  schedule: "0 6 * * *"     # cadence du CronJob ; à défaut celle du chart
+
+front:
+  fichier: dashboard.html
+  mode: widget embarqué dans le doc Grist   # données via l'API plugin Grist, aucun token dans la page
+
+# Variables injectées par le Secret déscellé (envFrom). Seules ces deux-là sont sensibles.
+secrets_requis:
+  - MATOMO_TOKEN_AUTH       # token API Matomo, lecture du site
+  - GRIST_API_KEY           # clé API Grist, écriture sur le doc
+
+# « C'est fini/sain quand… » — critères vérifiables, servent de portes de qualité.
+criteres_achevement:
+  - La collecte se termine sans variable manquante ni erreur d'API.
+  - Aucun identifiant de visiteur n'est écrit dans Grist (grain agrégé mois × rôle).
+  - Les 4 tables (Events, Base, KPI, Extractions) sont peuplées sur la période.
+  - La table KPI calcule le RC1 (réguliers / base d'agents) sans erreur, par rôle et en global.
+  - La page dashboard.html s'affiche dans le doc Grist et lit les vraies données.

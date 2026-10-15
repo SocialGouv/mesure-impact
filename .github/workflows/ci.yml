@@ -139,6 +139,9 @@ jobs:
           node produits/sante/basavi/dashboard.test.mjs
           node produits/sante/basavi/etl.test.mjs
           node produits/sante/basavi/collecte.test.mjs
+          node produits/sante/helios/dashboard.test.mjs
+          node produits/sante/helios/etl.test.mjs
+          node produits/sante/helios/collecte.test.mjs
 
       # Version épinglée : une alerte qui ne peut pas se déclencher est aussi grave
       # qu'une alerte qui hurle, et ça ne se voit qu'en jouant les règles.
