@@ -376,16 +376,33 @@ async function main() {
   // Fenêtre nocturne : mois précédent + mois en cours. Après une panne plus longue,
   // elle repart du mois du dernier succès : ce mois-là n'a été écrit que partiellement,
   // et sans ce rattrapage il resterait tronqué pour de bon, affiché comme un mois clos.
+  // Un run MANUEL (--from ou --to) ne publie pas sous RUN_ID : sinon il ferait avancer
+  // le « dernier succès » et le rattrapage nocturne sauterait les mois qu'il n'a pas relus.
+  const MANUEL = Boolean(FROM_EXPLICITE) || process.argv.includes('--to');
+  const RUN = MANUEL ? `${RUN_ID}-manuel` : RUN_ID;
   let FROM = FROM_EXPLICITE;
   if (!FROM) {
+    const tables = await getTables();
     let dernierSucces = null;
-    if ((await getTables()).includes('Extractions')) {
+    if (tables.includes('Extractions')) {
       const ligne = (await getRecords('Extractions')).find((l) => l.fields.run_id === RUN_ID);
       const m = String(ligne?.fields.extracted_at || '').slice(0, 7);
       if (MOIS_RE.test(m)) dernierSucces = m;
     }
     FROM = plusTard(plusTot(moisPrecedent(TO), dernierSucces), PLANCHER);
+    // Migration depuis l'ancien grain : ses lignes sont retirées quel que soit leur mois,
+    // donc les mois qu'elles couvraient sont relus dans le MÊME run. Sinon ces mois
+    // garderaient leurs réguliers et leur base, avec des usages tombés à zéro.
+    if (tables.includes('Events')) {
+      const herites = (await getRecords('Events'))
+        .filter((l) => !CLE_AGREGEE.test(String(l.fields.event_id ?? '')))
+        .map((l) => String(l.fields.month ?? '')).filter((m) => MOIS_RE.test(m));
+      FROM = plusTot(FROM, ...herites);
+    }
   }
+  // Fenêtre vide (COLLECT_FROM dans le futur, --to avant le plancher) : aucun appel
+  // Matomo ne partirait et le Job resterait vert chaque nuit sans rien collecter.
+  if (FROM > TO) throw new Error(`Fenêtre vide : ${FROM} est après ${TO}.`);
   const MOIS = moisEntre(FROM, TO);
   console.log(`\n1) Extraction Matomo (site ${SITE}, ${FROM} → ${TO})`);
   const parMois = [];
@@ -395,7 +412,10 @@ async function main() {
     // proxy, réponse tronquée). La traiter comme « zéro visite » laisserait le
     // tableau de bord vert au-dessus de données périmées.
     if (!Array.isArray(visits)) {
-      throw new Error(redact(`Réponse Matomo inattendue pour ${month} (${typeof visits}) : ` + JSON.stringify(visits).slice(0, 300)));
+      // La forme seule est journalisée : un contenu de visite (titre de page, identifiant)
+      // peut porter une donnée individuelle.
+      const forme = visits && typeof visits === 'object' ? `clés ${JSON.stringify(Object.keys(visits).slice(0, 5).map((k) => k.slice(0, 30)))}` : JSON.stringify(String(visits).slice(0, 100));
+      throw new Error(redact(`Réponse Matomo inattendue pour ${month} (${typeof visits}) : ${forme}`));
     }
     parMois.push({ month, visits });
     console.log(`  · ${month} : ${visits.length} visites`);
@@ -448,7 +468,10 @@ async function main() {
     for (const t of ['Events', 'Base', 'KPI'].filter((x) => tables.includes(x))) {
       for (const l of await getRecords(t)) {
         if (t === 'KPI' && !l.fields.utilisateurs_reguliers) continue;
-        if (!r.moisRelus.has(l.fields.month)) horsFenetre.add(String(l.fields.month ?? '?'));
+        // Une ligne au mois illisible (saisie vide dans l'UI) n'est couvrable par aucun
+        // --from ; elle n'est pas de l'historique et la collecte la retire.
+        if (!MOIS_RE.test(String(l.fields.month ?? ''))) continue;
+        if (!r.moisRelus.has(l.fields.month)) horsFenetre.add(l.fields.month);
       }
     }
     if (horsFenetre.size) {
@@ -481,7 +504,7 @@ async function main() {
   const fillPct = Math.round((100 * r.roleRemplis) / r.visites);
   const relus = [...r.moisRelus].sort();
   await upsert('Extractions', [{
-    run_id: RUN_ID, extracted_at: new Date().toISOString(), months: relus.join(', '), site: Number(SITE),
+    run_id: RUN, extracted_at: new Date().toISOString(), months: relus.join(', '), site: Number(SITE),
     visits: r.visites, events: r.events.reduce((s, e) => s + e.count, 0), base_rows: nB, role_fill_pct: fillPct,
     note: `Matomo réel, site ${SITE}. Grain mois × rôle, visiteurs distincts comptés par l'ETL.${inconnus()}`,
   }], ['run_id']);

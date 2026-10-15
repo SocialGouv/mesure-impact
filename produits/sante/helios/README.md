@@ -36,7 +36,9 @@ visiteur n'est écrit sur la fabrique. Conséquences :
   en cours : un mois clos n'est plus réécrit, une purge des logs bruts Matomo ne peut donc
   pas le faire baisser en silence. Après une panne de plus d'un mois, la fenêtre repart du
   mois du dernier succès (lu dans Extractions), qui n'avait été écrit que partiellement.
-  `COLLECT_FROM` n'est qu'un plancher ;
+  `COLLECT_FROM` n'est qu'un plancher. Un run manuel (`--from` ou `--to`) publie sous le
+  `run_id` `helios-manuel` et ne compte donc pas comme dernier succès nocturne. Lors de la
+  migration depuis l'ancien grain brut, les mois qu'il couvrait sont relus dans le même run ;
 - le mois en cours est partiel : le widget le signale « (en cours) » et ne calcule pas
   d'évolution contre un mois complet. Un mois au taux vide (base incomplète ou incohérente)
   n'est ni affiché en pourcentage, ni tracé, ni pris comme référence d'évolution ;

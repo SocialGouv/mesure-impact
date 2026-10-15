@@ -148,6 +148,23 @@ const { api, els } = executer();
   verifier('taux vide : absent de la courbe', pts.split(' ').length === 2);
 }
 
+// --- Après une panne de la collecte, le mois de la dernière extraction est partiel --
+{
+  const { api: a6, els: e6 } = executer();
+  const d = a6.assainir({
+    kpi: [
+      { month: '2026-01', scope: 'global', utilisateurs_reguliers: 20, base_agents: 50, taux_reguliers_pct: 40 },
+      { month: '2026-02', scope: 'global', utilisateurs_reguliers: 12, base_agents: 50, taux_reguliers_pct: 24 },
+    ], base: [], events: [],
+  });
+  d.meta = { extracted_at: '2026-02-10T06:00:00Z', visits: 1 };
+  a6.DATA = d;
+  a6.renderAll();
+  const h = e6['p-adoption'].innerHTML;
+  verifier('panne : le mois de la dernière extraction est signalé partiel, sans delta',
+    h.includes('2026-02 (en cours)') && !/pt vs/.test(h));
+}
+
 // --- Le bandeau lit l'extraction la plus récente, pas la dernière ligne -----------
 {
   const html2 = html;

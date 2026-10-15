@@ -44,7 +44,7 @@ const CORPS_MATOMO = {
   erreurToken: () => ({ statut: 200, type: 'application/json',
     corps: JSON.stringify({ result: 'error', message: 'token_auth JETON-SECRET invalide' }) }),
   cinqCents: () => ({ statut: 500, type: 'text/plain', corps: 'boom\n✓ Push : Events=42' }),
-  objet: () => ({ statut: 200, type: 'application/json', corps: '{"value":42}' }),
+  objet: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify({ 0: { ...visiteReelle, pageTitle: 'Fiche - 12 rue des Lilas' } }) }),
   panneSansSchema: () => ({ statut: 500, type: 'text/plain', corps: 'boom' }),
 };
 
@@ -66,6 +66,8 @@ const DOC_HERITE = {
 };
 // Même doc, sans aucun mois hors fenêtre : le seul où --reset est permis.
 const DOC_DANS_FENETRE = { ...DOC_HERITE, lignes: { Events: [DOC_HERITE.lignes.Events[0]] } };
+// Historique AGRÉGÉ hors fenêtre, sans ligne héritée qui l'englobe : --reset l'effacerait.
+const DOC_HISTORIQUE = { ...DOC_HERITE, lignes: { Events: [DOC_HERITE.lignes.Events[0], DOC_HERITE.lignes.Events[2]] } };
 
 async function jouer(scenario, options = {}) {
   const reponse = CORPS_MATOMO[scenario]();
@@ -212,6 +214,7 @@ for (const [scenario, motif] of [
   verifier(`panne amont (${scenario}) : le message nomme la cause`, motif.test(texte), erreurs(texte));
   verifier(`panne amont (${scenario}) : aucun token en clair`, !texte.includes('JETON-SECRET') && !texte.includes('CLE-SECRETE'));
   verifier(`panne amont (${scenario}) : aucune ligne de log forgée`, !/^✓ Push/m.test(texte));
+  verifier(`panne amont (${scenario}) : aucun contenu de visite dans le log`, !texte.includes(VID) && !/Lilas/.test(texte));
 }
 {
   const { code, texte } = await jouer('reel', { gristStatut: 403 });
@@ -245,6 +248,20 @@ for (const [scenario, motif] of [
   const relus4 = [...new Set(lignesPoussees(t4, 'KPI').map((k) => k.month))].sort();
   verifier(`après une panne : rattrapage depuis le dernier succès (${relus4[0]} → ${relus4.at(-1)})`,
     relus4[0] === dernier && relus4.at(-1) === MOIS && relus4.length === 4);
+  // Migration : les mois couverts par l'ancien grain sont relus dans le même run.
+  const { trafic: t5 } = await jouer('reel', { doc: DOC_HERITE });
+  const relus5 = [...new Set(lignesPoussees(t5, 'KPI').map((k) => k.month))].sort();
+  verifier(`migration : relit depuis le plus ancien mois hérité (${relus5[0]})`, relus5[0] === '2020-01');
+  // Un run manuel ne publie pas sous le run_id nocturne.
+  const { trafic: t6 } = await jouer('reel', { argv: ['--from', MOIS] });
+  const ex6 = lignesPoussees(t6, 'Extractions')[0];
+  verifier(`run manuel : run_id distinct (${ex6 && ex6.run_id})`, ex6 && ex6.run_id === 'helios-manuel');
+  const ex7 = lignesPoussees((await jouer('reel')).trafic, 'Extractions')[0];
+  verifier('run nocturne : run_id helios', ex7 && ex7.run_id === 'helios');
+  // Fenêtre vide : jamais un vert sans un seul appel Matomo.
+  const docMigre = { ...DOC_VIDE, tables: ['Events'], lignes: { Events: [{ id: 1, fields: { event_id: `${MOIS}|ars|liste|creer|`, month: MOIS, count: 1 } }] } };
+  const futur = await jouer('reel', { doc: docMigre, env: { COLLECT_FROM: '2099-01' } });
+  verifier('COLLECT_FROM dans le futur : le Job échoue', futur.code === 1 && /Fenêtre vide/.test(futur.texte), erreurs(futur.texte));
   const { code, trafic: t3 } = await jouer('panneSansSchema', { doc: DOC_HERITE });
   verifier('panne Matomo : le schéma du doc n’est pas touché',
     code === 1 && !t3.some((r) => ['PATCH', 'DELETE'].includes(r.methode)));
@@ -258,12 +275,12 @@ for (const [scenario, motif] of [
 }
 {
   // Le doc contient 2020-01, hors de la fenêtre relue : vider l'effacerait.
-  const { code, texte, trafic } = await jouer('reel', { doc: DOC_HERITE, argv: ['--reset'] });
+  const { code, texte, trafic } = await jouer('reel', { doc: DOC_HISTORIQUE, argv: ['--reset'] });
   verifier('--reset avec un mois hors fenêtre : refusé', code === 1 && /effacerait tout l.*2020-01/.test(texte), erreurs(texte));
   verifier('--reset refusé : aucune suppression', !trafic.some((r) => /data\/delete/.test(r.url)));
   verifier('--reset refusé : le schéma n’est pas migré', !trafic.some((r) => ['PATCH', 'DELETE'].includes(r.methode)));
   // COLLECT_FROM borne aussi la fenêtre : le contrôle ne doit pas dépendre de la ligne de commande.
-  const viaEnv = await jouer('reel', { doc: DOC_HERITE, argv: ['--reset'], env: { COLLECT_FROM: MOIS } });
+  const viaEnv = await jouer('reel', { doc: DOC_HISTORIQUE, argv: ['--reset'], env: { COLLECT_FROM: MOIS } });
   verifier('--reset borné par COLLECT_FROM : refusé aussi', viaEnv.code === 1, `code ${viaEnv.code}`);
 }
 {

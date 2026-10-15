@@ -123,7 +123,9 @@ function assainir({ kpi, base, events }) {
 // Le mois calendaire en cours est PARTIEL : ses visiteurs distincts ne couvrent que les
 // jours écoulés. Il est signalé, et on ne le compare pas à un mois complet.
 const moisEnCours = () => new Date().toISOString().slice(0, 7);
-const libMois = m => m === moisEnCours() ? `${m} (en cours)` : m;
+// Après une panne de la collecte, le mois de la dernière extraction est lui aussi partiel.
+const moisPartiel = m => m >= moisEnCours() || (DATA.meta && m >= String(DATA.meta.extracted_at || '').slice(0, 7));
+const libMois = m => moisPartiel(m) ? `${m} (en cours)` : m;
 const setSrc = (cls, txt) => { const s = document.getElementById('src'); s.className = 'src' + (cls ? ' ' + cls : ''); s.textContent = txt; };
 
 async function loadData() {
@@ -235,7 +237,7 @@ function renderAdoption() {
   const mm = months(), idx = mm.indexOf(cur);
   const prev = mm.slice(0, idx).reverse().find(m => hasData(m, scope));
   const kPrev = prev ? kpiOf(prev, scope) : null;
-  const delta = (kPrev && mesure(k) && cur !== moisEnCours()) ? Math.round((k.taux_reguliers_pct - kPrev.taux_reguliers_pct) * 10) / 10 : null;
+  const delta = (kPrev && mesure(k) && !moisPartiel(cur)) ? Math.round((k.taux_reguliers_pct - kPrev.taux_reguliers_pct) * 10) / 10 : null;
   const deltaTxt = delta == null ? '' : `${delta >= 0 ? '▲ +' : '▼ '}${delta} pt vs ${prev}`;
 
   // fenêtre d'évolution RC1 : plage Du → Au
