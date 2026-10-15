@@ -157,18 +157,22 @@ const { api, els } = executer();
       { month: '2026-02', scope: 'global', utilisateurs_reguliers: 12, base_agents: 50, taux_reguliers_pct: 24 },
     ], base: [], events: [],
   });
-  d.meta = { extracted_at: '2026-02-10T06:00:00Z', visits: 1 };
+  d.meta = { run_id: 'helios-manuel', extracted_at: '2026-10-15T09:00:00Z', visits: 1 };
+  d.nocturne = { run_id: 'helios', extracted_at: '2026-02-10T06:00:00Z', visits: 1 };
   a6.DATA = d;
   a6.renderAll();
   const h = e6['p-adoption'].innerHTML;
   verifier('panne : le mois de la dernière extraction est signalé partiel, sans delta',
     h.includes('2026-02 (en cours)') && !/pt vs/.test(h));
+  verifier('panne : la borne vient de la ligne nocturne, pas d’un run manuel plus récent',
+    /DATA\.nocturne = plusRecente\(ex\.filter\(\(r\) => !\/-manuel\$\//.test(html));
 }
 
 // --- Le bandeau lit l'extraction la plus récente, pas la dernière ligne -----------
 {
   const html2 = html;
-  verifier('bandeau : choix par extracted_at maximal', /ex\.reduce\(\(a, r\) => \(!a \|\| String\(r\.extracted_at/.test(html2));
+  verifier('bandeau : choix par extracted_at maximal',
+    /plusRecente = \(lignes\) => lignes\.reduce\(\(a, r\) => \(!a \|\| String\(r\.extracted_at/.test(html2) && /DATA\.meta = plusRecente\(ex\)/.test(html2));
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');

@@ -124,7 +124,7 @@ function assainir({ kpi, base, events }) {
 // jours écoulés. Il est signalé, et on ne le compare pas à un mois complet.
 const moisEnCours = () => new Date().toISOString().slice(0, 7);
 // Après une panne de la collecte, le mois de la dernière extraction est lui aussi partiel.
-const moisPartiel = m => m >= moisEnCours() || (DATA.meta && m >= String(DATA.meta.extracted_at || '').slice(0, 7));
+const moisPartiel = m => m >= moisEnCours() || (DATA.nocturne && m >= String(DATA.nocturne.extracted_at || '').slice(0, 7));
 const libMois = m => moisPartiel(m) ? `${m} (en cours)` : m;
 const setSrc = (cls, txt) => { const s = document.getElementById('src'); s.className = 'src' + (cls ? ' ' + cls : ''); s.textContent = txt; };
 
@@ -140,7 +140,11 @@ async function loadData() {
       // La plus RÉCENTE, pas la dernière ligne : la collecte met sa ligne à jour en place.
       try {
         const ex = rowsFromColumnar(await grist.docApi.fetchTable('Extractions'));
-        DATA.meta = ex.reduce((a, r) => (!a || String(r.extracted_at || '') > String(a.extracted_at || '') ? r : a), null);
+        const plusRecente = (lignes) => lignes.reduce((a, r) => (!a || String(r.extracted_at || '') > String(a.extracted_at || '') ? r : a), null);
+        DATA.meta = plusRecente(ex);
+        // La borne des mois partiels ne vient que de la collecte NOCTURNE : un run manuel
+        // ne relit qu'une fenêtre choisie et ne dit rien des mois tronqués par une panne.
+        DATA.nocturne = plusRecente(ex.filter((r) => !/-manuel$/.test(String(r.run_id || ''))));
       } catch (e) {}
       setSrc('', '● source Grist (live)');
       return;

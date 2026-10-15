@@ -44,7 +44,8 @@ const CORPS_MATOMO = {
   erreurToken: () => ({ statut: 200, type: 'application/json',
     corps: JSON.stringify({ result: 'error', message: 'token_auth JETON-SECRET invalide' }) }),
   cinqCents: () => ({ statut: 500, type: 'text/plain', corps: 'boom\n✓ Push : Events=42' }),
-  objet: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify({ 0: { ...visiteReelle, pageTitle: 'Fiche - 12 rue des Lilas' } }) }),
+  objet: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify({ 'Jean Dupont, 12 rue des Lilas': { ...visiteReelle, pageTitle: 'Fiche - 12 rue des Lilas' } }) }),
+  chaine: () => ({ statut: 200, type: 'application/json', corps: JSON.stringify(`Jean Dupont 12 rue des Lilas ${VID}`) }),
   panneSansSchema: () => ({ statut: 500, type: 'text/plain', corps: 'boom' }),
 };
 
@@ -208,6 +209,7 @@ for (const [scenario, motif] of [
   ['cinqCents', /HTTP 500/],
   ['erreurToken', /token_auth \*\*\* invalide/],
   ['objet', /Réponse Matomo inattendue/],
+  ['chaine', /Réponse Matomo inattendue/],
 ]) {
   const { code, texte } = await jouer(scenario, { doc: DOC_HERITE });
   verifier(`panne amont (${scenario}) : le Job échoue`, code === 1, `code ${code}`);
@@ -249,7 +251,7 @@ for (const [scenario, motif] of [
   verifier(`après une panne : rattrapage depuis le dernier succès (${relus4[0]} → ${relus4.at(-1)})`,
     relus4[0] === dernier && relus4.at(-1) === MOIS && relus4.length === 4);
   // Migration : les mois couverts par l'ancien grain sont relus dans le même run.
-  const { trafic: t5 } = await jouer('reel', { doc: DOC_HERITE });
+  const { trafic: t5 } = await jouer('reel', { doc: DOC_HERITE, env: { COLLECT_FROM: '2020-01' } });
   const relus5 = [...new Set(lignesPoussees(t5, 'KPI').map((k) => k.month))].sort();
   verifier(`migration : relit depuis le plus ancien mois hérité (${relus5[0]})`, relus5[0] === '2020-01');
   // Un run manuel ne publie pas sous le run_id nocturne.
@@ -260,6 +262,18 @@ for (const [scenario, motif] of [
   verifier('run nocturne : run_id helios', ex7 && ex7.run_id === 'helios');
   // Fenêtre vide : jamais un vert sans un seul appel Matomo.
   const docMigre = { ...DOC_VIDE, tables: ['Events'], lignes: { Events: [{ id: 1, fields: { event_id: `${MOIS}|ars|liste|creer|`, month: MOIS, count: 1 } }] } };
+  // Run manuel sur un doc à l'ancien grain hors fenêtre : refusé avant toute écriture.
+  const docHerite3 = { ...DOC_VIDE, tables: ['Events'], lignes: { Events: [
+    { id: 1, fields: { event_id: 'aa_1_0', month: '2026-06' } }, { id: 2, fields: { event_id: 'aa_2_0', month: MOIS } }] } };
+  const man = await jouer('reel', { doc: docHerite3, argv: ['--from', MOIS], env: { COLLECT_FROM: '2026-01' } });
+  verifier('manuel + ancien grain hors fenêtre : refusé', man.code === 1 && /--from 2026-06/.test(man.texte), erreurs(man.texte));
+  verifier('manuel refusé : rien d’écrit ni retiré', !man.trafic.some((r) => ['PUT', 'PATCH', 'DELETE'].includes(r.methode) || /data\/delete/.test(r.url)));
+  // Nocturne : l'extension ne descend jamais sous le plancher.
+  const docAncien = { ...DOC_VIDE, tables: ['Events'], lignes: { Events: [{ id: 1, fields: { event_id: 'aa_1_0', month: '2001-01' } }] } };
+  const anc = await jouer('reel', { doc: docAncien, env: { COLLECT_FROM: MOIS } });
+  const relusAnc = [...new Set(lignesPoussees(anc.trafic, 'KPI').map((k) => k.month))];
+  verifier(`ancien grain sous le plancher : pas relu, retiré (${relusAnc})`, relusAnc.join() === MOIS
+    && anc.trafic.some((r) => /Events\/data\/delete/.test(r.url) && JSON.parse(r.corps).includes(1)));
   const futur = await jouer('reel', { doc: docMigre, env: { COLLECT_FROM: '2099-01' } });
   verifier('COLLECT_FROM dans le futur : le Job échoue', futur.code === 1 && /Fenêtre vide/.test(futur.texte), erreurs(futur.texte));
   const { code, trafic: t3 } = await jouer('panneSansSchema', { doc: DOC_HERITE });
@@ -284,6 +298,10 @@ for (const [scenario, motif] of [
   verifier('--reset borné par COLLECT_FROM : refusé aussi', viaEnv.code === 1, `code ${viaEnv.code}`);
 }
 {
+  // Une ligne au mois illisible peut porter de l'historique : le reset refuse et la nomme.
+  const docIllisible = { ...DOC_DANS_FENETRE, lignes: { ...DOC_DANS_FENETRE.lignes, KPI: [{ id: 9, fields: { month: null, utilisateurs_reguliers: 12 } }] } };
+  const il = await jouer('reel', { doc: docIllisible, argv: ['--reset'] });
+  verifier('--reset : une ligne au mois illisible bloque, nommée', il.code === 1 && /KPI n°9 au mois illisible/.test(il.texte), erreurs(il.texte));
   // Une ligne KPI sans réguliers (mois vide créé par l'ancien script) ne bloque pas.
   const docKpiVide = { ...DOC_DANS_FENETRE, lignes: { ...DOC_DANS_FENETRE.lignes, KPI: [{ id: 5, fields: { month: '2020-02', utilisateurs_reguliers: 0 } }] } };
   const kv = await jouer('reel', { doc: docKpiVide, argv: ['--reset'] });

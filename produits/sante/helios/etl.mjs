@@ -390,14 +390,22 @@ async function main() {
       if (MOIS_RE.test(m)) dernierSucces = m;
     }
     FROM = plusTard(plusTot(moisPrecedent(TO), dernierSucces), PLANCHER);
-    // Migration depuis l'ancien grain : ses lignes sont retirées quel que soit leur mois,
-    // donc les mois qu'elles couvraient sont relus dans le MÊME run. Sinon ces mois
-    // garderaient leurs réguliers et leur base, avec des usages tombés à zéro.
-    if (tables.includes('Events')) {
-      const herites = (await getRecords('Events'))
-        .filter((l) => !CLE_AGREGEE.test(String(l.fields.event_id ?? '')))
-        .map((l) => String(l.fields.month ?? '')).filter((m) => MOIS_RE.test(m));
-      FROM = plusTot(FROM, ...herites);
+  }
+  // Migration depuis l'ancien grain : ses lignes sont retirées quel que soit leur mois,
+  // donc les mois qu'elles couvraient doivent être relus dans le MÊME run. Sinon ces
+  // mois garderaient leurs réguliers et leur base, avec des usages tombés à zéro.
+  // Nocturne : la fenêtre s'étend (jamais sous le plancher : plus bas, l'ancien grain
+  // est hors périmètre et simplement retiré). Manuel : la fenêtre demandée fait foi, un
+  // mois hérité qu'elle ne couvre pas fait refuser le run.
+  if ((await getTables()).includes('Events')) {
+    const herites = [...new Set((await getRecords('Events'))
+      .filter((l) => !CLE_AGREGEE.test(String(l.fields.event_id ?? '')))
+      .map((l) => String(l.fields.month ?? '')).filter((m) => MOIS_RE.test(m) && m >= PLANCHER))].sort();
+    if (MANUEL) {
+      const hors = herites.filter((m) => m < FROM || m > TO);
+      if (hors.length) throw new Error(`Ancien grain présent hors de la fenêtre ${FROM} → ${TO} (mois ${hors.join(', ')}) : il serait retiré sans être relu. Relancer avec --from ${plusTot(FROM, ...hors)} --to ${plusTard(TO, ...hors)}.`);
+    } else {
+      FROM = plusTard(plusTot(FROM, ...herites), PLANCHER);
     }
   }
   // Fenêtre vide (COLLECT_FROM dans le futur, --to avant le plancher) : aucun appel
@@ -414,7 +422,7 @@ async function main() {
     if (!Array.isArray(visits)) {
       // La forme seule est journalisée : un contenu de visite (titre de page, identifiant)
       // peut porter une donnée individuelle.
-      const forme = visits && typeof visits === 'object' ? `clés ${JSON.stringify(Object.keys(visits).slice(0, 5).map((k) => k.slice(0, 30)))}` : JSON.stringify(String(visits).slice(0, 100));
+      const forme = visits && typeof visits === 'object' ? `${Object.keys(visits).length} clé(s)` : `longueur ${String(visits).length}`;
       throw new Error(redact(`Réponse Matomo inattendue pour ${month} (${typeof visits}) : ${forme}`));
     }
     parMois.push({ month, visits });
@@ -468,10 +476,11 @@ async function main() {
     for (const t of ['Events', 'Base', 'KPI'].filter((x) => tables.includes(x))) {
       for (const l of await getRecords(t)) {
         if (t === 'KPI' && !l.fields.utilisateurs_reguliers) continue;
-        // Une ligne au mois illisible (saisie vide dans l'UI) n'est couvrable par aucun
-        // --from ; elle n'est pas de l'historique et la collecte la retire.
-        if (!MOIS_RE.test(String(l.fields.month ?? ''))) continue;
-        if (!r.moisRelus.has(l.fields.month)) horsFenetre.add(l.fields.month);
+        // Une ligne au mois illisible (saisie manuelle) peut porter de l'historique : le
+        // reset refuse, et le message dit de la corriger dans Grist.
+        const m = String(l.fields.month ?? '');
+        if (!MOIS_RE.test(m)) { horsFenetre.add(`${t} n°${l.id} au mois illisible, à corriger dans Grist`); continue; }
+        if (!r.moisRelus.has(m)) horsFenetre.add(m);
       }
     }
     if (horsFenetre.size) {
