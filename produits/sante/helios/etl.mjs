@@ -86,7 +86,8 @@ async function greq(method, path, body) {
     body: body ? JSON.stringify(body) : undefined,
   });
   const t = await r.text(); let j; try { j = t ? JSON.parse(t) : null; } catch { j = t; }
-  if (!r.ok) throw new Error(redact(`${method} ${path} → HTTP ${r.status} : ${typeof j === 'string' ? j : JSON.stringify(j)}`));
+  // Borné et échappé : un corps d'erreur amont ne doit ni inonder ni forger une ligne de log.
+  if (!r.ok) throw new Error(redact(`${method} ${path} → HTTP ${r.status} : ${JSON.stringify(typeof j === 'string' ? j : JSON.stringify(j)).slice(0, 300)}`));
   return j;
 }
 const getTables = () => greq('GET', '/tables').then((d) => d.tables.map((t) => t.id));
@@ -160,8 +161,10 @@ async function mapi(method, extra = {}) {
   const brut = await r.text();
   let j;
   try { j = JSON.parse(brut); }
-  catch { throw new Error(redact(`${method} : réponse non-JSON (content-type ${r.headers.get('content-type')}) : corps de longueur ${brut.length}`)); }
-  if (j && j.result === 'error') throw new Error(redact(method + ': ' + j.message));
+  catch { throw new Error(redact(`${method} : réponse non-JSON (content-type ${JSON.stringify(String(r.headers.get('content-type')).slice(0, 80))}) : corps de longueur ${brut.length}`)); }
+  // Le message d'erreur Matomo est utile au diagnostic (« token_auth invalide ») : gardé,
+  // mais échappé et borné, il ne peut ni forger une ligne de log ni recopier une visite entière.
+  if (j && j.result === 'error') throw new Error(redact(`${method}: ${JSON.stringify(String(j.message ?? '').slice(0, 200))}`));
   return j;
 }
 
@@ -437,7 +440,8 @@ async function main() {
   // ancien grain détruirait la seule copie de ses usages. Le run s'arrête avant écriture.
   const nonRelus = herites.filter((m) => m >= FROM && m <= TO && !r.moisRelus.has(m));
   if (nonRelus.length) {
-    throw new Error(`Ancien grain : mois ${nonRelus.join(', ')} revenu(s) vide(s) de Matomo, retrait refusé (ses usages seraient perdus sans être reconstruits).`);
+    throw new Error(`Ancien grain : mois ${nonRelus.join(', ')} revenu(s) vide(s) de Matomo, retrait refusé (ses usages seraient perdus sans être reconstruits). ` +
+      `Si ces visites ont été purgées de Matomo : relever COLLECT_FROM au-dessus de ${nonRelus.at(-1)} (l'ancien grain de ces mois sera retiré sans relecture), ou supprimer ces lignes dans Grist.`);
   }
 
   // Des connexions sans identifiant de visiteur lisible ne peuvent venir que d'un

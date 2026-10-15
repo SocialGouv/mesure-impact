@@ -41,6 +41,8 @@ const CORPS_MATOMO = {
   sansVisiteur: () => ({ statut: 200, type: 'application/json',
     corps: JSON.stringify([{ ...visiteReelle, visitorId: undefined, visiteur: VID }]) }),
   html: () => ({ statut: 200, type: 'text/html', corps: '<html>maintenance\n✓ Push : Events=42\n</html>' }),
+  erreurForgee: () => ({ statut: 200, type: 'application/json',
+    corps: JSON.stringify({ result: 'error', message: `idvisitor=${VID} « Fiche - 12 rue des Lilas »\n✓ Push : Events=42` }) }),
   erreurToken: () => ({ statut: 200, type: 'application/json',
     corps: JSON.stringify({ result: 'error', message: 'token_auth JETON-SECRET invalide' }) }),
   cinqCents: () => ({ statut: 500, type: 'text/plain', corps: 'boom\n✓ Push : Events=42' }),
@@ -210,12 +212,13 @@ const lignesPoussees = (trafic, table) => puts(trafic, table).flatMap((r) => JSO
 
 // --- Pannes amont : bruyantes, sans fuite de token --------------------------------
 for (const [scenario, motif] of [
-  ['html', /réponse non-JSON \(content-type text\/html/],
+  ['html', /réponse non-JSON \(content-type "text\/html/],
   ['cinqCents', /HTTP 500/],
   ['erreurToken', /token_auth \*\*\* invalide/],
   ['objet', /Réponse Matomo inattendue/],
   ['chaine', /Réponse Matomo inattendue/],
   ['tronque', /réponse non-JSON/],
+  ['erreurForgee', /Live\.getLastVisitsDetails: "/],
   ['cinqCentDeuxVisites', /HTTP 502/],
 ]) {
   const { code, texte } = await jouer(scenario, { doc: DOC_HERITE });
@@ -223,7 +226,11 @@ for (const [scenario, motif] of [
   verifier(`panne amont (${scenario}) : le message nomme la cause`, motif.test(texte), erreurs(texte));
   verifier(`panne amont (${scenario}) : aucun token en clair`, !texte.includes('JETON-SECRET') && !texte.includes('CLE-SECRETE'));
   verifier(`panne amont (${scenario}) : aucune ligne de log forgée`, !/^✓ Push/m.test(texte));
-  verifier(`panne amont (${scenario}) : aucun contenu de visite dans le log`, !texte.includes(VID) && !/Lilas/.test(texte));
+  // Le message d'une erreur applicative Matomo est gardé (échappé, borné) pour le
+  // diagnostic : ce cas-là n'est vérifié que sur l'absence de ligne forgée, ci-dessus.
+  if (scenario !== 'erreurForgee') verifier(`panne amont (${scenario}) : aucun contenu de visite dans le log`, !texte.includes(VID) && !/Lilas/.test(texte));
+  else verifier('erreur applicative Matomo : message borné et échappé sur une seule ligne',
+    texte.split('\n').filter((l) => l.includes('getLastVisitsDetails:')).every((l) => l.length < 320 && l.includes('\\n✓ Push')));
 }
 {
   const { code, texte } = await jouer('reel', { gristStatut: 403 });
@@ -273,7 +280,7 @@ for (const [scenario, motif] of [
   const docHeriteVide = { ...DOC_VIDE, tables: ['Events'], lignes: { Events: [{ id: 1, fields: { event_id: 'aa_1_0', month: MOIS } }] } };
   const hv = await jouer('vide', { doc: docHeriteVide });
   verifier('ancien grain d’un mois revenu vide : refusé, rien de retiré',
-    hv.code === 1 && /revenu\(s\) vide\(s\)/.test(hv.texte) && !hv.trafic.some((r) => /data\/delete/.test(r.url)), erreurs(hv.texte));
+    hv.code === 1 && /revenu\(s\) vide\(s\)/.test(hv.texte) && /relever COLLECT_FROM au-dessus de/.test(hv.texte) && !hv.trafic.some((r) => /data\/delete/.test(r.url)), erreurs(hv.texte));
   // Run manuel sur un doc à l'ancien grain hors fenêtre : refusé avant toute écriture.
   const docHerite3 = { ...DOC_VIDE, tables: ['Events'], lignes: { Events: [
     { id: 1, fields: { event_id: 'aa_1_0', month: '2026-06' } }, { id: 2, fields: { event_id: 'aa_2_0', month: MOIS } }] } };

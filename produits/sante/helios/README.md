@@ -50,8 +50,12 @@ visiteur n'est écrit sur la fabrique. Conséquences :
 - les lignes d'un mois recalculé que le run n'a pas produites sont retirées (combinaison
   disparue). Les lignes de l'ancien grain brut, dont la clé porte un identifiant de visiteur,
   sont retirées quel que soit leur mois. Un mois revenu vide de Matomo n'est pas touché ;
-- une réponse Matomo en erreur, tronquée ou de forme inattendue n'est journalisée que par sa
-  longueur ou son nombre de clés : son contenu porte des données de visite ;
+- une réponse Matomo en erreur HTTP, tronquée ou de forme inattendue n'est journalisée que par
+  sa longueur ou son nombre de clés : son contenu porte des données de visite. Le message
+  d'une erreur applicative Matomo (« token_auth invalide ») est gardé, échappé et borné ;
+- si un mois couvert par l'ancien grain revient vide de Matomo (visites purgées), le run est
+  refusé chaque nuit : relever `COLLECT_FROM` au-dessus de ce mois, ou supprimer ces lignes
+  dans Grist, comme le dit le message d'erreur ;
 - les valeurs hors plan de tag sont comptées par emplacement (`nom=export/lancer/?`), jamais
   recopiées : elles peuvent être une saisie de l'agent. La valeur se retrouve dans Matomo.
 
