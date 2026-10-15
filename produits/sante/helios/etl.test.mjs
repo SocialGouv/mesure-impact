@@ -240,7 +240,9 @@ const lignes = (r) => r.events.map((e) => `${e.role}|${e.category}|${e.action}|$
 // et le Job échoue chaque nuit. Le contrôle porte sur toutes les formules du schéma.
 {
   const formules = [...EVENTS_COLS, ...BASE_COLS, ...KPI_COLS, ...EXTRACTIONS_COLS].filter((c) => c.formula);
-  const fautives = formules.filter((c) => c.formula.split('\n').some((l) => /\band\b.*[<>]/.test(l))).map((c) => c.id);
+  // Le WAF lit le corps JSON d'un bloc, sauts de ligne échappés : le motif est cherché
+  // sur la formule telle qu'elle part, pas ligne par ligne.
+  const fautives = formules.filter((c) => /\band\b.*[<>]/.test(JSON.stringify(c.formula))).map((c) => c.id);
   verifier(`WAF Grist : aucune formule « and … < » (${formules.length} formules lues${fautives.length ? `, fautives : ${fautives}` : ''})`,
     formules.length === 8 && fautives.length === 0);
 }

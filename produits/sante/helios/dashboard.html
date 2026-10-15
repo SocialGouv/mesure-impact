@@ -155,7 +155,7 @@ async function loadData() {
 // ───────────────────────── Sélecteurs dérivés ─────────────────────────
 const months = () => [...new Set(DATA.kpi.map(k => k.month))].sort();       // ancien → récent
 // mois « exploitables » = base d'agents renseignée (dénominateur RC1 non nul) au niveau global
-const monthsWithData = () => months().filter(m => (kpiOf(m, 'global') || {}).base_agents);
+const monthsWithData = () => months().filter(m => hasData(m, 'global'));
 const defaultTo = () => monthsWithData().at(-1) || months().at(-1);
 // mois de référence des cartes = fin de période custom, sinon dernier mois exploitable (presets)
 const curMonth = () => (state.preset === 'custom' && state.to && months().includes(state.to)) ? state.to : defaultTo();
@@ -172,7 +172,11 @@ function winMonths() {
   const idx = mm.indexOf(to);
   return mm.slice(Math.max(0, idx + 1 - n), idx + 1);
 }
-const hasData = (month, scope) => !!(kpiOf(month, scope) || {}).base_agents;
+// Un mois est MESURÉ quand son taux existe. La base seule ne suffit pas : la collecte
+// laisse le taux vide sur une base incomplète ou incohérente (plus de réguliers que
+// d'agents), et ce mois ne doit ni s'afficher en « null % » ni servir de référence.
+const mesure = k => !!k && k.taux_reguliers_pct != null;
+const hasData = (month, scope) => mesure(kpiOf(month, scope));
 const kpiOf = (month, scope) => DATA.kpi.find(k => k.month === month && k.scope === scope) || null;
 const baseRowsOf = (month, scope) => DATA.base.filter(b => b.month === month && (scope === 'global' || b.role === scope));
 const ROLE_LABEL = { ars: 'Agent ARS', regional: 'Référent régional', central: 'Administration centrale' };
@@ -231,7 +235,7 @@ function renderAdoption() {
   const mm = months(), idx = mm.indexOf(cur);
   const prev = mm.slice(0, idx).reverse().find(m => hasData(m, scope));
   const kPrev = prev ? kpiOf(prev, scope) : null;
-  const delta = (kPrev && k.base_agents && cur !== moisEnCours()) ? Math.round((k.taux_reguliers_pct - kPrev.taux_reguliers_pct) * 10) / 10 : null;
+  const delta = (kPrev && mesure(k) && cur !== moisEnCours()) ? Math.round((k.taux_reguliers_pct - kPrev.taux_reguliers_pct) * 10) / 10 : null;
   const deltaTxt = delta == null ? '' : `${delta >= 0 ? '▲ +' : '▼ '}${delta} pt vs ${prev}`;
 
   // fenêtre d'évolution RC1 : plage Du → Au
@@ -247,12 +251,12 @@ function renderAdoption() {
     <div class="cards">
       <div class="card">
         <div class="lbl">Taux d'utilisateurs réguliers · ${libMois(cur)}</div>
-        ${k.base_agents
+        ${mesure(k)
           ? `<div class="big">${k.taux_reguliers_pct} %</div>
              <div class="sub">${num(k.utilisateurs_reguliers)} réguliers / base ${num(k.base_agents)}</div>
              ${delta != null ? `<div class="delta">${deltaTxt}</div>` : ''}
              ${sparkline(evo, evoLabels, ' %')}`
-          : `<div class="big" style="color:#929292">—</div><div class="sub muted">Données insuffisantes ce mois (base d'agents non renseignée).</div>`}
+          : `<div class="big" style="color:#929292">—</div><div class="sub muted">${k.base_agents ? 'Taux non calculable ce mois (base d\'agents incomplète ou incohérente).' : 'Données insuffisantes ce mois (base d\'agents non renseignée).'}</div>`}
       </div>
       <div class="card">
         <div class="lbl">Connexions · ${cur}</div>
@@ -274,7 +278,7 @@ function renderAdoption() {
           <td class="num">${num(kr.utilisateurs_reguliers)}</td>
           <td class="num">${num(kr.connexions)}</td>
           <td class="num">${num(kr.base_agents)}</td>
-          <td class="num">${kr.base_agents ? kr.taux_reguliers_pct + ' %' : '—'}</td></tr>`; }).join('')}
+          <td class="num">${mesure(kr) ? kr.taux_reguliers_pct + ' %' : '—'}</td></tr>`; }).join('')}
       </tbody>
     </table>
     <p class="muted">Source : doc Grist souverain (réguliers comptés par la collecte, base d'agents en table Base, taux calculé en formule Grist). ⓘ Taux d'utilisateurs réguliers = réguliers du mois / base d'agents (actifs + inactifs).</p>`;

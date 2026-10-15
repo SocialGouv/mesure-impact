@@ -60,14 +60,15 @@ const TO = versMois(arg('--to', new Date().toISOString()), 'mois de fin');
 const moisPrecedent = (m) => { const d = new Date(`${m}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); };
 // COLLECT_FROM est un plancher (date ou mois), jamais un point de départ nocturne.
 const PLANCHER = versMois(cfg.COLLECT_FROM || '2026-05', 'COLLECT_FROM');
-const FROM = process.argv.includes('--from')
-  ? versMois(arg('--from'), 'mois de début')
-  : [moisPrecedent(TO), PLANCHER].sort().at(-1);
-if (FROM > TO) throw new Error(`Fenêtre vide : ${FROM} est après ${TO}.`);
-const MOIS = [];
-for (let d = new Date(`${FROM}-01T00:00:00Z`); d.toISOString().slice(0, 7) <= TO; d.setUTCMonth(d.getUTCMonth() + 1)) {
-  MOIS.push(d.toISOString().slice(0, 7));
-}
+const FROM_EXPLICITE = process.argv.includes('--from') ? versMois(arg('--from'), 'mois de début') : null;
+if (FROM_EXPLICITE && FROM_EXPLICITE > TO) throw new Error(`Fenêtre vide : ${FROM_EXPLICITE} est après ${TO}.`);
+const plusTard = (...m) => m.filter(Boolean).sort().at(-1);
+const plusTot = (...m) => m.filter(Boolean).sort()[0];
+const moisEntre = (de, a) => {
+  const out = [];
+  for (let d = new Date(`${de}-01T00:00:00Z`); d.toISOString().slice(0, 7) <= a; d.setUTCMonth(d.getUTCMonth() + 1)) out.push(d.toISOString().slice(0, 7));
+  return out;
+};
 
 // Aucun des deux tokens ne doit atterrir dans un log : les messages d'erreur
 // recopient des réponses amont (WAF, proxy, rate-limiter) dont on ne maîtrise pas
@@ -199,6 +200,8 @@ const KPI_COLS = [
   // forgée via le tracker public). Le taux est alors None plutôt qu'un 200 %.
   { id: 'taux_reguliers_pct', type: 'Numeric', formula: [
     'if not $base_agents:',
+    '  return None',
+    'if $utilisateurs_reguliers is None:',
     '  return None',
     'if $utilisateurs_reguliers > $base_agents:',
     '  return None',
@@ -370,6 +373,20 @@ async function main() {
   console.log(`▶ Doc cible : « ${doc.name} » (${GDOC})`);
   if (EXPECT_DOC_NAME && doc.name !== EXPECT_DOC_NAME) throw new Error(`Doc inattendu (${doc.name} ≠ ${EXPECT_DOC_NAME}), abandon par sécurité.`);
 
+  // Fenêtre nocturne : mois précédent + mois en cours. Après une panne plus longue,
+  // elle repart du mois du dernier succès : ce mois-là n'a été écrit que partiellement,
+  // et sans ce rattrapage il resterait tronqué pour de bon, affiché comme un mois clos.
+  let FROM = FROM_EXPLICITE;
+  if (!FROM) {
+    let dernierSucces = null;
+    if ((await getTables()).includes('Extractions')) {
+      const ligne = (await getRecords('Extractions')).find((l) => l.fields.run_id === RUN_ID);
+      const m = String(ligne?.fields.extracted_at || '').slice(0, 7);
+      if (MOIS_RE.test(m)) dernierSucces = m;
+    }
+    FROM = plusTard(plusTot(moisPrecedent(TO), dernierSucces), PLANCHER);
+  }
+  const MOIS = moisEntre(FROM, TO);
   console.log(`\n1) Extraction Matomo (site ${SITE}, ${FROM} → ${TO})`);
   const parMois = [];
   for (const month of MOIS) {
@@ -416,6 +433,29 @@ async function main() {
     return;
   }
 
+  // Le reset ne vide qu'APRÈS une extraction qui a produit de quoi repeupler, et
+  // seulement si la fenêtre relit TOUS les mois déjà présents : clearTable vide la
+  // table entière, un mois absent de la fenêtre (ou revenu vide de Matomo) serait
+  // effacé sans rien pour le reconstruire. Le contrôle porte sur le contenu du doc,
+  // pas sur la ligne de commande : COLLECT_FROM borne aussi la fenêtre.
+  if (RESET) {
+    if (!r.events.length && !r.base.length) throw new Error('--reset refusé : aucune ligne construite, les tables seraient vidées sans rien pour les repeupler.');
+    // Une ligne KPI sans réguliers n'est pas de l'historique : le seul chiffre qu'elle
+    // porte en propre est ce nombre, tout le reste est formule. L'ancien script créait
+    // de telles lignes pour des mois vides, que Matomo ne rendra jamais.
+    const tables = await getTables();
+    const horsFenetre = new Set();
+    for (const t of ['Events', 'Base', 'KPI'].filter((x) => tables.includes(x))) {
+      for (const l of await getRecords(t)) {
+        if (t === 'KPI' && !l.fields.utilisateurs_reguliers) continue;
+        if (!r.moisRelus.has(l.fields.month)) horsFenetre.add(String(l.fields.month ?? '?'));
+      }
+    }
+    if (horsFenetre.size) {
+      throw new Error(`--reset refusé : il effacerait tout l'historique hors de la fenêtre relue (mois ${[...horsFenetre].sort().join(', ')}). Relancer avec un --from qui couvre ces mois.`);
+    }
+  }
+
   // Le schéma n'est touché qu'APRÈS les gardes : une panne amont laisse le doc intact.
   // KPI est converti avant le retrait des colonnes d'Events, sa formule héritée lisant
   // `visitor_id` jusqu'à sa conversion.
@@ -426,20 +466,7 @@ async function main() {
   await ensureTable('Extractions', EXTRACTIONS_COLS);
   await ensureTable('Events', EVENTS_COLS, EVENTS_RETIREES);
 
-  // Le reset ne vide qu'APRÈS une extraction qui a produit de quoi repeupler, et
-  // seulement si la fenêtre relit TOUS les mois déjà présents : clearTable vide la
-  // table entière, un mois absent de la fenêtre (ou revenu vide de Matomo) serait
-  // effacé sans rien pour le reconstruire. Le contrôle porte sur le contenu du doc,
-  // pas sur la ligne de commande : COLLECT_FROM borne aussi la fenêtre.
   if (RESET) {
-    if (!r.events.length && !r.base.length) throw new Error('--reset refusé : aucune ligne construite, les tables seraient vidées sans rien pour les repeupler.');
-    const horsFenetre = new Set();
-    for (const t of ['Events', 'Base', 'KPI']) {
-      for (const l of await getRecords(t)) if (!r.moisRelus.has(l.fields.month)) horsFenetre.add(String(l.fields.month ?? '?'));
-    }
-    if (horsFenetre.size) {
-      throw new Error(`--reset refusé : il effacerait tout l'historique hors de la fenêtre relue (mois ${[...horsFenetre].sort().join(', ')}). Relancer avec un --from qui couvre ces mois.`);
-    }
     console.log('\n2b) Reset');
     for (const t of ['Events', 'Base', 'KPI', 'Extractions']) console.log(`  ✗ ${t} : ${await clearTable(t)} lignes`);
   }

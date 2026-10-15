@@ -236,6 +236,15 @@ for (const [scenario, motif] of [
   const { trafic: t2 } = await jouer('reel', { argv: ['--from', '2026-01', '--to', '2026-03'] });
   verifier('--from explicite : la fenêtre demandée est relue',
     [...new Set(lignesPoussees(t2, 'KPI').map((k) => k.month))].join() === '2026-01,2026-02,2026-03');
+  // Après une panne de plus d'un mois, la fenêtre repart du mois du dernier succès :
+  // ce mois n'avait été écrit que partiellement.
+  const d4 = new Date(`${MOIS}-01T00:00:00Z`); d4.setUTCMonth(d4.getUTCMonth() - 3);
+  const dernier = d4.toISOString().slice(0, 7);
+  const docPanne = { ...DOC_VIDE, tables: ['Extractions'], lignes: { Extractions: [{ id: 1, fields: { run_id: 'helios', extracted_at: `${dernier}-19T06:00:00.000Z` } }] } };
+  const { trafic: t4 } = await jouer('reel', { doc: docPanne, env: { COLLECT_FROM: '2026-01' } });
+  const relus4 = [...new Set(lignesPoussees(t4, 'KPI').map((k) => k.month))].sort();
+  verifier(`après une panne : rattrapage depuis le dernier succès (${relus4[0]} → ${relus4.at(-1)})`,
+    relus4[0] === dernier && relus4.at(-1) === MOIS && relus4.length === 4);
   const { code, trafic: t3 } = await jouer('panneSansSchema', { doc: DOC_HERITE });
   verifier('panne Matomo : le schéma du doc n’est pas touché',
     code === 1 && !t3.some((r) => ['PATCH', 'DELETE'].includes(r.methode)));
@@ -252,11 +261,19 @@ for (const [scenario, motif] of [
   const { code, texte, trafic } = await jouer('reel', { doc: DOC_HERITE, argv: ['--reset'] });
   verifier('--reset avec un mois hors fenêtre : refusé', code === 1 && /effacerait tout l.*2020-01/.test(texte), erreurs(texte));
   verifier('--reset refusé : aucune suppression', !trafic.some((r) => /data\/delete/.test(r.url)));
+  verifier('--reset refusé : le schéma n’est pas migré', !trafic.some((r) => ['PATCH', 'DELETE'].includes(r.methode)));
   // COLLECT_FROM borne aussi la fenêtre : le contrôle ne doit pas dépendre de la ligne de commande.
   const viaEnv = await jouer('reel', { doc: DOC_HERITE, argv: ['--reset'], env: { COLLECT_FROM: MOIS } });
   verifier('--reset borné par COLLECT_FROM : refusé aussi', viaEnv.code === 1, `code ${viaEnv.code}`);
 }
 {
+  // Une ligne KPI sans réguliers (mois vide créé par l'ancien script) ne bloque pas.
+  const docKpiVide = { ...DOC_DANS_FENETRE, lignes: { ...DOC_DANS_FENETRE.lignes, KPI: [{ id: 5, fields: { month: '2020-02', utilisateurs_reguliers: 0 } }] } };
+  const kv = await jouer('reel', { doc: docKpiVide, argv: ['--reset'] });
+  verifier('--reset : une ligne KPI de mois vide ne bloque pas', kv.code === 0, erreurs(kv.texte));
+  const docKpiPlein = { ...DOC_DANS_FENETRE, lignes: { ...DOC_DANS_FENETRE.lignes, KPI: [{ id: 5, fields: { month: '2020-02', utilisateurs_reguliers: 3 } }] } };
+  const kp = await jouer('reel', { doc: docKpiPlein, argv: ['--reset'] });
+  verifier('--reset : une ligne KPI porteuse de réguliers hors fenêtre bloque', kp.code === 1, `code ${kp.code}`);
   const { code, trafic } = await jouer('reel', { doc: DOC_DANS_FENETRE, argv: ['--reset'] });
   verifier('--reset nominal : le Job réussit', code === 0, `code ${code}`);
   const premierVidage = trafic.findIndex((r) => /data\/delete/.test(r.url));

@@ -126,6 +126,28 @@ const { api, els } = executer();
   verifier(`courbe : le mois sans base n'est pas tracé à 0 (${pts.split(' ').length} points)`, pts.split(' ').length === 2);
 }
 
+// --- Base renseignée mais taux vide (base incohérente) : mois non mesuré ---------
+{
+  const { api: a5, els: e5 } = executer();
+  a5.DATA = a5.assainir({
+    kpi: [
+      { month: '2026-07', scope: 'global', utilisateurs_reguliers: 20, base_agents: 46, taux_reguliers_pct: 43.5 },
+      { month: '2026-08', scope: 'global', utilisateurs_reguliers: 60, base_agents: 46, taux_reguliers_pct: null },
+      { month: '2026-09', scope: 'global', utilisateurs_reguliers: 21, base_agents: 46, taux_reguliers_pct: 45.7 },
+    ], base: [], events: [],
+  });
+  a5.state.preset = 'custom'; a5.state.from = '2026-07'; a5.state.to = '2026-08';
+  a5.renderAll();
+  const aout = e5['p-adoption'].innerHTML;
+  verifier('taux vide : ni « null % » ni delta', !/null/.test(aout) && !/pt vs/.test(aout) && /non calculable/.test(aout));
+  a5.state.to = '2026-09';
+  a5.renderAll();
+  const sept = e5['p-adoption'].innerHTML;
+  verifier('taux vide : le mois suivant se compare au dernier mois mesuré', /pt vs 2026-07/.test(sept));
+  const pts = (sept.match(/points="([^"]+)"/) || [])[1] || '';
+  verifier('taux vide : absent de la courbe', pts.split(' ').length === 2);
+}
+
 // --- Le bandeau lit l'extraction la plus récente, pas la dernière ligne -----------
 {
   const html2 = html;
