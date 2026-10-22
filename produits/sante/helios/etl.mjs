@@ -256,6 +256,19 @@ const BASE_ACTIONS = { utilisateurs_actifs: 'actifs', utilisateurs_inactifs: 'in
 // Ancien format de test (juin-juillet 2026), sans rôle : ni event d'usage ni base exploitable.
 const CATEGORIES_IGNOREES = new Set(['helios']);
 const roleDe = (v) => { const s = normaliser(v); return ROLES.includes(s) ? s : ''; };
+// Le cron de la base tourne le 1er du mois et compte le mois ÉCOULÉ : un passage
+// reçu le 1er (heure de Paris) vaut pour le mois précédent. Tout passage reçu un
+// autre jour est un test et n'est pas publié : sinon un test en cours de mois
+// remplacerait l'instantané officiel. Sans cette règle, le RC1 d'octobre divisait
+// les connexions d'octobre par la base de septembre.
+const JOUR_PARIS = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' });
+function moisMesure(ts) {
+  if (!Number.isFinite(ts) || ts <= 0) return null;
+  const [annee, mois, jour] = JOUR_PARIS.format(new Date(ts * 1000)).split('-').map(Number);
+  if (jour !== 1) return null;
+  const d = new Date(Date.UTC(annee, mois - 2, 1));
+  return d.toISOString().slice(0, 7);
+}
 
 // Ce qui tombe hors liste est agrégé en `autre`, et l'EMPLACEMENT est compté à part :
 // sinon une dérive du plan de tag devient indiscernable du bruit. La valeur reçue,
@@ -307,14 +320,16 @@ function build(parMois) {
         if (a.type !== 'event') continue;
         const catBrute = normaliser(a.eventCategory);
         if (CATEGORIES_IGNOREES.has(catBrute)) continue;
-        // Base d'agents : instantané, on garde le plus récent du mois par rôle.
+        // Base d'agents : instantané du cron du 1er, rangé sur le mois qu'il mesure.
         if (catBrute === BASE_CAT) {
           const champ = BASE_ACTIONS[normaliser(a.eventAction)];
           const brole = roleDe(a.eventName);
           const valeur = entier(a.eventValue);
           if (!champ || !brole || valeur === null) { signaler(champ ? `base=${champ}` : 'base=?', brole || '?'); continue; }
           const ts = Number(a.timestamp) || 0;
-          const k = `${month}|${brole}`;
+          const mesure = moisMesure(ts);
+          if (!mesure) { signaler('base=hors_1er', brole); continue; }
+          const k = `${mesure}|${brole}`;
           const cur = base.get(k) || { actifs: null, inactifs: null, tsActifs: -1, tsInactifs: -1 };
           const tsChamp = champ === 'actifs' ? 'tsActifs' : 'tsInactifs';
           if (ts >= cur[tsChamp]) { cur[champ] = valeur; cur[tsChamp] = ts; }
@@ -360,7 +375,10 @@ function build(parMois) {
       kpi.push(row);
     }
   }
-  return { events, base: baseRows, kpi, moisRelus, visites, roleRemplis, connexions, connexionsAnonymes };
+  // La base du mois M arrive avec les visites de M+1 : c'est pour les mois PRÉCÉDANT
+  // un mois relu que les lignes de Base absentes de ce run sont périmées.
+  const moisBaseRelus = new Set([...moisRelus].map((m) => { const d = new Date(`${m}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); }));
+  return { events, base: baseRows, kpi, moisRelus, moisBaseRelus, visites, roleRemplis, connexions, connexionsAnonymes };
 }
 
 // Résumé des valeurs hors allowlist, remonté dans Extractions.note ET dans les logs
@@ -522,7 +540,7 @@ async function main() {
   const nB = await upsert('Base', r.base, ['base_id']);
   const nK = await upsert('KPI', r.kpi, ['kpi_id']);
   const rE = await retirerPerimees('Events', 'event_id', new Set(r.events.map((e) => e.event_id)), r.moisRelus);
-  const rB = await retirerPerimees('Base', 'base_id', new Set(r.base.map((b) => b.base_id)), r.moisRelus);
+  const rB = await retirerPerimees('Base', 'base_id', new Set(r.base.map((b) => b.base_id)), r.moisBaseRelus);
 
   const fillPct = Math.round((100 * r.roleRemplis) / r.visites);
   const relus = [...r.moisRelus].sort();

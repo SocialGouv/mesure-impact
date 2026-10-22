@@ -97,26 +97,44 @@ const lignes = (r) => r.events.map((e) => `${e.role}|${e.category}|${e.action}|$
     !/visitor_?id\s*:/i.test(source.slice(source.indexOf('async function main'))));
 }
 
-// --- Base d'agents : instantané le plus récent du mois, rôle dans `name` ----------
+// --- Base d'agents : cron du 1er, rangé sur le mois qu'il mesure -----------------
+// Horodatages réels (secondes) : 01/10 9h et 9h05, 19/10 16h35, 01/11 9h (heure de Paris).
+const T_01OCT = Date.UTC(2026, 9, 1, 7, 0) / 1000;
+const T_01OCT_BIS = Date.UTC(2026, 9, 1, 7, 5) / 1000;
+const T_19OCT = Date.UTC(2026, 9, 19, 14, 35) / 1000;
+const T_01NOV = Date.UTC(2026, 10, 1, 8, 0) / 1000;
+const cron = (ts, [ca, ia], [cr, ir], [aa, ai]) => [
+  ['indicateur', 'utilisateurs_actifs', 'central', ca, ts], ['indicateur', 'utilisateurs_inactifs', 'central', ia, ts],
+  ['indicateur', 'utilisateurs_actifs', 'regional', cr, ts], ['indicateur', 'utilisateurs_inactifs', 'regional', ir, ts],
+  ['indicateur', 'utilisateurs_actifs', 'ars', aa, ts], ['indicateur', 'utilisateurs_inactifs', 'ars', ai, ts],
+];
 {
   const r = build([{ month: MOIS, visits: [
-    visite('c1', null, [
-      ['indicateur', 'utilisateurs_actifs', 'ars', 99, 100],     // ancien instantané
-      ['indicateur', 'utilisateurs_actifs', 'ars', 5, 300],      // le plus récent
-      ['indicateur', 'utilisateurs_inactifs', 'ars', 23, 300],
-      ['indicateur', 'utilisateurs_actifs', 'central', 6, 300],
-      ['indicateur', 'utilisateurs_inactifs', 'central', 6, 300],
-      ['indicateur', 'utilisateurs_actifs', 'regional', 4, 300],
-      ['indicateur', 'utilisateurs_inactifs', 'regional', 3, 300],
-    ]),
     // L'API Live sert les visites les plus récentes en premier : l'ordre ne doit pas compter.
-    visite('c0', null, [['indicateur', 'utilisateurs_actifs', 'ars', 77, 50]]),
+    visite('test', null, cron(T_19OCT, [3, 9], [4, 2], [7, 23])),            // test de Sana en cours de mois
+    visite('cron2', null, [['indicateur', 'utilisateurs_actifs', 'ars', 5, T_01OCT_BIS]]),
+    visite('cron1', null, cron(T_01OCT, [6, 6], [4, 3], [99, 23])),           // relance du même matin
   ] }]);
   const ars = r.base.find((b) => b.role === 'ars');
-  verifier(`base : l'instantané le plus récent gagne (ars actifs ${ars.actifs})`, ars.actifs === 5 && ars.inactifs === 23);
+  verifier(`base : le cron du 01/10 est rangé en septembre (mois ${r.base.map((b) => b.month).join(',')})`,
+    r.base.length === 3 && r.base.every((b) => b.month === '2026-09'));
+  verifier(`base : le passage le plus récent du 1er gagne (ars actifs ${ars?.actifs})`, ars?.actifs === 5 && ars?.inactifs === 23);
   const total = r.base.reduce((s, b) => s + b.actifs + b.inactifs, 0);
-  verifier(`base : 47 agents au total (obtenu ${total})`, total === 47);
+  verifier(`base : 47 agents au total, le test du 19/10 est écarté (obtenu ${total})`, total === 47);
+  verifier('base : le test hors 1er est signalé dans le canari', inconnus().includes('base=hors_1er'));
+  verifier('base : aucune ligne rangée en octobre', !r.base.some((b) => b.month === MOIS));
   verifier('base : les events indicateur ne gonflent pas Events', !r.events.some((e) => e.category === 'indicateur'));
+}
+{
+  // 30/09 à 23h30 UTC = 01/10 à 1h30 à Paris : c'est bien le cron du 1er.
+  const r = build([{ month: '2026-09', visits: [visite('nuit', null, cron(Date.UTC(2026, 8, 30, 23, 30) / 1000, [1, 1], [1, 1], [1, 1]))] }]);
+  verifier(`base : le jour est lu à l'heure de Paris (mois ${r.base[0]?.month})`, r.base.length === 3 && r.base[0].month === '2026-09');
+}
+{
+  // Un run qui relit octobre et novembre purge la base de septembre et d'octobre, pas celle de novembre.
+  const r = build([{ month: MOIS, visits: [visite('x', 'ars', [connexion])] }, { month: '2026-11', visits: [visite('y', 'ars', [connexion])] }]);
+  verifier(`base : mois à purger décalés d'un mois (${[...r.moisBaseRelus].sort().join(',')})`,
+    [...r.moisBaseRelus].sort().join(',') === '2026-09,2026-10');
 }
 {
   const r = build([{ month: MOIS, visits: [visite('c1', null, [
@@ -131,27 +149,22 @@ const lignes = (r) => r.events.map((e) => `${e.role}|${e.category}|${e.action}|$
 
 {
   // Un instantané incomplet (actifs reçus, inactifs perdus) n'est pas publié à 0.
-  const r = build([{ month: MOIS, visits: [visite('c1', null, [['indicateur', 'utilisateurs_actifs', 'ars', 40, 1]])] }]);
+  const r = build([{ month: MOIS, visits: [visite('c1', null, [['indicateur', 'utilisateurs_actifs', 'ars', 40, T_01OCT]])] }]);
   verifier('base incomplète : non publiée', r.base.length === 0);
   verifier('base incomplète : signalée', inconnus().includes('base=incomplete/ars'));
 }
 
-// --- RC1 de bout en bout sur la forme d'octobre 2026 : 5 réguliers / 47 agents ----
+// --- RC1 de bout en bout : 5 réguliers d'octobre / 47 agents mesurés par le cron du 01/11 ----
 {
-  const visites = [
-    visite('base', null, [
-      ['indicateur', 'utilisateurs_actifs', 'central', 6, 1], ['indicateur', 'utilisateurs_actifs', 'regional', 4, 1],
-      ['indicateur', 'utilisateurs_actifs', 'ars', 5, 1], ['indicateur', 'utilisateurs_inactifs', 'central', 6, 1],
-      ['indicateur', 'utilisateurs_inactifs', 'regional', 3, 1], ['indicateur', 'utilisateurs_inactifs', 'ars', 23, 1],
-    ]),
+  const usages = [
     ...['a1', 'a2', 'a3', 'a4'].map((v) => visite(v, 'ars', [connexion])),
     visite('a1', 'ars', [connexion]),
     visite('r1', 'regional', [connexion]),
   ];
-  const r = build([{ month: MOIS, visits: visites }]);
-  const base = r.base.reduce((s, b) => s + b.actifs + b.inactifs, 0);
+  const r = build([{ month: MOIS, visits: usages }, { month: '2026-11', visits: [visite('base', null, cron(T_01NOV, [6, 6], [4, 3], [5, 23]))] }]);
+  const base = r.base.filter((b) => b.month === MOIS).reduce((s, b) => s + b.actifs + b.inactifs, 0);
   const reg = kpi(r, 'global').utilisateurs_reguliers;
-  verifier(`RC1 octobre : ${reg} / ${base} = ${(100 * reg / base).toFixed(1)} %`, reg === 5 && base === 47);
+  verifier(`RC1 octobre : ${reg} / ${base} = ${(100 * reg / base).toFixed(1)} % (numérateur et base sur le même mois)`, reg === 5 && base === 47);
 }
 
 // --- Un mois revenu vide n'écrase pas ses réguliers déjà publiés ------------------
