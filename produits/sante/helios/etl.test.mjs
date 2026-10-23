@@ -73,6 +73,42 @@ const lignes = (r) => r.events.map((e) => `${e.role}|${e.category}|${e.action}|$
   verifier('aucune connexion anonyme signalée', r.connexionsAnonymes === 0);
 }
 {
+  // Compte de test passé de référent régional à ARS en cours de mois : la base du 1er
+  // le compte en ARS seulement, le RC1 aussi. Visites servies les plus récentes en premier.
+  const T_03 = Date.UTC(2026, 9, 3, 8) / 1000;
+  const T_20 = Date.UTC(2026, 9, 20, 8) / 1000;
+  const vid = 'dddd000000000001';
+  const r = build([{ month: MOIS, visits: [
+    visite(vid, 'ars', [[...connexion, '', null, T_20]]),
+    visite(vid, null, [[...connexion, '', null, T_20 + 60]]),     // connexion sans rôle : ne change pas le rôle
+    visite(vid, 'regional', [[...connexion, '', null, T_03]]),
+  ] }]);
+  verifier(`changement de rôle : 1 régulier ARS (obtenu ${kpi(r, 'ars').utilisateurs_reguliers})`, kpi(r, 'ars').utilisateurs_reguliers === 1);
+  verifier(`changement de rôle : 0 référent régional (obtenu ${kpi(r, 'regional').utilisateurs_reguliers})`, kpi(r, 'regional').utilisateurs_reguliers === 0);
+  verifier(`changement de rôle : 1 régulier en global (obtenu ${kpi(r, 'global').utilisateurs_reguliers})`, kpi(r, 'global').utilisateurs_reguliers === 1);
+  // Ordre inverse de l'API : le résultat ne dépend que de l'horodatage.
+  const inverse = build([{ month: MOIS, visits: [visite(vid, 'regional', [[...connexion, '', null, T_03]]), visite(vid, 'ars', [[...connexion, '', null, T_20]])] }]);
+  verifier('changement de rôle : indépendant de l’ordre des visites',
+    kpi(inverse, 'ars').utilisateurs_reguliers === 1 && kpi(inverse, 'regional').utilisateurs_reguliers === 0);
+  // Chaque mois a sa propre dernière connexion.
+  const deuxMois = build([{ month: MOIS, visits: [visite(vid, 'regional', [[...connexion, '', null, T_03]])] },
+    { month: '2026-11', visits: [visite(vid, 'ars', [[...connexion, '', null, T_20 + 31 * 86400]])] }]);
+  verifier('changement de rôle : le rôle d’un mois ne déborde pas sur le suivant',
+    kpi(deuxMois, 'regional').utilisateurs_reguliers === 1 && kpi(deuxMois, 'ars', '2026-11').utilisateurs_reguliers === 1
+    && kpi(deuxMois, 'ars').utilisateurs_reguliers === 0);
+  // À horodatage égal, la première visite servie (la plus récente) gagne.
+  const egal = build([{ month: MOIS, visits: [visite(vid, 'ars', [[...connexion, '', null, T_20]]), visite(vid, 'regional', [[...connexion, '', null, T_20]])] }]);
+  verifier('changement de rôle : à égalité, la première visite servie gagne',
+    kpi(egal, 'ars').utilisateurs_reguliers === 1 && kpi(egal, 'regional').utilisateurs_reguliers === 0);
+  // Action sans horodatage : celui de la visite prend le relais.
+  const recente = { ...visite(vid, 'ars', [connexion]), lastActionTimestamp: T_20 };
+  const sansTs = build([{ month: MOIS, visits: [visite(vid, 'regional', [[...connexion, '', null, T_03]]), recente] }]);
+  verifier('changement de rôle : sans horodatage d’action, celui de la visite est lu',
+    kpi(sansTs, 'ars').utilisateurs_reguliers === 1 && kpi(sansTs, 'regional').utilisateurs_reguliers === 0);
+  const sortie = JSON.stringify({ events: r.events, base: r.base, kpi: r.kpi });
+  verifier('changement de rôle : aucun visitorId dans les lignes publiées', !sortie.includes(vid));
+}
+{
   // Le repli `idVisitor` reste lu (autres méthodes de l'API), sans prendre le pas.
   const r = build([{ month: MOIS, visits: [{ idVisitor: 'bbbb000000000001', dimension1: 'ars',
     actionDetails: [{ type: 'event', eventCategory: 'session', eventAction: 'connexion' }] }] }]);

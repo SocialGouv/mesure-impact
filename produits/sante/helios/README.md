@@ -66,7 +66,12 @@ visiteur n'est écrit sur la fabrique. Conséquences :
   recopiées : elles peuvent être une saisie de l'agent. La valeur se retrouve dans Matomo.
 
 Rôles : `ars`, `regional`, `central` (dimension de visite `dimension1`), plus le scope
-`global` dans KPI, qui compte aussi les visiteurs sans rôle.
+`global` dans KPI, qui compte aussi les visiteurs sans rôle. La base compte le rôle actuel du
+compte au cron du 1er, Matomo le rôle de chaque visite : pour les réguliers par rôle, chaque
+visiteur est rangé dans le rôle de sa dernière connexion du mois qui en porte un, et dans
+celui-là seulement. Un compte passé de référent régional à ARS en cours de mois compte donc
+un régulier ARS s'il s'est reconnecté après le changement. Les compteurs d'events (dont
+`connexions`) gardent le rôle de la visite.
 
 ## Lancer la collecte en local (dev)
 

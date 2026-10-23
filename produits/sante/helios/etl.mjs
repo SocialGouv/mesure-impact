@@ -316,6 +316,7 @@ function build(parMois) {
   const evAgg = new Map();       // month|role|cat|action|name -> count
   const base = new Map();        // month|role -> { actifs, inactifs, ts }
   const reguliers = new Map();   // month|scope -> Set(visiteurs)
+  const derniereConnexion = new Map(); // month|visiteur -> { ts, role }, en mémoire seulement
   let visites = 0, roleRemplis = 0, connexions = 0, connexionsAnonymes = 0;
   const moisRelus = new Set();
 
@@ -352,14 +353,30 @@ function build(parMois) {
         if (cat === 'session' && act === 'connexion') {
           connexions += 1;
           if (!vid) { connexionsAnonymes += 1; continue; }
-          for (const scope of role ? ['global', role] : ['global']) {
-            const rk = `${month}|${scope}`;
-            if (!reguliers.has(rk)) reguliers.set(rk, new Set());
-            reguliers.get(rk).add(vid);
+          const gk = `${month}|global`;
+          if (!reguliers.has(gk)) reguliers.set(gk, new Set());
+          reguliers.get(gk).add(vid);
+          // La base compte le rôle ACTUEL du compte au cron du 1er, Matomo le rôle de
+          // chaque visite : un compte qui change de rôle en cours de mois serait régulier
+          // dans deux rôles. Il est rangé dans le rôle de sa dernière connexion qui en
+          // porte un (horodatage de l'action, à défaut celui de la visite). À horodatage
+          // égal, la première vue gagne : l'API Live sert les visites les plus récentes
+          // en premier.
+          if (role) {
+            const dk = `${month}|${vid}`;
+            const ts = Number(a.timestamp) || Number(v.lastActionTimestamp) || 0;
+            const cur = derniereConnexion.get(dk);
+            if (!cur || ts > cur.ts) derniereConnexion.set(dk, { ts, role });
           }
         }
       }
     }
+  }
+
+  for (const [dk, { role }] of derniereConnexion) {
+    const rk = `${dk.slice(0, 7)}|${role}`;
+    if (!reguliers.has(rk)) reguliers.set(rk, new Set());
+    reguliers.get(rk).add(dk.slice(8));
   }
 
   const events = [...evAgg].map(([event_id, count]) => {
