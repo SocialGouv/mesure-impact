@@ -21,8 +21,14 @@ Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ─
 
 RC1 = visiteurs distincts ayant ouvert une session dans le mois (event `session/connexion`)
 ÷ agents en base (actifs + inactifs). La base arrive par des events dédiés
-`indicateur/utilisateurs_actifs|inactifs`, rôle dans le nom, effectif dans la valeur ; on
-retient l'instantané le plus récent du mois. Un instantané incomplet (actifs sans inactifs)
+`indicateur/utilisateurs_actifs|inactifs`, rôle dans le nom, effectif dans la valeur. Le
+cron applicatif qui les envoie tourne le 1er du mois et compte le mois écoulé : un passage
+reçu le 1er (heure de Paris) est rangé sur le mois précédent, le plus récent du jour gagne.
+Un passage reçu un autre jour est un test : il est écarté et signalé dans le canari
+(`base=hors_1er`). La base d'octobre n'existe donc qu'à partir du 1er novembre ; une ligne
+de Base datée du mois en cours ou d'un mois futur est retirée à chaque run. La base d'un mois
+n'est purgée de ses combinaisons disparues que si ce mois et le suivant sont relus. Un
+instantané incomplet (actifs sans inactifs)
 n'est pas publié, et la base globale n'est calculée que si les trois rôles ont leur
 instantané : sinon le RC1 global vaut « non calculable » plutôt qu'un taux gonflé. Plus de
 réguliers que d'agents en base donne aussi un taux vide.
@@ -73,7 +79,13 @@ node produits/sante/helios/etl.mjs --from 2026-05  # reconstruit l'historique de
 ```
 
 `--reset` vide les tables entières : il est refusé tant que la fenêtre ne relit pas tous les
-mois déjà présents dans le doc (`--reset --from 2026-05`).
+mois déjà présents dans le doc (`--reset --from 2026-05`). Pour Base, une ligne passe si le
+run la reproduit, si son mois et le suivant sont relus, ou si elle est datée du mois en cours
+ou d'un mois futur.
+
+Un doc alimenté par une version antérieure au commit `76effba` (22/10/2026, 13h) range la base sur le mois de
+réception du cron, décalée d'un mois. Les nuits suivantes ne corrigent que la fenêtre :
+recharger une fois l'historique avec `--reset --from 2026-05`.
 
 Les formules Grist évitent le motif « `and` … `<` » sur une même ligne : le WAF devant
 `grist.numerique.gouv.fr` le prend pour une injection SQL et répond 403. Un test le vérifie.

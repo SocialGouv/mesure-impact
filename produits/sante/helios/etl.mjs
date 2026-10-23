@@ -58,6 +58,7 @@ const versMois = (v, quoi) => {
 };
 const TO = versMois(arg('--to', new Date().toISOString()), 'mois de fin');
 const moisPrecedent = (m) => { const d = new Date(`${m}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); };
+const moisSuivant = (m) => { const d = new Date(`${m}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + 1); return d.toISOString().slice(0, 7); };
 // COLLECT_FROM est un plancher (date ou mois), jamais un point de départ nocturne.
 const PLANCHER = versMois(cfg.COLLECT_FROM || '2026-05', 'COLLECT_FROM');
 const FROM_EXPLICITE = process.argv.includes('--from') ? versMois(arg('--from'), 'mois de début') : null;
@@ -139,10 +140,13 @@ async function clearTable(table) {
 // visiteur, et un mois hors fenêtre ne doit pas le conserver. Toute clé produite
 // par cet ETL commence par `YYYY-MM|` ; tout le reste est hérité.
 const CLE_AGREGEE = /^\d{4}-(0[1-9]|1[0-2])\|/;
-async function retirerPerimees(table, cle, gardees, moisRelus) {
+// `impossible` désigne en plus les lignes qu'aucun run ne peut avoir produites
+// légitimement, quel que soit leur mois.
+async function retirerPerimees(table, cle, gardees, moisRelus, impossible = () => false) {
   const perimees = (await getRecords(table))
     .filter((r) => !CLE_AGREGEE.test(String(r.fields[cle] ?? ''))
-      || (moisRelus.has(r.fields.month) && !gardees.has(r.fields[cle])))
+      || (moisRelus.has(r.fields.month) && !gardees.has(r.fields[cle]))
+      || impossible(r))
     .map((r) => r.id);
   return supprimer(table, perimees);
 }
@@ -262,6 +266,12 @@ const roleDe = (v) => { const s = normaliser(v); return ROLES.includes(s) ? s : 
 // remplacerait l'instantané officiel. Sans cette règle, le RC1 d'octobre divisait
 // les connexions d'octobre par la base de septembre.
 const JOUR_PARIS = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' });
+// La base de M n'existe qu'à partir du 1er de M+1 : une ligne de Base du mois en cours
+// ou d'un mois futur vient d'un test, ou de l'ancien code qui rangeait le cron sur le
+// mois de réception. La garder diviserait le RC1 du mois en cours par une base fausse.
+// Un mois illisible n'est jamais « impossible » : c'est une saisie à corriger à la main.
+const MOIS_COURANT = JOUR_PARIS.format(new Date()).slice(0, 7);
+const baseImpossible = (l) => { const m = String(l.fields.month ?? ''); return MOIS_RE.test(m) && m >= MOIS_COURANT; };
 function moisMesure(ts) {
   if (!Number.isFinite(ts) || ts <= 0) return null;
   const [annee, mois, jour] = JOUR_PARIS.format(new Date(ts * 1000)).split('-').map(Number);
@@ -375,9 +385,12 @@ function build(parMois) {
       kpi.push(row);
     }
   }
-  // La base du mois M arrive avec les visites de M+1 : c'est pour les mois PRÉCÉDANT
-  // un mois relu que les lignes de Base absentes de ce run sont périmées.
-  const moisBaseRelus = new Set([...moisRelus].map((m) => { const d = new Date(`${m}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7); }));
+  // La base du mois M arrive avec le cron du 1er de M+1, que Matomo range dans les
+  // visites de M+1 ou, selon le fuseau du site, dans celles de M (00h30 à Paris le
+  // 1er, c'est encore la veille en UTC). Une ligne de Base absente de ce run n'est
+  // donc périmée que si M ET M+1 ont été relus : sinon la seule copie de l'instantané
+  // officiel disparaîtrait au run suivant.
+  const moisBaseRelus = new Set([...moisRelus].map(moisPrecedent).filter((p) => moisRelus.has(p)));
   return { events, base: baseRows, kpi, moisRelus, moisBaseRelus, visites, roleRemplis, connexions, connexionsAnonymes };
 }
 
@@ -504,6 +517,7 @@ async function main() {
     // porte en propre est ce nombre, tout le reste est formule. L'ancien script créait
     // de telles lignes pour des mois vides, que Matomo ne rendra jamais.
     const tables = await getTables();
+    const baseIds = new Set(r.base.map((b) => b.base_id));
     const horsFenetre = new Set();
     for (const t of ['Events', 'Base', 'KPI'].filter((x) => tables.includes(x))) {
       for (const l of await getRecords(t)) {
@@ -512,7 +526,12 @@ async function main() {
         // reset refuse, et le message dit de la corriger dans Grist.
         const m = String(l.fields.month ?? '');
         if (!MOIS_RE.test(m)) { horsFenetre.add(`${t} n°${l.id} au mois illisible, à corriger dans Grist`); continue; }
-        if (!r.moisRelus.has(m)) horsFenetre.add(m);
+        // Une ligne de Base passe si ce run la reproduit, si son mois est purgeable (M et
+        // M+1 relus) ou si elle est impossible : le cron de M peut être rangé dans les
+        // visites de M ou de M+1, aucun des deux mois seul ne garantit sa reconstruction.
+        if (t === 'Base') {
+          if (!(baseIds.has(l.fields.base_id) || r.moisBaseRelus.has(m) || baseImpossible(l))) horsFenetre.add(`${m} (Base : relire ${m} et ${moisSuivant(m)})`);
+        } else if (!r.moisRelus.has(m)) horsFenetre.add(m);
       }
     }
     if (horsFenetre.size) {
@@ -540,7 +559,7 @@ async function main() {
   const nB = await upsert('Base', r.base, ['base_id']);
   const nK = await upsert('KPI', r.kpi, ['kpi_id']);
   const rE = await retirerPerimees('Events', 'event_id', new Set(r.events.map((e) => e.event_id)), r.moisRelus);
-  const rB = await retirerPerimees('Base', 'base_id', new Set(r.base.map((b) => b.base_id)), r.moisBaseRelus);
+  const rB = await retirerPerimees('Base', 'base_id', new Set(r.base.map((b) => b.base_id)), r.moisBaseRelus, baseImpossible);
 
   const fillPct = Math.round((100 * r.roleRemplis) / r.visites);
   const relus = [...r.moisRelus].sort();

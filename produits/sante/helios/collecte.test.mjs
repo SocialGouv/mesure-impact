@@ -16,6 +16,9 @@ import { fileURLToPath } from 'node:url';
 const ici = path.dirname(fileURLToPath(import.meta.url));
 const MOIS = new Date().toISOString().slice(0, 7);
 const VID = 'feed0000beef0001';
+// Cron du 01/09 à 9h (heure de Paris) : la base est rangée en août, mois fixe hors fenêtre.
+const CRON_01SEPT = Date.UTC(2026, 8, 1, 7, 0) / 1000;
+const MOIS_BASE = '2026-08';
 
 let echecs = 0;
 const verifier = (titre, condition, detail) => {
@@ -29,8 +32,8 @@ const visiteReelle = {
   actionDetails: [
     { type: 'event', eventCategory: 'session', eventAction: 'connexion' },
     { type: 'event', eventCategory: 'export', eventAction: 'lancer', eventName: 'fiche_et' },
-    { type: 'event', eventCategory: 'indicateur', eventAction: 'utilisateurs_actifs', eventName: 'ars', eventValue: 5, timestamp: 10 },
-    { type: 'event', eventCategory: 'indicateur', eventAction: 'utilisateurs_inactifs', eventName: 'ars', eventValue: 23, timestamp: 10 },
+    { type: 'event', eventCategory: 'indicateur', eventAction: 'utilisateurs_actifs', eventName: 'ars', eventValue: 5, timestamp: CRON_01SEPT },
+    { type: 'event', eventCategory: 'indicateur', eventAction: 'utilisateurs_inactifs', eventName: 'ars', eventValue: 23, timestamp: CRON_01SEPT },
   ],
 };
 
@@ -334,6 +337,44 @@ for (const [scenario, motif] of [
   const premierPut = trafic.findIndex((r) => r.methode === 'PUT');
   verifier(`--reset nominal : le vidage précède le push (${premierVidage} < ${premierPut})`,
     premierVidage >= 0 && premierPut >= 0 && premierVidage < premierPut);
+}
+
+// --- Base : une ligne du mois en cours ne peut venir que d'un test ou de l'ancien code ---
+// Le mois courant de l'ETL est celui de Paris : le dernier soir du mois, il diffère de MOIS (UTC).
+const MOIS_PARIS = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit' }).format(new Date()).slice(0, 7);
+const moisDecale = (m, n) => { const d = new Date(`${m}-01T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() + n); return d.toISOString().slice(0, 7); };
+const ligneBase = (id, month) => ({ id, fields: { base_id: `${month}|ars`, month, role: 'ars', actifs: 1, inactifs: 1 } });
+{
+  const doc = { ...DOC_MIGRE, tables: ['Events', 'Base'], lignes: { ...DOC_MIGRE.lignes,
+    Base: [ligneBase(21, MOIS_PARIS), ligneBase(22, moisDecale(MOIS_PARIS, 1)), ligneBase(23, moisDecale(MOIS_PARIS, -1)),
+      ligneBase(24, moisDecale(MOIS_PARIS, -2)), { id: 25, fields: { base_id: '2026-07|central', month: 'août 2026', role: 'central', actifs: 1, inactifs: 1 } }] } };
+  const { code, texte, trafic } = await jouer('reel', { doc });
+  const retirees = trafic.filter((r) => /tables\/Base\/data\/delete/.test(r.url)).flatMap((r) => JSON.parse(r.corps));
+  verifier('Base : le run réussit', code === 0, erreurs(texte));
+  verifier(`Base : lignes du mois en cours et futures retirées, mois clos et mois illisible gardés (retirées ${retirees.join(',')})`,
+    retirees.sort().join(',') === '21,22');
+}
+{
+  // Le banc range le cron dans les visites de MOIS : la base reproduite par le run ne bloque pas le reset,
+  // une ligne impossible non plus. Une base que le run ne reproduit pas bloque, même si le mois suivant est relu.
+  const reproduite = { ...ligneBase(26, MOIS_BASE) };
+  const doc = { ...DOC_DANS_FENETRE, lignes: { ...DOC_DANS_FENETRE.lignes, Base: [reproduite, ligneBase(21, MOIS_PARIS)] } };
+  const ok = await jouer('reel', { doc, argv: ['--reset'] });
+  verifier('--reset : base reproduite par le run et ligne impossible ne bloquent pas', ok.code === 0, erreurs(ok.texte));
+  const nonReproduite = { ...doc, lignes: { ...doc.lignes, Base: [ligneBase(23, moisDecale(MOIS, -1))] } };
+  const ko = await jouer('reel', { doc: nonReproduite, argv: ['--reset'] });
+  verifier('--reset : une base que le run ne reproduit pas bloque', ko.code === 1 && /effacerait tout/.test(ko.texte), `code ${ko.code}`);
+}
+{
+  // Base seule, non reproduite par le run : elle ne passe que si son mois ET le suivant sont relus.
+  const precedent = moisDecale(MOIS, -1);
+  const doc = { tables: ['Base'], colonnes: {}, lignes: { Base: [ligneBase(27, precedent)] } };
+  const env = { COLLECT_FROM: precedent };
+  const seul = await jouer('reel', { doc, env, argv: ['--reset', '--from', precedent, '--to', precedent] });
+  verifier('--reset : base du seul mois relu, sans le suivant, bloque et nomme le remède',
+    seul.code === 1 && new RegExp(`Base : relire ${precedent} et ${MOIS}`).test(seul.texte), erreurs(seul.texte));
+  const deux = await jouer('reel', { doc, env, argv: ['--reset', '--from', precedent, '--to', MOIS] });
+  verifier('--reset : base dont le mois et le suivant sont relus passe', deux.code === 0, erreurs(deux.texte));
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');

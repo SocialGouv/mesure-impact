@@ -131,10 +131,14 @@ const cron = (ts, [ca, ia], [cr, ir], [aa, ai]) => [
   verifier(`base : le jour est lu à l'heure de Paris (mois ${r.base[0]?.month})`, r.base.length === 3 && r.base[0].month === '2026-09');
 }
 {
-  // Un run qui relit octobre et novembre purge la base de septembre et d'octobre, pas celle de novembre.
+  // Un run qui relit octobre et novembre ne purge que la base d'octobre : celle de
+  // septembre a pu arriver dans les visites de septembre (cron du 01/10 à 00h30 à
+  // Paris, site en UTC), qui ne sont pas relues.
   const r = build([{ month: MOIS, visits: [visite('x', 'ars', [connexion])] }, { month: '2026-11', visits: [visite('y', 'ars', [connexion])] }]);
-  verifier(`base : mois à purger décalés d'un mois (${[...r.moisBaseRelus].sort().join(',')})`,
-    [...r.moisBaseRelus].sort().join(',') === '2026-09,2026-10');
+  verifier(`base : seul le mois dont M et M+1 sont relus est purgé (${[...r.moisBaseRelus].sort().join(',')})`,
+    [...r.moisBaseRelus].sort().join(',') === '2026-10');
+  const seul = build([{ month: '2026-11', visits: [visite('y', 'ars', [connexion])] }]);
+  verifier(`base : un seul mois relu ne purge aucune base (${[...seul.moisBaseRelus].join(',')})`, seul.moisBaseRelus.size === 0);
 }
 {
   const r = build([{ month: MOIS, visits: [visite('c1', null, [
