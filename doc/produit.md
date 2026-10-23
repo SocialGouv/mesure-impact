@@ -14,6 +14,7 @@ L'enjeu n'est pas la dataviz pour elle-même : c'est de rendre visible l'usage d
 | Produit | Département | État |
 |---|---|---|
 | BASAVI | Santé | Pilote (préprod) |
+| HELIOS | Santé | Préprod (site Matomo 162), grain agrégé mois × rôle |
 
 La longue traîne du portefeuille (200 à 300 produits) rejoindra au fil de l'eau, un dossier
 par produit sous `produits/`.
