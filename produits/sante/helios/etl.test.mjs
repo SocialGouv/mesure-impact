@@ -274,20 +274,6 @@ const cron = (ts, [ca, ia], [cr, ir], [aa, ai]) => [
     r.events[0].role === '' && kpi(r, 'global').utilisateurs_reguliers === 1);
 }
 
-// --- Le plan de tag de l'ETL couvre ce que lit le widget --------------------------
-{
-  const front = fs.readFileSync(path.join(ici, 'dashboard.html'), 'utf8');
-  const lus = [...front.matchAll(/e\.category === '([a-z_]+)' && e\.action === '([a-z_]+)'/g)].map((m) => `${m[1]}/${m[2]}`);
-  const absents = lus.filter((k) => { const [c, a] = k.split('/'); return !(PLAN[c] && a in PLAN[c]); });
-  verifier(`widget : chaque couple catégorie/action lu existe dans le plan (${lus.length} lus${absents.length ? `, absents : ${absents}` : ''})`,
-    lus.length > 0 && absents.length === 0);
-  const libelles = new Set([...front.matchAll(/(\w+): '[^']*'/g)].map((m) => m[1]));
-  const noms = [...new Set(Object.values(PLAN).flatMap((a) => Object.values(a).flat()).filter(Boolean))];
-  const sansLibelle = noms.filter((n) => ['comparaison', 'export'].some((c) => PLAN[c].lancer.includes(n)) || PLAN.filtre.appliquer.includes(n))
-    .filter((n) => !libelles.has(n));
-  verifier(`widget : chaque source et critère du plan a un libellé${sansLibelle.length ? ` (manque : ${sansLibelle})` : ''}`, sansLibelle.length === 0);
-}
-
 // --- Aucune formule ne porte la signature que le WAF de Grist rejette -----------
 // Constaté le 15/10/2026 : `… and … < …` sur une même ligne → HTTP 403 Incapsula,
 // et le Job échoue chaque nuit. Le contrôle porte sur toutes les formules du schéma.

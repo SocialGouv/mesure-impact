@@ -173,7 +173,7 @@ async function mapi(method, extra = {}) {
 }
 
 // --- Schéma ---
-// Les noms de colonnes sont ceux que lit le widget (dashboard.html). Seuls changent :
+// Les noms de colonnes sont ceux que lit le widget Grist. Seuls changent :
 // Events passe au grain agrégé (+count, −visitor_id/date/value) et
 // KPI.utilisateurs_reguliers devient une colonne de données.
 const ROLES = ['ars', 'regional', 'central'];

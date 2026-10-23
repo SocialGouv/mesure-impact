@@ -139,7 +139,6 @@ jobs:
           node produits/sante/basavi/dashboard.test.mjs
           node produits/sante/basavi/etl.test.mjs
           node produits/sante/basavi/collecte.test.mjs
-          node produits/sante/helios/dashboard.test.mjs
           node produits/sante/helios/etl.test.mjs
           node produits/sante/helios/collecte.test.mjs
 

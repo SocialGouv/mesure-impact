@@ -8,12 +8,13 @@ fonctionnalités utilisées (comparaison, export, listes), recherche et navigati
 ## La chaîne
 
 ```
-Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ──> dashboard.html (widget)
+Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ──> widget (front, hors de ce dépôt)
 ```
 
 - **`etl.mjs`** : extrait les visites Matomo mois par mois, agrège au grain mois × rôle et
   peuple les 4 tables du doc Grist (Events, Base, KPI, Extractions). Node pur, aucune dépendance.
-- **`dashboard.html`** : le front DSFR, embarqué comme widget dans le doc Grist.
+- **Le front** (widget DSFR embarqué dans le doc Grist) est servi par Netlify pour l'instant ;
+  sa migration dans ce dépôt est reportée.
 - **`produit.yaml`** : les identifiants publics et les critères d'achèvement.
 - **`secrets/`** : les tokens Matomo et Grist, **scellés** (chiffrés), jamais en clair.
 
@@ -108,6 +109,6 @@ Points de vigilance :
 
 - **Le script local `sandbox-impact/grist/preprod-etl.mjs` doit être arrêté.** Il écrit encore
   le grain brut, avec `visitor_id`, sur le même doc.
-- Le widget servi par Netlify (`dnum-helios-shell`) doit être aligné sur `dashboard.html` :
-  il lit désormais `Events.count` au lieu de compter les lignes.
+- Le widget servi par Netlify (`dnum-helios-shell`) doit lire `Events.count` au lieu de compter
+  les lignes : Events est au grain agrégé depuis la migration du 15/10/2026.
 - La prod (site Matomo 72) viendra avec son propre doc Grist et son propre secret.

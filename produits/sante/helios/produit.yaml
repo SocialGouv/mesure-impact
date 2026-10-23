@@ -27,10 +27,6 @@ chaine:
 collecte:
   schedule: "0 6 * * *"     # cadence du CronJob ; à défaut celle du chart
 
-front:
-  fichier: dashboard.html
-  mode: widget embarqué dans le doc Grist   # données via l'API plugin Grist, aucun token dans la page
-
 # Variables injectées par le Secret déscellé (envFrom). Seules ces deux-là sont sensibles.
 secrets_requis:
   - MATOMO_TOKEN_AUTH       # token API Matomo, lecture du site
@@ -42,4 +38,3 @@ criteres_achevement:
   - Aucun identifiant de visiteur n'est écrit dans Grist (grain agrégé mois × rôle).
   - Les 4 tables (Events, Base, KPI, Extractions) sont peuplées sur la période.
   - La table KPI calcule le RC1 (réguliers / base d'agents) sans erreur, par rôle et en global.
-  - La page dashboard.html s'affiche dans le doc Grist et lit les vraies données.
