@@ -46,3 +46,26 @@ Le champ `envs` liste les environnements où le produit est **collecté**, et
 `chaine.matomo.site_id` / `chaine.grist.doc_id` portent une valeur par env. Un produit qui ne
 déclare pas `prod` n'y reçoit aucun CronJob : c'est le garde-fou qui empêche la prod de
 collecter la source de préprod. Le dashboard, lui, est servi dans tous les envs.
+
+## Tableau sans collecte (démo)
+
+Un produit peut être publié **avant d'avoir sa collecte** : une démo sur données fictives,
+pour cadrer les indicateurs avec l'équipe produit. Le dossier ne contient alors que :
+
+| Fichier | Rôle |
+|---|---|
+| `dashboard.html` | le front, embarqué dans le doc Grist de démo |
+| `README.md` | à quoi il sert, et pourquoi il n'a pas encore de collecte |
+
+Sans `produit.yaml`, l'inventaire ignore le dossier : pas de CronJob, pas de secret exigé.
+L'image web publie quand même le `dashboard.html` sous `/<dept>/<nom>/`.
+
+Deux règles, parce que l'image ne copie que ce fichier et que le dépôt est public :
+
+- **aucune donnée dans la page**, même fictive : les données viennent du doc Grist par
+  l'API plugin. Hors de Grist, la page affiche « Données indisponibles » ;
+- **ressources embarquées** : polices en base64, pas de fichier à côté du `dashboard.html`.
+  Seule exception, l'API plugin, chargée depuis `grist.numerique.gouv.fr` comme pour BASAVI.
+
+Quand la collecte arrive, on ajoute `produit.yaml`, `etl.mjs` et `secrets/` dans le même
+dossier : l'URL ne change pas. Exemple : `sante/medle/`. Voir `doc/decisions/0005`.
