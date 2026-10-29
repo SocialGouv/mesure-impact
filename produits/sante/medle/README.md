@@ -16,4 +16,4 @@ doc Grist « Démo - Médlé » (données fictives) ──> dashboard.html (widg
 - Pas de `produit.yaml` ni de collecte : le dossier est publié sans CronJob, sous
   `/sante/medle/`. Ils arriveront avec le tagging Matomo du produit.
 
-Hors de Grist, la page n'affiche aucune donnée.
+Hors de Grist, la page affiche « Données indisponibles » : aucune donnée n'est publiée.

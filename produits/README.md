@@ -63,8 +63,9 @@ L'image web publie quand même le `dashboard.html` sous `/<dept>/<nom>/`.
 Deux règles, parce que l'image ne copie que ce fichier et que le dépôt est public :
 
 - **aucune donnée dans la page**, même fictive : les données viennent du doc Grist par
-  l'API plugin. Hors de Grist, la page s'affiche vide ;
+  l'API plugin. Hors de Grist, la page affiche « Données indisponibles » ;
 - **ressources embarquées** : polices en base64, pas de fichier à côté du `dashboard.html`.
+  Seule exception, l'API plugin, chargée depuis `grist.numerique.gouv.fr` comme pour BASAVI.
 
 Quand la collecte arrive, on ajoute `produit.yaml`, `etl.mjs` et `secrets/` dans le même
 dossier : l'URL ne change pas. Exemple : `sante/medle/`. Voir `doc/decisions/0005`.

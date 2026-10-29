@@ -23,20 +23,22 @@ Une démo sans collecte est un dossier `produits/<dept>/<nom>/` avec un `dashboa
 - Les widgets vivaient sur un compte Netlify personnel, déployés à la main : pas de relecture,
   pas d'historique, et une dépendance à une seule personne.
 - La 0002 avait déjà fait de ce dépôt l'hébergeur du front ; il restait les démos, gardées sur
-  Netlify le 24/09 pour pouvoir les mettre à jour en une minute. L'URL dev se met à jour à
+  Netlify pour pouvoir les mettre à jour en une minute. L'URL dev se met à jour à
   chaque merge, ce qui suffit pour une démo.
 - L'URL prod ne bouge qu'au déploiement prod manuel : un doc de prod n'affiche jamais une
   version non validée.
 
 ## Conséquences
 
-- Chaque mise à jour d'une démo passe par une PR. Le délai entre le merge et la page en ligne
+- Une mise à jour de démo passe par une PR mergée sur `main`. Le délai entre le merge et la page en ligne
   est mesuré pendant le pilote.
-- L'image ne publie que `dashboard.html` : les ressources sont embarquées dans la page.
+- L'image ne publie que `dashboard.html` : les ressources sont embarquées dans la page, hors
+  l'API plugin chargée depuis `grist.numerique.gouv.fr`.
 - Les sites Netlify sont archivés deux semaines après la bascule de leur doc, puis supprimés.
 
 ## Suite prévue : versions côte à côte
 
 Pour comparer deux itérations dans un même doc Grist, publier aussi
 `produits/<dept>/<nom>/versions/<v>.html` sous `/<dept>/<nom>/<v>/`. Cela demande une boucle
-de plus dans `docker/web/Dockerfile` : PR séparée, qui touche le socle.
+de plus dans `docker/web/Dockerfile` : PR séparée, qui touche le socle. La même PR peut faire boucler `task url` sur les
+`dashboard.html` plutôt que sur les `produit.yaml`, pour contrôler aussi les démos.
