@@ -21,7 +21,9 @@ Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ─
 ## Le RC1, et pourquoi l'ETL compte lui-même les visiteurs
 
 RC1 = visiteurs distincts ayant ouvert une session dans le mois (event `session/connexion`)
-÷ agents en base (actifs + inactifs). La base arrive par des events dédiés
+÷ agents **actifs** (`KPI.agents_actifs`, tels que comptés par le cron HELIOS ; règle
+validée par le métier le 29/10/2026). `KPI.base_agents` (actifs + inactifs) reste publié pour
+l'affichage. La base arrive par des events dédiés
 `indicateur/utilisateurs_actifs|inactifs`, rôle dans le nom, effectif dans la valeur. Le
 cron applicatif qui les envoie tourne le 1er du mois et compte le mois écoulé : un passage
 reçu le 1er (heure de Paris) est rangé sur le mois précédent, le plus récent du jour gagne.
@@ -32,7 +34,8 @@ n'est purgée de ses combinaisons disparues que si ce mois et le suivant sont re
 instantané incomplet (actifs sans inactifs)
 n'est pas publié, et la base globale n'est calculée que si les trois rôles ont leur
 instantané : sinon le RC1 global vaut « non calculable » plutôt qu'un taux gonflé. Plus de
-réguliers que d'agents en base donne aussi un taux vide.
+réguliers que d'agents actifs donne aussi un taux vide (doublons de visiteurs ou base incohérente),
+signalé au canari (`rc1=reguliers_sup_actifs/<scope>`).
 
 Le numérateur exige l'identifiant de visiteur Matomo. Il est lu par l'ETL, en mémoire, et
 **seul le nombre** part dans Grist (`KPI.utilisateurs_reguliers`). Aucun identifiant de
