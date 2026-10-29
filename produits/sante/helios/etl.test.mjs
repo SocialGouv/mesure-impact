@@ -5,7 +5,7 @@
 // reste du fichier est celui qui part en production, à l'octet près.
 //
 // Ce qui se joue ici :
-// - le RC1 : visiteurs distincts ayant ouvert une session ÷ base d'agents. Le
+// - le RC1 : visiteurs distincts ayant ouvert une session ÷ agents actifs. Le
 //   numérateur dépend de l'identifiant de visiteur, que l'API Live renvoie dans
 //   `visitorId` (et pas `idVisitor`). Le lire mal ramène le RC1 à zéro sans erreur.
 // - la donnée individuelle : aucun identifiant de visiteur ne doit sortir de build().
@@ -194,7 +194,7 @@ const cron = (ts, [ca, ia], [cr, ir], [aa, ai]) => [
   verifier('base incomplète : signalée', inconnus().includes('base=incomplete/ars'));
 }
 
-// --- RC1 de bout en bout : 5 réguliers d'octobre / 47 agents mesurés par le cron du 01/11 ----
+// --- RC1 de bout en bout : 5 réguliers d'octobre / 15 agents actifs mesurés par le cron du 01/11 ----
 {
   const usages = [
     ...['a1', 'a2', 'a3', 'a4'].map((v) => visite(v, 'ars', [connexion])),
@@ -202,9 +202,9 @@ const cron = (ts, [ca, ia], [cr, ir], [aa, ai]) => [
     visite('r1', 'regional', [connexion]),
   ];
   const r = build([{ month: MOIS, visits: usages }, { month: '2026-11', visits: [visite('base', null, cron(T_01NOV, [6, 6], [4, 3], [5, 23]))] }]);
-  const base = r.base.filter((b) => b.month === MOIS).reduce((s, b) => s + b.actifs + b.inactifs, 0);
+  const base = r.base.filter((b) => b.month === MOIS).reduce((s, b) => s + b.actifs, 0);
   const reg = kpi(r, 'global').utilisateurs_reguliers;
-  verifier(`RC1 octobre : ${reg} / ${base} = ${(100 * reg / base).toFixed(1)} % (numérateur et base sur le même mois)`, reg === 5 && base === 47);
+  verifier(`RC1 octobre : ${reg} / ${base} actifs = ${(100 * reg / base).toFixed(1)} % (numérateur et base sur le même mois)`, reg === 5 && base === 15);
 }
 
 // --- Un mois revenu vide n'écrase pas ses réguliers déjà publiés ------------------
@@ -283,7 +283,70 @@ const cron = (ts, [ca, ia], [cr, ir], [aa, ai]) => [
   // sur la formule telle qu'elle part, pas ligne par ligne.
   const fautives = formules.filter((c) => /\band\b.*[<>]/.test(JSON.stringify(c.formula))).map((c) => c.id);
   verifier(`WAF Grist : aucune formule « and … < » (${formules.length} formules lues${fautives.length ? `, fautives : ${fautives}` : ''})`,
-    formules.length === 8 && fautives.length === 0);
+    formules.length === 9 && fautives.length === 0);
+}
+
+// --- RC1 : réguliers ÷ agents actifs (Hao, 29/10/2026) ---------------------------
+// Les formules de KPI sont du Python exécuté par Grist : elles sont jouées ici telles
+// qu'elles partent, `$col` lu sur l'enregistrement, Base.lookupRecords simulé.
+{
+  const py = String.raw`
+import json, sys, types
+cols, cas = json.load(sys.stdin)
+def compile_(body):
+    src = 'def f(rec, Base):\n' + '\n'.join('  ' + l for l in body.replace('$', 'rec.').split('\n'))
+    ns = {}; exec(src, ns); return ns['f']
+fn = {k: compile_(v) for k, v in cols.items()}
+class B:
+    def __init__(s, rows): s.rows = rows
+    def lookupRecords(s, month): return [types.SimpleNamespace(**r) for r in s.rows if r['month'] == month]
+out = []
+for scope, reg, rows in cas:
+    base = B(rows); rec = types.SimpleNamespace(month='2026-10', scope=scope, utilisateurs_reguliers=reg)
+    rec.base_agents = fn['base_agents'](rec, base); rec.agents_actifs = fn['agents_actifs'](rec, base)
+    out.append([rec.agents_actifs, fn['taux_reguliers_pct'](rec, base)])
+print(json.dumps(out))`;
+  const cols = Object.fromEntries(['base_agents', 'agents_actifs', 'taux_reguliers_pct'].map((id) => [id, KPI_COLS.find((c) => c.id === id).formula]));
+  const b = (role, actifs, inactifs) => ({ month: MOIS, role, actifs, inactifs });
+  const plein = [b('central', 6, 6), b('regional', 4, 3), b('ars', 5, 23)];
+  const cas = [
+    ['global', 5, plein, [15, 33.3], 'global : 5 réguliers / 15 actifs'],
+    ['ars', 4, plein, [5, 80], 'ars : 4 / 5 actifs, les 23 inactifs ignorés'],
+    ['central', 0, plein, [6, 0], 'zéro régulier : 0 %, mesuré'],
+    ['global', 5, plein.slice(0, 2), [null, null], 'un rôle manque : global non calculable'],
+    ['ars', 4, [], [0, null], 'pas de base : pas de taux'],
+    ['ars', 6, plein, [5, null], 'plus de réguliers que d’actifs : pas de taux'],
+    ['ars', 5, plein, [5, 100], 'autant de réguliers que d’actifs : 100 %'],
+    ['ars', 0, [b('ars', 0, 28)], [0, null], 'zéro actif : pas de taux, pas de division par zéro'],
+    ['ars', 3, [b('ars', null, 28)], [0, null], 'actifs vides : pas d’erreur'],
+    ['ars', null, plein, [5, null], 'réguliers non relus : pas de taux'],
+  ];
+  const { spawnSync } = await import('node:child_process');
+  const p = spawnSync('python3', ['-c', py], { input: JSON.stringify([cols, cas.map(([s, r, rows]) => [s, r, rows])]), encoding: 'utf8' });
+  if (p.error) console.log('  --  formules RC1 non jouées : python3 absent');
+  else {
+    const res = p.status === 0 ? JSON.parse(p.stdout) : [];
+    if (p.status !== 0) console.log(p.stderr.trim().split('\n').slice(-3).join('\n'));
+    cas.forEach(([, , , attendu, titre], i) => verifier(`RC1 formule : ${titre} → ${JSON.stringify(res[i])}`, JSON.stringify(res[i]) === JSON.stringify(attendu)));
+  }
+}
+
+// --- Plus de réguliers que d'actifs : le taux vide est signalé au canari -----------
+{
+  const usages = ['r1', 'r2', 'r3', 'r4', 'r5'].map((v) => visite(v, 'regional', [connexion]));
+  build([{ month: MOIS, visits: usages }, { month: '2026-11', visits: [visite('base', null, cron(T_01NOV, [6, 6], [4, 3], [5, 23]))] }]);
+  const c = inconnus();
+  verifier('canari : 5 réguliers régionaux pour 4 actifs signalés', c.includes('rc1=reguliers_sup_actifs/regional'));
+  verifier('canari : rien sur un rôle dans les clous', !c.includes('rc1=reguliers_sup_actifs/ars') && !c.includes('rc1=reguliers_sup_actifs/global'));
+}
+
+// --- Vigie RH (v1.8.19) : les trois blocs sont dans le plan de tag -----------------
+{
+  const r = build([{ month: MOIS, visits: [visite('v', 'ars', ['ressources_humaines', 'tdb_performance', 'dsn', 'adresse_saisie']
+    .map((n) => ['vigie_rh', 'ouvrir', n]))] }]);
+  const noms = r.events.filter((e) => e.category === 'vigie_rh' && e.action === 'ouvrir').map((e) => e.name).sort();
+  verifier('Vigie RH : trois blocs reconnus, nom hors liste agrégé en autre',
+    JSON.stringify(noms) === JSON.stringify(['autre', 'dsn', 'ressources_humaines', 'tdb_performance']));
 }
 
 // --- Le canari est branché sur Extractions.note et sur les logs du Job ------------

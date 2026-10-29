@@ -204,17 +204,26 @@ const KPI_COLS = [
     "    return None",
     "return sum((b.actifs or 0) + (b.inactifs or 0) for b in rows)",
   ].join('\n') },
+  // Dénominateur du RC1, validé par le métier (Hao, 29/10/2026) : les agents ACTIFS
+  // (au moins une connexion sur 6 mois), pas toute la base. Même règle des trois rôles.
+  { id: 'agents_actifs', type: 'Int', formula: [
+    "rows = [b for b in Base.lookupRecords(month=$month) if ($scope == 'global' or b.role == $scope)]",
+    "if $scope == 'global':",
+    "  if len(set(b.role for b in rows)) < 3:",
+    "    return None",
+    "return sum((b.actifs or 0) for b in rows)",
+  ].join('\n') },
   // Sans base, le taux vaut None et non 0 : un 0 se lit comme une mesure.
-  // Plus de réguliers que d'agents en base ne se mesure pas : base incohérente (ou
-  // forgée via le tracker public). Le taux est alors None plutôt qu'un 200 %.
+  // Plus de réguliers que d'agents actifs ne se mesure pas : base incohérente, doublons
+  // de visiteurs ou base forgée via le tracker public. Le taux est alors None plutôt qu'un 125 %.
   { id: 'taux_reguliers_pct', type: 'Numeric', formula: [
-    'if not $base_agents:',
+    'if not $agents_actifs:',
     '  return None',
     'if $utilisateurs_reguliers is None:',
     '  return None',
-    'if $utilisateurs_reguliers > $base_agents:',
+    'if $utilisateurs_reguliers > $agents_actifs:',
     '  return None',
-    'return round($utilisateurs_reguliers / $base_agents * 100, 1)',
+    'return round($utilisateurs_reguliers / $agents_actifs * 100, 1)',
   ].join('\n') },
   { id: 'comparaisons', type: 'Int', formula: somme("category='comparaison', action='lancer'") },
   { id: 'exports', type: 'Int', formula: somme("category='export', action='lancer'") },
@@ -247,6 +256,8 @@ const PLAN = {
   comparaison: { lancer: ['recherche_avancee', 'liste', 'fiche_et'] },
   export: { lancer: ['gestion_listes', 'fiche_et', 'comparaison', 'recherche_avancee', 'liste'] },
   liste: { creer: null },
+  // Volet Vigie RH de la fiche établissement : un dépli de bloc (v1.8.19).
+  vigie_rh: { ouvrir: ['ressources_humaines', 'tdb_performance', 'dsn'] },
 };
 // Variantes historiques du plan de tag (espaces au lieu de soulignés, libellé long).
 const ALIAS = { fiche_etablissement: 'fiche_et' };
@@ -401,6 +412,14 @@ function build(parMois) {
       if (moisRelus.has(month)) row.utilisateurs_reguliers = reguliers.get(`${month}|${scope}`)?.size || 0;
       kpi.push(row);
     }
+  }
+  // Plus de réguliers que d'agents actifs : Grist publie un taux vide (doublons de
+  // visiteurs, base incohérente). Signalé au canari pour qu'un taux vide se remarque.
+  for (const row of kpi) {
+    const rows = baseRows.filter((b) => b.month === row.month && (row.scope === 'global' || b.role === row.scope));
+    if (row.scope === 'global' && new Set(rows.map((b) => b.role)).size < 3) continue;
+    const actifs = rows.reduce((a, b) => a + b.actifs, 0);
+    if (rows.length && row.utilisateurs_reguliers > actifs) signaler('rc1=reguliers_sup_actifs', row.scope);
   }
   // La base du mois M arrive avec le cron du 1er de M+1, que Matomo range dans les
   // visites de M+1 ou, selon le fuseau du site, dans celles de M (00h30 à Paris le

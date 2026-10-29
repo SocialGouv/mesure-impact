@@ -37,4 +37,4 @@ criteres_achevement:
   - La collecte se termine sans variable manquante ni erreur d'API.
   - Aucun identifiant de visiteur n'est écrit dans Grist (grain agrégé mois × rôle).
   - Les 4 tables (Events, Base, KPI, Extractions) sont peuplées sur la période.
-  - La table KPI calcule le RC1 (réguliers / base d'agents) sans erreur, par rôle et en global.
+  - La table KPI calcule le RC1 (réguliers / agents actifs) sans erreur, par rôle et en global.
