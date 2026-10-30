@@ -118,7 +118,7 @@ let D = null;
 const nf = new Intl.NumberFormat('fr-FR');
 const int = (n) => n == null ? '–' : nf.format(Math.round(n));
 const pct = (x) => (x == null || !isFinite(x)) ? '–' : (Math.round(x * 1000) / 10).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
-const valPart = (n, base) => base ? `${pct(n / base)}<span class="nb">${int(n)}</span>` : '–';
+const valPart = (n, base) => (base && n != null) ? `${pct(n / base)}<span class="nb">${int(n)}</span>` : '–';
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const tip = (label, def) => `<span class="tip" title="${esc(def)}">${label}</span>`;
 const sansComp = () => `<span class="tip" title="${esc(D.prev ? '' : 'Pas de période précédente comparable : elle tomberait avant l’ouverture du 01/10.')}">–</span>`;
@@ -134,8 +134,9 @@ const cols2rows = (t) => { const k = Object.keys(t).filter((c) => c !== 'manualS
 async function load() {
   if (window.self !== window.top && window.grist && grist.docApi) {
     grist.ready({ requiredAccess: 'read table' });
-    const [s, e, m, x] = await Promise.all(['Sessions', 'Events', 'Modes', 'Extractions'].map((t) => grist.docApi.fetchTable(t)));
-    const ex = cols2rows(x);
+    // Extractions est un bandeau de fraîcheur : son absence ne doit pas vider la page.
+    const [s, e, m, x] = await Promise.all([...['Sessions', 'Events', 'Modes'].map((t) => grist.docApi.fetchTable(t)), grist.docApi.fetchTable('Extractions').catch(() => null)]);
+    const ex = x ? cols2rows(x) : [];
     return { sess: cols2rows(s), evt: cols2rows(e), modes: cols2rows(m), meta: ex[ex.length - 1] || null };
   }
   return window.BASAVI_DATA;
@@ -171,31 +172,37 @@ function mesures(f, dev = S.dev) {
   const SS = D.sess.filter(inF), EV = D.evt.filter(inF), MO = D.modes.filter(inF);
   const ev = (cat, act, nom) => EV.filter((e) => e.category === cat && (!act || e.action === act) && (nom == null || e.name === nom)).reduce((a, e) => a + (Number(e.count) || 0), 0);
   const V = somme(SS, 'visites');
+  // Colonne V1.2 absente du doc (ETL pas encore passé, doc de démo) : non mesuré, pas 0.
+  const opt = (c) => D.sess.some((r) => r[c] != null) ? somme(SS, c) : null;
   const modes = Object.fromEntries(MODES.map(([k]) => { const r = MO.filter((x) => x.mode === k); return [k, { arr: somme(r, 's_arrivee'), res: somme(r, 's_resultats'), cont: somme(r, 's_contact') }]; }));
   const arrTot = MODES.reduce((a, [k]) => a + modes[k].arr, 0), contModes = MODES.reduce((a, [k]) => a + modes[k].cont, 0);
   const grouper = (cat, act, cle, lbl) => { const g = Object.create(null); for (const e of EV.filter((x) => x.category === cat && (!act || x.action === act))) { const k = e[cle] || ''; g[k] = (g[k] || 0) + (Number(e.count) || 0); } return Object.entries(g).map(([k, x]) => ({ n: (lbl && Object.hasOwn(lbl, k)) ? lbl[k] : (k || 'Non précisé'), x })).sort((a, b) => b.x - a.x); };
   return {
     f, V, mesure: SS.length > 0,
     rech: somme(SS, 's_recherche'), res: somme(SS, 's_resultats'), cont: somme(SS, 's_contact'), tel: somme(SS, 's_tel'), copie: somme(SS, 's_copie'),
-    multi: somme(SS, 's_rech_multi'), filtre: somme(SS, 's_filtre'), rechSansFiltre: somme(SS, 's_rech_sans_filtre'),
-    email: somme(SS, 's_email'), site: somme(SS, 's_site'), sessErr: somme(SS, 's_erreur'),
-    sortUrg: somme(SS, 's_sortie_urgence'), sortAlv: somme(SS, 's_sortie_alv'),
-    filtresSess: Object.keys(FILTRE).map((k) => ({ n: FILTRE[k], x: somme(SS, colFiltre(k)) })).sort((a, b) => b.x - a.x),
+    multi: opt('s_rech_multi'), filtre: opt('s_filtre'), rechSansFiltre: opt('s_rech_sans_filtre'),
+    email: opt('s_email'), site: opt('s_site'), sessErr: opt('s_erreur'),
+    sortUrg: opt('s_sortie_urgence'), sortAlv: opt('s_sortie_alv'),
+    filtresSess: Object.keys(FILTRE).map((k) => ({ n: FILTRE[k], x: opt(colFiltre(k)) })).filter((i) => i.x != null).sort((a, b) => b.x - a.x),
     recherches: ev('recherche', 'lancer'), e404: ev('erreur', '404'), e500: ev('erreur', '500'), clusters: ev('recherche', 'ouvrir_cluster'),
     geoLance: ev('recherche', 'lancer', 'geoloc'), geoEchec: ev('recherche', 'geoloc_echec'), geoOk: ev('recherche', 'geoloc_reussite'),
-    urgences: grouper('aide', null, 'name', URGENCE),
+    urgences: [...grouper('aide', 'clic_telephone', 'name', URGENCE), ...grouper('aide', 'clic_sms', 'name', URGENCE)].sort((a, b) => b.x - a.x),
     modes, sansRech: { arr: Math.max(0, V - arrTot), cont: Math.max(0, somme(SS, 's_contact') - contModes) },
     canaux: grouper('contact', null, 'action', CANAL), filtres: grouper('recherche', 'filtrer', 'name', FILTRE),
   };
 }
 // Un tag récent n'a pas d'historique : avant son premier event, « 0 » serait faux.
 // La mesure démarre au premier jour où l'event apparaît, tous appareils confondus.
-function debutMesure(test) { const j = D.evt.filter(test).map((e) => e.day).sort(); return j[0] || null; }
-const DEBUT_SORTIES = (e) => e.category === 'aide' || e.category === 'navigation';
+// Le tracker est public : un hit forgé ou un essai avant la recette ne doit pas ouvrir la
+// mesure plus tôt. Plancher = recette du tag en préprod (30/10/2026), et seules les actions
+// du plan de tag comptent.
+const TAG_V12 = '2026-10-30';
+function debutMesure(test) { const j = D.evt.filter((e) => e.day && e.day >= TAG_V12 && test(e)).map((e) => e.day).sort(); return j[0] || null; }
+const DEBUT_SORTIES = (e) => (e.category === 'aide' && (e.action === 'clic_telephone' || e.action === 'clic_sms')) || (e.category === 'navigation' && e.action === 'retour_alv');
 const DEBUT_GEOLOC = (e) => e.category === 'recherche' && (e.action === 'geoloc_echec' || e.action === 'geoloc_reussite');
 function depuis(f, test) { const d = debutMesure(test); if (!d) return null; const g = f.filter((x) => x >= d); return g.length ? { f: g, d, partiel: g.length < f.length } : null; }
 const err = (M) => M.e404 + M.e500;
-const taux = (n, V) => V ? n / V : null;
+const taux = (n, V) => (V && n != null) ? n / V : null;
 // série journalière pour la fenêtre : un jour sans collecte reste un trou
 const serieJour = (f, fn) => f.map((d) => { const x = mesures([d]); return { d, v: x.mesure ? fn(x) : null }; });
 
@@ -264,15 +271,15 @@ function synthese(M, P) {
     <div class="tile wait"><div class="pil">Impactant</div><div class="lab">Femmes accompagnées par une association</div><div class="v">${tip('Non mesuré à ce jour', 'Source externe à Matomo à identifier : la suite du contact se joue hors du site.')}</div></div>
   </div>
   <h2>${tip('Parcours jusqu’au contact', 'Toutes les étapes sont comptées en sessions. Une session peut lancer plusieurs recherches.')} <small>: en sessions, ${plage(M.f)}</small></h2>
-  ${barres([{ n: 'Arrivée sur l’annuaire', x: M.V }, { n: 'Résultats vus', x: M.res, tip: 'Sessions qui voient une liste de résultats ou la carte.' }, { n: 'après 1 recherche', x: Math.max(0, M.rech - M.multi), sub: true }, { n: 'après plusieurs', x: M.multi, sub: true, tip: 'Sessions qui lancent au moins deux recherches : la femme reformule ou change de ville.' }, { n: 'sans recherche lancée', x: Math.max(0, M.res - M.rech), sub: true, gris: true, tip: 'Arrivée directe sur une page de résultats (lien depuis Google ou ALV, onglet resté ouvert) ou carte ouverte sans recherche.' }, { n: 'Contact avec une association', x: M.cont }], M.V, { echelle: M.V })}
+  ${barres([{ n: 'Arrivée sur l’annuaire', x: M.V }, { n: 'Résultats vus', x: M.res, tip: 'Sessions qui voient une liste de résultats ou la carte.' }, { n: 'après 1 recherche', x: M.multi == null ? null : Math.max(0, M.rech - M.multi), sub: true }, { n: 'après plusieurs', x: M.multi, sub: true, tip: 'Sessions qui lancent au moins deux recherches : la femme reformule ou change de ville.' }, { n: 'sans recherche lancée', x: Math.max(0, M.res - M.rech), sub: true, gris: true, tip: 'Arrivée directe sur une page de résultats (lien depuis Google ou ALV, onglet resté ouvert) ou carte ouverte sans recherche.' }, { n: 'Contact avec une association', x: M.cont }], M.V, { echelle: M.V })}
   <p class="note">${M.rech ? `${int(M.recherches)} recherches lancées par ${int(M.rech)} sessions, soit ${(Math.round(10 * M.recherches / M.rech) / 10).toLocaleString('fr-FR')} recherche par session qui cherche.` : ''}</p>`;
 }
 function geoloc(f) {
   const x = depuis(f, DEBUT_GEOLOC);
-  const h = `<h2>${tip('Échec de la géolocalisation', 'Part des lancements par géolocalisation qui échouent : refus de l’autorisation, position indisponible ou délai dépassé.')}${x ? depuisTxt(x) : ''}</h2>`;
+  const h = `<h2>${tip('Échec de la géolocalisation', 'Part des tentatives de géolocalisation qui échouent : refus de l’autorisation, position indisponible ou délai dépassé.')}${x ? depuisTxt(x) : ''}</h2>`;
   if (!x) return h + PAS_ENCORE('Échecs de la géolocalisation');
-  const G = mesures(x.f);
-  return h + `<div class="kv"><div><div class="big">${G.geoLance ? pct(G.geoEchec / G.geoLance) : '–'}<span class="nb">${int(G.geoEchec)} sur ${int(G.geoLance)} lancements</span></div><div class="hint">géolocalisations qui échouent</div></div></div>`;
+  const G = mesures(x.f), base = G.geoEchec + G.geoOk;
+  return h + `<div class="kv"><div><div class="big">${base ? pct(G.geoEchec / base) : '–'}<span class="nb">${int(G.geoEchec)} sur ${int(base)} tentatives</span></div><div class="hint">géolocalisations qui échouent</div></div></div>`;
 }
 function utilisable(M, P) {
   const lignes = [{ n: 'Sans recherche', x: M.sansRech.arr, gris: true, tip: SANS_RECH }, ...MODES.map(([k, l]) => ({ n: l, x: M.modes[k].arr }))];
@@ -290,30 +297,31 @@ function utilisable(M, P) {
   </div>`;
 }
 function utilise(M, P) {
-  const autres = Math.max(0, M.V - M.filtre - M.rechSansFiltre);
+  // Trois segments qui partitionnent les sessions : le complément est celui de la tuile recherche.
+  const avecF = M.rechSansFiltre == null ? null : Math.max(0, M.rech - M.rechSansFiltre), sansR = Math.max(0, M.V - M.rech);
   const pv = (n) => M.V ? (100 * n / M.V).toFixed(1) : 0;
   return `
   ${intro('<b>Utilisé</b> : l’usage réel de l’annuaire, lancement de recherches et besoins exprimés par les filtres.')}
   <h2>${tip('Sessions qui lancent une recherche', 'Part des sessions qui lancent au moins une recherche.')} <small>: ${DEV[S.dev]}</small></h2>
   <div class="kv"><div><div class="big">${pct(taux(M.rech, M.V))}<span class="nb">${M.V ? int(M.rech) : ''}</span></div><div class="hint">sur ${int(M.V)} sessions</div></div><div class="trend">${P ? trendPts(taux(M.rech, M.V), taux(P.rech, P.V)) : sansComp()}</div></div>
   ${courbe(serieJour(M.f, (x) => taux(x.rech, x.V)), pctCourt)}
-  <h2>${tip('Usage des filtres', 'Répartition de toutes les sessions : celles qui appliquent au moins un filtre, celles qui cherchent sans filtrer, celles qui ne font ni l’un ni l’autre.')} <small>: part des ${int(M.V)} sessions</small></h2>
-  ${M.V ? `<div class="stack" role="img" aria-label="Usage des filtres"><span style="width:${pv(M.filtre)}%;background:var(--bf)"></span><span style="width:${pv(M.rechSansFiltre)}%;background:#6a6af4"></span><span style="width:${pv(autres)}%;background:#d6d6e6"></span></div>
-  <div class="lg"><span><i style="background:var(--bf)"></i><b>Filtrent</b> ${valPart(M.filtre, M.V)}</span><span><i style="background:#6a6af4"></i>Cherchent sans filtrer ${valPart(M.rechSansFiltre, M.V)}</span><span><i style="background:#d6d6e6"></i>Ne cherchent pas ${valPart(autres, M.V)}</span></div>
+  <h2>${tip('Usage des filtres', 'Répartition de toutes les sessions : celles qui cherchent et appliquent au moins un filtre, celles qui cherchent sans filtrer, celles qui ne lancent pas de recherche.')} <small>: part des ${int(M.V)} sessions</small></h2>
+  ${M.V && avecF != null ? `<div class="stack" role="img" aria-label="Usage des filtres"><span style="width:${pv(avecF)}%;background:var(--bf)"></span><span style="width:${pv(M.rechSansFiltre)}%;background:#6a6af4"></span><span style="width:${pv(sansR)}%;background:#d6d6e6"></span></div>
+  <div class="lg"><span><i style="background:var(--bf)"></i><b>Cherchent et filtrent</b> ${valPart(avecF, M.V)}</span><span><i style="background:#6a6af4"></i>Cherchent sans filtrer ${valPart(M.rechSansFiltre, M.V)}</span><span><i style="background:#d6d6e6"></i>Ne cherchent pas ${valPart(sansR, M.V)}</span></div>
   <div class="kv" style="margin-top:10px"><div><div class="big">${pct(taux(M.rechSansFiltre, M.rech))}<span class="nb">${int(M.rechSansFiltre)} sur ${int(M.rech)}</span></div><div class="hint">${tip('des sessions qui cherchent ne filtrent pas', 'Part des sessions qui lancent une recherche sans jamais appliquer de filtre.')}</div></div></div>` : '<p class="empty">Aucune donnée sur la période.</p>'}
   <div class="grid2" style="margin-top:14px">
     <div class="box"><h3>${tip('Filtres appliqués', 'Part des sessions qui filtrent ayant appliqué ce type. Une session peut en appliquer plusieurs : le total dépasse 100 %.')} <small>: parmi les ${int(M.filtre)} sessions qui filtrent</small></h3>
-      ${barres(M.filtresSess.filter((i) => i.x > 0), M.filtre)}</div>
+      ${M.filtre == null ? '<p class="empty">Non mesuré dans ce document.</p>' : barres(M.filtresSess.filter((i) => i.x > 0), M.filtre)}</div>
     <div class="box"><h3>${tip('Recherches lancées', 'Nombre de recherches, toutes sessions confondues : une session peut en lancer plusieurs.')} <small>: ${plage(M.f)}</small></h3>
       <div class="kv"><div><div class="big">${int(M.recherches)}</div><div class="hint">recherches, par ${int(M.rech)} sessions</div></div><div class="trend">${P ? trendN(M.recherches, P.recherches) : sansComp()}</div></div>
       ${courbe(serieJour(M.f, (x) => x.recherches), int, 0.5, true)}</div>
   </div>`;
 }
 function sorties(f) {
-  const x = depuis(f, DEBUT_SORTIES);
+  const x = depuis(f, DEBUT_SORTIES), X = x && mesures(x.f);
   const h = `<h2>${tip('Portes de sortie', 'Chaque session compte dans une seule sortie, la première atteinte dans cet ordre : contact avec une association, numéro d’urgence, retour vers ALV.')} <small>: en sessions</small>${x ? depuisTxt(x) : ''}</h2>`;
-  if (!x) return h + PAS_ENCORE('Numéros d’urgence et retour vers ALV');
-  const O = mesures(x.f), sans = Math.max(0, O.V - O.cont - O.sortUrg - O.sortAlv), totU = O.urgences.reduce((a, i) => a + i.x, 0);
+  if (!x || X.sortUrg == null || X.sortAlv == null) return h + PAS_ENCORE('Numéros d’urgence et retour vers ALV');
+  const O = X, sans = Math.max(0, O.V - O.cont - O.sortUrg - O.sortAlv), totU = O.urgences.reduce((a, i) => a + i.x, 0);
   return h + barres([{ n: 'Contact avec une association', x: O.cont }, { n: 'Numéro d’urgence', x: O.sortUrg, tip: 'Clic sur le 3919, le 17, le 112 ou le 114, sans contact avec une association.' }, { n: 'Retour vers ALV', x: O.sortAlv, tip: 'Clic sur le lien vers arretonslesviolences.gouv.fr, sans contact ni numéro d’urgence.' }, { n: 'Sans sortie identifiée', x: sans, gris: true, tip: 'Session sans contact, sans numéro d’urgence et sans retour vers ALV.' }], O.V, { echelle: O.V })
     + `<div class="box" style="margin-top:12px"><h3>Numéros d’urgence <small>: ${int(totU)} clics</small></h3>${barres(O.urgences, totU)}</div>`;
 }
@@ -393,7 +401,7 @@ document.getElementById('filters').addEventListener('change', (e) => {
   if ((id === 'f-du' || id === 'f-au') && v) { S.per = 'perso'; const b = bornes(); const c = v < b.min ? b.min : v > b.max ? b.max : v; if (id === 'f-du') S.du = c; else S.au = c; if (S.du > S.au) { const t = S.du; S.du = S.au; S.au = t; } }
   render();
 });
-function demarrer(d) { D = d; appliquerPreset(); render(); }
+function demarrer(d) { D = d; D.sess ||= []; D.evt ||= []; D.modes ||= []; appliquerPreset(); render(); }
 load().then((d) => {
   if (!d) { document.getElementById('main').innerHTML = '<p class="empty">Hors Grist : aucune donnée.</p>'; return; }
   demarrer(d);
