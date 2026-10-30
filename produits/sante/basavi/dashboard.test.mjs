@@ -286,18 +286,30 @@ for (const [nom, e, onglet0, attendu] of [
   const { els: e0 } = await ouvrir(tables([sess(N(2), { visites: 10 })]));
   verifier('bouton retour : branché sur le formulaire Grist de Data Ops', e0['f-retour'].href.startsWith('https://grist.numerique.gouv.fr/o/studio/forms/'), e0['f-retour'].href);
 }
+const lien = (els) => new URL(els['f-retour'].href).searchParams;
 {
-  const { els, onglet } = await ouvrir(tables([sess(N(2), { visites: 10 }), sess(N(3), { visites: 12 })]), { form: 'https://grist.example/forms/abc', hote: 'mesure-impact-dev.ovh.fabrique.social.gouv.fr' });
+  const s = [1, 2, 3, 4].map((j) => sess(N(j), { visites: 10 }));
+  const { els, onglet } = await ouvrir({ ...tables(s), meta: { extracted_at: '2026-12-31', source: 'Matomo réel, site 168' } }, { form: 'https://grist.example/forms/abc' });
   onglet('utile', { dev: 'mobile' });
-  const u = new URL(els['f-retour'].href);
+  const u = new URL(els['f-retour'].href), q = u.searchParams;
   verifier('bouton retour : visible une fois branché', els['f-retour'].hidden === false);
   verifier('bouton retour : pointe sur le formulaire', u.origin + u.pathname === 'https://grist.example/forms/abc');
-  verifier('bouton retour : produit, préprod, onglet, segment, version', u.searchParams.get('Produit') === 'BASAVI' && u.searchParams.get('Tableau_de_bord') === 'Préproduction'
-    && u.searchParams.get('Onglet') === 'Utile' && u.searchParams.get('Segment') === 'mobile' && u.searchParams.get('Version_tableau') === '1.2', u.search);
-  verifier('bouton retour : période de la fenêtre affichée', /^du \d{2}\/\d{2} au \d{2}\/\d{2}$|^le \d{2}\/\d{2}$/.test(u.searchParams.get('Periode') || ''), u.searchParams.get('Periode'));
-  const { els: e2 } = await ouvrir(tables([sess(N(2), { visites: 10 })]), { form: 'https://grist.example/forms/abc', hote: 'mesure-impact.ovh.fabrique.social.gouv.fr' });
-  verifier('bouton retour : la prod est reconnue', new URL(e2['f-retour'].href).searchParams.get('Tableau_de_bord') === 'Production');
+  verifier('bouton retour : produit, préprod (site 168), onglet, segment, version', q.get('Produit') === 'BASAVI' && q.get('Tableau_de_bord') === 'Préproduction'
+    && q.get('Onglet') === 'Utile' && q.get('Segment') === 'mobile' && q.get('Version_tableau') === '1.2', u.search);
+  onglet('utile', { per: 'perso', du: N(2), au: N(3) });
+  verifier('bouton retour : la période choisie, avec l’année', lien(els).get('Periode') === 'du 02/11/2026 au 03/11/2026', lien(els).get('Periode'));
+  onglet('synthese', { dev: 'desktop' });
+  verifier('bouton retour : suit l’onglet et l’appareil', lien(els).get('Onglet') === 'Synthèse' && lien(els).get('Segment') === 'ordinateur');
 }
+for (const [source, attendu] of [['Matomo réel, site 170', 'Production'], ['Données fictives (démo)', 'Démo'], ['', 'Démo']]) {
+  const { els } = await ouvrir({ ...tables([sess(N(2), { visites: 10 })]), meta: { extracted_at: '2026-12-31', source } }, { form: 'https://grist.example/forms/abc', hote: 'mesure-impact-dev.ovh.fabrique.social.gouv.fr' });
+  verifier(`bouton retour : source « ${source || 'absente'} » → ${attendu}, quelle que soit l’adresse`, lien(els).get('Tableau_de_bord') === attendu, lien(els).get('Tableau_de_bord'));
+}
+{
+  const { els } = await ouvrir(tables([sess(N(2), { visites: 10 })]), { form: 'pas-une-url' });
+  verifier('bouton retour : un lien invalide masque le bouton sans vider le tableau', els['f-retour'].hidden === true && els.main.innerHTML.includes('Indicateurs principaux'));
+}
+verifier('bouton retour : nouvel onglet signalé et isolé', /id="f-retour"[^>]*target="_blank"[^>]*rel="noopener"[^>]*title="[^"]*nouvelle fenêtre/.test(html));
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
 process.exit(echecs ? 1 : 0);
