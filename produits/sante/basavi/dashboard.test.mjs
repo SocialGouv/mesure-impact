@@ -37,7 +37,7 @@ const texte = (h) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 // Charge la page sur un jeu de tables, attend le premier rendu, et rend un onglet.
 // `grist` : bouchon de l'API plugin ; absent, la page lit window.BASAVI_DATA.
-async function ouvrir(data, { grist } = {}) {
+async function ouvrir(data, { grist, form, hote = 'localhost' } = {}) {
   const els = {};
   const noeud = (id) => els[id] || (els[id] = {
     id, _h: '', value: '', min: '', max: '', clientWidth: 1200,
@@ -47,14 +47,18 @@ async function ouvrir(data, { grist } = {}) {
   const ctx = {
     document: { getElementById: noeud, querySelectorAll: () => [] },
     window: { addEventListener() {}, BASAVI_DATA: data },
-    setTimeout, clearTimeout, Intl, Math, Date, Number, String, Object, Array, Set, JSON, isFinite, Promise,
+    setTimeout, clearTimeout, Intl, Math, Date, Number, String, Object, Array, Set, JSON, isFinite, Promise, URL,
+    location: { hostname: hote },
     console: { ...console, error() {} },
   };
   ctx.window.self = ctx.window;
   ctx.window.top = grist ? {} : ctx.window;
   if (grist) { ctx.window.grist = grist; ctx.grist = grist; }
   vm.createContext(ctx);
-  vm.runInContext(source + PASSERELLE, ctx, { filename: 'dashboard.html' });
+  // Le formulaire est branché dans le fichier : `form: ''` le débranche pour tester le bouton masqué.
+  const src = form === undefined ? source : source.replace(/const FORM_RETOUR = '[^']*';/, `const FORM_RETOUR = '${form}';`);
+  if (form !== undefined && !/const FORM_RETOUR = '[^']*';/.test(source)) throw new Error('constante FORM_RETOUR introuvable dans dashboard.html');
+  vm.runInContext(src + PASSERELLE, ctx, { filename: 'dashboard.html' });
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
   const t = ctx.__t;
   const onglet = (id, reglages = {}) => { Object.assign(t.S, { tab: id }, reglages); if (reglages.per) t.appliquerPreset(); t.render(); return els.main.innerHTML; };
@@ -274,6 +278,38 @@ for (const [nom, e, onglet0, attendu] of [
   const f = texte(onglet('utilise', { dev: 'desktop' }));
   verifier('fenêtre vide : « Aucune donnée », pas « pas encore passée »', f.includes('Aucune donnée sur la période') && !f.includes('pas encore passée'), f);
 }
+
+// --- Bouton « Faire un retour » : contexte du tableau passé au formulaire --------------
+{
+  const { els } = await ouvrir(tables([sess(N(2), { visites: 10 })]), { form: '' });
+  verifier('bouton retour : masqué tant que le formulaire n’est pas branché', els['f-retour'].hidden === true);
+  const { els: e0 } = await ouvrir(tables([sess(N(2), { visites: 10 })]));
+  verifier('bouton retour : branché sur le formulaire Grist de Data Ops', e0['f-retour'].href.startsWith('https://grist.numerique.gouv.fr/o/studio/forms/'), e0['f-retour'].href);
+}
+const lien = (els) => new URL(els['f-retour'].href).searchParams;
+{
+  const s = [1, 2, 3, 4].map((j) => sess(N(j), { visites: 10 }));
+  const { els, onglet } = await ouvrir({ ...tables(s), meta: { extracted_at: '2026-12-31', source: 'Matomo réel, site 168' } }, { form: 'https://grist.example/forms/abc' });
+  onglet('utile', { dev: 'mobile' });
+  const u = new URL(els['f-retour'].href), q = u.searchParams;
+  verifier('bouton retour : visible une fois branché', els['f-retour'].hidden === false);
+  verifier('bouton retour : pointe sur le formulaire', u.origin + u.pathname === 'https://grist.example/forms/abc');
+  verifier('bouton retour : produit, préprod (site 168), onglet, segment, version', q.get('Produit') === 'BASAVI' && q.get('Tableau_de_bord') === 'Préproduction'
+    && q.get('Onglet') === 'Utile' && q.get('Segment') === 'mobile' && q.get('Version_tableau') === '1.2', u.search);
+  onglet('utile', { per: 'perso', du: N(2), au: N(3) });
+  verifier('bouton retour : la période choisie, avec l’année', lien(els).get('Periode') === 'du 02/11/2026 au 03/11/2026', lien(els).get('Periode'));
+  onglet('synthese', { dev: 'desktop' });
+  verifier('bouton retour : suit l’onglet et l’appareil', lien(els).get('Onglet') === 'Synthèse' && lien(els).get('Segment') === 'ordinateur');
+}
+for (const [source, attendu] of [['Matomo réel, site 170', 'Production'], ['Données fictives (démo)', 'Démo'], ['', 'Démo']]) {
+  const { els } = await ouvrir({ ...tables([sess(N(2), { visites: 10 })]), meta: { extracted_at: '2026-12-31', source } }, { form: 'https://grist.example/forms/abc', hote: 'mesure-impact-dev.ovh.fabrique.social.gouv.fr' });
+  verifier(`bouton retour : source « ${source || 'absente'} » → ${attendu}, quelle que soit l’adresse`, lien(els).get('Tableau_de_bord') === attendu, lien(els).get('Tableau_de_bord'));
+}
+{
+  const { els } = await ouvrir(tables([sess(N(2), { visites: 10 })]), { form: 'pas-une-url' });
+  verifier('bouton retour : un lien invalide masque le bouton sans vider le tableau', els['f-retour'].hidden === true && els.main.innerHTML.includes('Indicateurs principaux'));
+}
+verifier('bouton retour : nouvel onglet signalé et isolé', /id="f-retour"[^>]*target="_blank"[^>]*rel="noopener"[^>]*title="[^"]*nouvelle fenêtre/.test(html));
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
 process.exit(echecs ? 1 : 0);

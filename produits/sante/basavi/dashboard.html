@@ -12,7 +12,11 @@
 :root{ --bf:#000091; --bf-soft:#f5f5fe; --fg:#161616; --mut:#666; --line:#e5e5e5; --bg:#ffffff; --track:#eeeeee; --gris:#9a9aa8; }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Marianne,Arial,sans-serif}
-header{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+header{padding:14px 16px 10px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-start;justify-content:space-between}
+header>div{min-width:0}
+.retour{flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bf);border-radius:4px;padding:4px 10px;color:var(--bf);background:#fff;font-size:13px;font-weight:700;text-decoration:none}
+.retour:hover{background:var(--bf-soft)}
+.retour:focus-visible{outline:2px solid var(--bf);outline-offset:2px}
 header h1{margin:0;font-size:18px;color:var(--bf)}
 header p{margin:2px 0 0;color:var(--mut);font-size:13px}
 .tb{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:10px 16px;background:var(--bf-soft);border-bottom:1px solid var(--line);font-size:13px}
@@ -82,8 +86,9 @@ dl.lire dt{font-weight:700} dl.lire dd{margin:0;color:#333}
 </head>
 <body>
 <header>
-  <h1>BASAVI : mettre en relation les femmes avec une association</h1>
-  <p>Annuaire des associations d'aide aux femmes victimes de violences.</p>
+  <div><h1>BASAVI : mettre en relation les femmes avec une association</h1>
+  <p>Annuaire des associations d'aide aux femmes victimes de violences.</p></div>
+  <a class="retour" id="f-retour" href="#" target="_blank" rel="noopener" title="Faire un retour (nouvelle fenêtre)" hidden><span aria-hidden="true">✎</span> Faire un retour</a>
 </header>
 <div class="tb" id="filters">
   <label>Période <select id="f-per">
@@ -104,6 +109,15 @@ dl.lire dt{font-weight:700} dl.lire dd{margin:0;color:#333}
 <main id="main"><p class="empty">Chargement des données…</p></main>
 <script>
 const TABS = [['synthese', 'Synthèse'], ['utilisable', 'Utilisable'], ['utilise', 'Utilisé'], ['utile', 'Utile'], ['impactant', 'Impactant'], ['lire', 'Comment lire']];
+// Bouton « Faire un retour » : formulaire Grist public sur la table Retours du doc Data Ops.
+// Le contexte part dans l'URL (champs cachés « Accept value from URL ») ; aucun secret ici.
+const FORM_RETOUR = 'https://grist.numerique.gouv.fr/o/studio/forms/r497cC96asn9nWx7ej3X1G/38';
+const VERSION = '1.2';
+const PRODUIT = 'BASAVI';
+// L'environnement se lit sur la source des données, pas sur l'adresse : démo et préprod sont
+// servies par la même URL dev (décision 0005). Site 170 = prod, 168 = préprod, le reste = démo.
+const envTableau = () => { const src = String(D?.meta?.source || ''); return /site 170\b/.test(src) ? 'Production' : /site 168\b/.test(src) ? 'Préproduction' : 'Démo'; };
+const jma = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
 const OUVERTURE = '2026-10-01';   // ouverture publique retenue par Ali : rien n'est compté ni comparé avant
 const DEV = { tous: 'tous appareils', mobile: 'mobile', desktop: 'ordinateur' };
 const MODES = [['saisie', 'Saisie manuelle'], ['ville', 'Lien ville'], ['carte', 'Carte'], ['geoloc', 'Géolocalisation']];
@@ -381,6 +395,17 @@ const lire = () => `<h2>Définitions</h2><dl class="lire">
   <p class="note">Source : Matomo de l’annuaire (annuaire.arretonslesviolences.gouv.fr en production), agrégats par jour et par appareil. Aucune donnée individuelle.</p>`;
 
 // ---------- rendu ----------
+function lienRetour(f) {
+  const a = document.getElementById('f-retour');
+  if (!FORM_RETOUR) { a.hidden = true; return; }
+  const u = new URL(FORM_RETOUR);
+  const onglet = (TABS.find(([id]) => id === S.tab) || [])[1] || '';
+  const periode = f && f.length ? (f.length === 1 ? `le ${jma(f[0])}` : `du ${jma(f[0])} au ${jma(f[f.length - 1])}`) : '–';
+  const ctx = { Produit: PRODUIT, Tableau_de_bord: envTableau(), Onglet: onglet, Periode: periode, Segment: DEV[S.dev], Version_tableau: VERSION };
+  for (const [k, v] of Object.entries(ctx)) u.searchParams.set(k, v);
+  a.href = u.toString();
+  a.hidden = false;
+}
 function render() {
   const b = bornes();
   const du = document.getElementById('f-du'), au = document.getElementById('f-au');
@@ -391,6 +416,8 @@ function render() {
   D.prev = p;
   const ext = D.meta?.extracted_at ? new Date(D.meta.extracted_at).toLocaleDateString('fr-FR') : '';
   document.getElementById('f-src').innerHTML = `<b>${esc(D.meta?.source || 'Matomo')}</b> · ${plage(f)} · ${f.length} jour${f.length > 1 ? 's' : ''} · ${p ? 'comparé ' + plage(p) : 'sans comparaison'}${ext ? ' · extraction du ' + ext : ''}`;
+  // Le lien de retour est accessoire : une erreur ne doit jamais vider le tableau.
+  try { lienRetour(f); } catch (e) { console.error(e); document.getElementById('f-retour').hidden = true; }
   document.getElementById('tabs').innerHTML = TABS.map(([id, l]) => `<button role="tab" aria-selected="${S.tab === id}" data-t="${id}">${l}</button>`).join('');
   const M = mesures(f), P = p ? mesures(p) : null;
   try {
@@ -410,7 +437,7 @@ function demarrer(d) { D = d; D.sess ||= []; D.evt ||= []; D.modes ||= []; appli
 load().then((d) => {
   if (!d) { document.getElementById('main').innerHTML = '<p class="empty">Hors Grist : aucune donnée.</p>'; return; }
   demarrer(d);
-  if (window.grist && grist.onRecords) grist.onRecords(async () => { const n = await load(); if (n) { D = n; render(); } });
+  if (window.grist && grist.onRecords) grist.onRecords(async () => { const n = await load(); if (n) { D = n; appliquerPreset(); render(); } });
 }).catch((e) => { document.getElementById('main').innerHTML = `<p class="empty">Données indisponibles : ${esc(e.message)}</p>`; });
 </script>
 </body>
