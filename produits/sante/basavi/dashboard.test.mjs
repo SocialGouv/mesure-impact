@@ -37,7 +37,7 @@ const texte = (h) => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 
 // Charge la page sur un jeu de tables, attend le premier rendu, et rend un onglet.
 // `grist` : bouchon de l'API plugin ; absent, la page lit window.BASAVI_DATA.
-async function ouvrir(data, { grist } = {}) {
+async function ouvrir(data, { grist, form = '', hote = 'localhost' } = {}) {
   const els = {};
   const noeud = (id) => els[id] || (els[id] = {
     id, _h: '', value: '', min: '', max: '', clientWidth: 1200,
@@ -47,14 +47,17 @@ async function ouvrir(data, { grist } = {}) {
   const ctx = {
     document: { getElementById: noeud, querySelectorAll: () => [] },
     window: { addEventListener() {}, BASAVI_DATA: data },
-    setTimeout, clearTimeout, Intl, Math, Date, Number, String, Object, Array, Set, JSON, isFinite, Promise,
+    setTimeout, clearTimeout, Intl, Math, Date, Number, String, Object, Array, Set, JSON, isFinite, Promise, URL,
+    location: { hostname: hote },
     console: { ...console, error() {} },
   };
   ctx.window.self = ctx.window;
   ctx.window.top = grist ? {} : ctx.window;
   if (grist) { ctx.window.grist = grist; ctx.grist = grist; }
   vm.createContext(ctx);
-  vm.runInContext(source + PASSERELLE, ctx, { filename: 'dashboard.html' });
+  const src = form ? source.replace("const FORM_RETOUR = '';", `const FORM_RETOUR = '${form}';`) : source;
+  if (form && src === source) throw new Error('constante FORM_RETOUR introuvable dans dashboard.html');
+  vm.runInContext(src + PASSERELLE, ctx, { filename: 'dashboard.html' });
   for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
   const t = ctx.__t;
   const onglet = (id, reglages = {}) => { Object.assign(t.S, { tab: id }, reglages); if (reglages.per) t.appliquerPreset(); t.render(); return els.main.innerHTML; };
@@ -273,6 +276,24 @@ for (const [nom, e, onglet0, attendu] of [
   const { onglet } = await ouvrir(tables([sess(N(4), { visites: 30 }, 'mobile')]));
   const f = texte(onglet('utilise', { dev: 'desktop' }));
   verifier('fenêtre vide : « Aucune donnée », pas « pas encore passée »', f.includes('Aucune donnée sur la période') && !f.includes('pas encore passée'), f);
+}
+
+// --- Bouton « Faire un retour » : contexte du tableau passé au formulaire --------------
+{
+  const { els } = await ouvrir(tables([sess(N(2), { visites: 10 })]));
+  verifier('bouton retour : masqué tant que le formulaire n’est pas branché', els['f-retour'].hidden === true);
+}
+{
+  const { els, onglet } = await ouvrir(tables([sess(N(2), { visites: 10 }), sess(N(3), { visites: 12 })]), { form: 'https://grist.example/forms/abc', hote: 'mesure-impact-dev.ovh.fabrique.social.gouv.fr' });
+  onglet('utile', { dev: 'mobile' });
+  const u = new URL(els['f-retour'].href);
+  verifier('bouton retour : visible une fois branché', els['f-retour'].hidden === false);
+  verifier('bouton retour : pointe sur le formulaire', u.origin + u.pathname === 'https://grist.example/forms/abc');
+  verifier('bouton retour : produit, préprod, onglet, segment, version', u.searchParams.get('Produit') === 'BASAVI' && u.searchParams.get('Tableau_de_bord') === 'Préproduction'
+    && u.searchParams.get('Onglet') === 'Utile' && u.searchParams.get('Segment') === 'mobile' && u.searchParams.get('Version_tableau') === '1.2', u.search);
+  verifier('bouton retour : période de la fenêtre affichée', /^du \d{2}\/\d{2} au \d{2}\/\d{2}$|^le \d{2}\/\d{2}$/.test(u.searchParams.get('Periode') || ''), u.searchParams.get('Periode'));
+  const { els: e2 } = await ouvrir(tables([sess(N(2), { visites: 10 })]), { form: 'https://grist.example/forms/abc', hote: 'mesure-impact.ovh.fabrique.social.gouv.fr' });
+  verifier('bouton retour : la prod est reconnue', new URL(e2['f-retour'].href).searchParams.get('Tableau_de_bord') === 'Production');
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
