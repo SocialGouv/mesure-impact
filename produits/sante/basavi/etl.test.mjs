@@ -290,6 +290,9 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
   verifier('aide : le numéro inconnu est signalé par le canari', inconnus().includes('numero=<script>'));
   verifier('pagination : le numéro de page n’est pas gardé', ev.some((e) => e.c === 'pagination' && e.a === 'page' && e.n === ''));
   verifier('géoloc : l’échec est une action connue', ev.some((e) => e.c === 'recherche' && e.a === 'geoloc_echec'));
+  const ok = evenementsReels(build([visite([['recherche', 'geoloc_reussite', '']])]));
+  verifier('géoloc : la réussite est gardée telle quelle (base du taux d’échec)', ok.some((e) => e.c === 'recherche' && e.a === 'geoloc_reussite'));
+  verifier('schema_v : chaque ligne Sessions est marquée V1.2', r.sessions.every((x) => x.schema_v === 12));
   verifier('aucune valeur ne contient de « | »', ev.every((e) => !`${e.c}${e.a}${e.n}`.includes('|')));
 }
 

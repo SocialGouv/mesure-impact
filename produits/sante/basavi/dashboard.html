@@ -172,11 +172,15 @@ function mesures(f, dev = S.dev) {
   const SS = D.sess.filter(inF), EV = D.evt.filter(inF), MO = D.modes.filter(inF);
   const ev = (cat, act, nom) => EV.filter((e) => e.category === cat && (!act || e.action === act) && (nom == null || e.name === nom)).reduce((a, e) => a + (Number(e.count) || 0), 0);
   const V = somme(SS, 'visites');
-  // Colonne V1.2 absente du doc (ETL pas encore passé, doc de démo) : non mesuré, pas 0.
-  const opt = (c) => D.sess.some((r) => r[c] != null) ? somme(SS, c) : null;
+  // Compteur V1.2 lu seulement si TOUTES les lignes de la fenêtre ont été écrites par l'ETL
+  // V1.2 (schema_v ≥ 12) : une colonne absente, ajoutée mais pas encore remplie (0 par défaut
+  // dans Grist), ou remplie sur une partie des jours, donne « non mesuré », jamais un chiffre.
+  const v12 = SS.length > 0 && SS.every((r) => Number(r.schema_v) >= 12);
+  const opt = (c) => v12 && SS.every((r) => r[c] != null) ? somme(SS, c) : null;
   const modes = Object.fromEntries(MODES.map(([k]) => { const r = MO.filter((x) => x.mode === k); return [k, { arr: somme(r, 's_arrivee'), res: somme(r, 's_resultats'), cont: somme(r, 's_contact') }]; }));
   const arrTot = MODES.reduce((a, [k]) => a + modes[k].arr, 0), contModes = MODES.reduce((a, [k]) => a + modes[k].cont, 0);
-  const grouper = (cat, act, cle, lbl) => { const g = Object.create(null); for (const e of EV.filter((x) => x.category === cat && (!act || x.action === act))) { const k = e[cle] || ''; g[k] = (g[k] || 0) + (Number(e.count) || 0); } return Object.entries(g).map(([k, x]) => ({ n: (lbl && Object.hasOwn(lbl, k)) ? lbl[k] : (k || 'Non précisé'), x })).sort((a, b) => b.x - a.x); };
+  // act : une action, une liste d'actions, ou null pour toutes.
+  const grouper = (cat, act, cle, lbl) => { const g = Object.create(null); for (const e of EV.filter((x) => x.category === cat && (!act || (Array.isArray(act) ? act.includes(x.action) : x.action === act)))) { const k = e[cle] || ''; g[k] = (g[k] || 0) + (Number(e.count) || 0); } return Object.entries(g).map(([k, x]) => ({ n: (lbl && Object.hasOwn(lbl, k)) ? lbl[k] : (k || 'Non précisé'), x })).sort((a, b) => b.x - a.x); };
   return {
     f, V, mesure: SS.length > 0,
     rech: somme(SS, 's_recherche'), res: somme(SS, 's_resultats'), cont: somme(SS, 's_contact'), tel: somme(SS, 's_tel'), copie: somme(SS, 's_copie'),
@@ -186,7 +190,7 @@ function mesures(f, dev = S.dev) {
     filtresSess: Object.keys(FILTRE).map((k) => ({ n: FILTRE[k], x: opt(colFiltre(k)) })).filter((i) => i.x != null).sort((a, b) => b.x - a.x),
     recherches: ev('recherche', 'lancer'), e404: ev('erreur', '404'), e500: ev('erreur', '500'), clusters: ev('recherche', 'ouvrir_cluster'),
     geoLance: ev('recherche', 'lancer', 'geoloc'), geoEchec: ev('recherche', 'geoloc_echec'), geoOk: ev('recherche', 'geoloc_reussite'),
-    urgences: [...grouper('aide', 'clic_telephone', 'name', URGENCE), ...grouper('aide', 'clic_sms', 'name', URGENCE)].sort((a, b) => b.x - a.x),
+    urgences: grouper('aide', ['clic_telephone', 'clic_sms'], 'name', URGENCE),
     modes, sansRech: { arr: Math.max(0, V - arrTot), cont: Math.max(0, somme(SS, 's_contact') - contModes) },
     canaux: grouper('contact', null, 'action', CANAL), filtres: grouper('recherche', 'filtrer', 'name', FILTRE),
   };
@@ -310,7 +314,7 @@ function utilise(M, P) {
   <div class="lg"><span><i style="background:var(--bf)"></i><b>Cherchent et filtrent</b> ${valPart(avecF, M.V)}</span><span><i style="background:#6a6af4"></i>Cherchent sans filtrer ${valPart(M.rechSansFiltre, M.V)}</span><span><i style="background:#d6d6e6"></i>Ne cherchent pas ${valPart(sansR, M.V)}</span></div>
   <div class="kv" style="margin-top:10px"><div><div class="big">${pct(taux(M.rechSansFiltre, M.rech))}<span class="nb">${int(M.rechSansFiltre)} sur ${int(M.rech)}</span></div><div class="hint">${tip('des sessions qui cherchent ne filtrent pas', 'Part des sessions qui lancent une recherche sans jamais appliquer de filtre.')}</div></div></div>` : '<p class="empty">Aucune donnée sur la période.</p>'}
   <div class="grid2" style="margin-top:14px">
-    <div class="box"><h3>${tip('Filtres appliqués', 'Part des sessions qui filtrent ayant appliqué ce type. Une session peut en appliquer plusieurs : le total dépasse 100 %.')} <small>: parmi les ${int(M.filtre)} sessions qui filtrent</small></h3>
+    <div class="box"><h3>${tip('Filtres appliqués', 'Part des sessions qui filtrent ayant appliqué ce type. Une session peut en appliquer plusieurs : le total dépasse 100 %.')} <small>: parmi les ${int(M.filtre)} sessions qui appliquent un filtre, avec ou sans recherche</small></h3>
       ${M.filtre == null ? '<p class="empty">Non mesuré dans ce document.</p>' : barres(M.filtresSess.filter((i) => i.x > 0), M.filtre)}</div>
     <div class="box"><h3>${tip('Recherches lancées', 'Nombre de recherches, toutes sessions confondues : une session peut en lancer plusieurs.')} <small>: ${plage(M.f)}</small></h3>
       <div class="kv"><div><div class="big">${int(M.recherches)}</div><div class="hint">recherches, par ${int(M.rech)} sessions</div></div><div class="trend">${P ? trendN(M.recherches, P.recherches) : sansComp()}</div></div>
@@ -362,8 +366,8 @@ const lire = () => `<h2>Définitions</h2><dl class="lire">
   <dt>Sans recherche</dt><dd>${SANS_RECH}</dd>
   <dt>Sessions touchées par une erreur</dt><dd>Sessions qui affichent au moins une page 404 ou 500.</dd>
   <dt>Portes de sortie</dt><dd>Chaque session compte dans une seule sortie, dans cet ordre : contact avec une association, numéro d’urgence (3919, 17, 112, 114), retour vers ALV. Le reste est « sans sortie identifiée ».</dd>
-  <dt>Usage des filtres</dt><dd>Part des sessions qui appliquent au moins un filtre de type de violence. Le détail par type se lit parmi les sessions qui filtrent.</dd>
-  <dt>Échec de la géolocalisation</dt><dd>Lancements par géolocalisation qui échouent, refus et panne confondus.</dd>
+  <dt>Usage des filtres</dt><dd>Les sessions se partagent en trois : celles qui cherchent et appliquent au moins un filtre de type de violence, celles qui cherchent sans filtrer, celles qui ne lancent pas de recherche. Le détail par type se lit parmi toutes les sessions qui appliquent un filtre, avec ou sans recherche lancée.</dd>
+  <dt>Échec de la géolocalisation</dt><dd>Tentatives de géolocalisation qui échouent (réussites et échecs à la base), refus et panne confondus.</dd>
   <dt>Petits effectifs</dt><dd>Sous 10, une conversion s’affiche en effectifs (« 5 sur 48 ») plutôt qu’en pourcentage.</dd></dl>
   <h2>Période et comparaison</h2><dl class="lire">
   <dt>Ouverture</dt><dd>Le tableau démarre au 01/10, date d’ouverture publique. Les visites de test d’avant ne sont pas comptées.</dd>

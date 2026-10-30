@@ -115,6 +115,11 @@ async function mapi(method, extra = {}) {
 //   s_sortie_alv        : sans contact asso ni numéro d'urgence, avec un retour vers ALV
 // Les deux sorties sont exclusives entre elles et avec s_contact : l'ordre de priorité
 // est contact, puis urgence, puis ALV. Le reste est l'abandon.
+// `schema_v` marque chaque ligne écrite par cette version : une colonne ajoutée par
+// ensureTable vaut 0 sur les lignes existantes tant qu'elles ne sont pas recollectées
+// (collecte interrompue après l'étape Schéma). Le tableau de bord ne lit les compteurs
+// V1.2 que sur des lignes marquées, jamais ces 0.
+const SCHEMA_V = 12;
 const COMPTEURS_V12 = ['s_rech_multi', 's_filtre', 's_rech_sans_filtre', 's_email', 's_site', 's_erreur', 's_sortie_urgence', 's_sortie_alv'];
 // Sessions par type de violence filtré (une session qui filtre deux fois le même type compte une fois).
 // Les identifiants Grist n'admettent pas le tiret : `violences-conjugales` → `s_f_violences_conjugales`.
@@ -128,6 +133,7 @@ const SESSIONS_COLS = [
   // V1.2 : compteurs de sessions ajoutés en fin de table (ensureTable n'ajoute que les manquants).
   ...COMPTEURS_V12.map((id) => ({ id, type: 'Int' })),
   ...TYPES_FILTRE_LISTE.map((t) => ({ id: colFiltre(t), type: 'Int' })),
+  { id: 'schema_v', type: 'Int' },
 ];
 const EVENTS_COLS = [
   { id: 'event_id', type: 'Text' }, { id: 'day', type: 'Text' }, { id: 'date', type: 'Date' }, { id: 'device', type: 'Text' },
@@ -290,7 +296,7 @@ function build(visits) {
   for (const s of sess.values()) {
     days.add(s.day);
     const part_alv = s.visites ? Math.round((100 * s.alv) / s.visites * 10) / 10 : 0;
-    sessions.push({ sess_id: `${s.day}|${s.dev}`, day: s.day, date: dayTs(s.day), device: s.dev, ...Object.fromEntries(COMPTEURS.map((c) => [c, s[c]])), part_alv_pct: part_alv });
+    sessions.push({ sess_id: `${s.day}|${s.dev}`, day: s.day, date: dayTs(s.day), device: s.dev, ...Object.fromEntries(COMPTEURS.map((c) => [c, s[c]])), part_alv_pct: part_alv, schema_v: SCHEMA_V });
     indic.push({ ind_id: `${s.day}|${s.dev}`, day: s.day, date: dayTs(s.day), device: s.dev });
   }
   for (const [k, count] of evAgg) { const [day, dev, category, action, name] = k.split('|'); events.push({ event_id: k, day, date: dayTs(day), device: dev, category, action, name, count }); }
@@ -302,7 +308,7 @@ function build(visits) {
     const vt = rows.reduce((a, r) => a + r.visites, 0);
     const sum = (f) => rows.reduce((a, r) => a + r[f], 0);
     const alvw = rows.reduce((a, r) => a + r.part_alv_pct * r.visites, 0);
-    sessions.push({ sess_id: `${day}|tous`, day, date: dayTs(day), device: 'tous', ...Object.fromEntries(COMPTEURS.map((c) => [c, sum(c)])), part_alv_pct: vt ? Math.round(alvw / vt * 10) / 10 : 0 });
+    sessions.push({ sess_id: `${day}|tous`, day, date: dayTs(day), device: 'tous', ...Object.fromEntries(COMPTEURS.map((c) => [c, sum(c)])), part_alv_pct: vt ? Math.round(alvw / vt * 10) / 10 : 0, schema_v: SCHEMA_V });
     indic.push({ ind_id: `${day}|tous`, day, date: dayTs(day), device: 'tous' });
     // Events 'tous' = somme par (cat,action,name)
     const agg = Object.create(null);

@@ -65,7 +65,8 @@ async function ouvrir(data, { grist } = {}) {
 const COLS = ['visites', 's_recherche', 's_resultats', 's_contact', 's_tel', 's_copie', 's_rech_multi', 's_filtre', 's_rech_sans_filtre',
   's_email', 's_site', 's_erreur', 's_sortie_urgence', 's_sortie_alv',
   's_f_violences_conjugales', 's_f_violences_sexuelles', 's_f_mutilations_sexuelles', 's_f_prostitution', 's_f_mariages_forces', 's_f_harcelement_sexuel'];
-const sess = (day, champs = {}, device = 'tous') => ({ day, device, ...Object.fromEntries(COLS.map((c) => [c, 0])), ...champs });
+// Lignes écrites par l'ETL V1.2 : marquées schema_v = 12.
+const sess = (day, champs = {}, device = 'tous') => ({ day, device, schema_v: 12, ...Object.fromEntries(COLS.map((c) => [c, 0])), ...champs });
 const evt = (day, category, action, name, count, device = 'tous') => ({ day, device, category, action, name, count });
 const meta = (ext = '2026-12-31') => ({ extracted_at: `${ext}T06:00:00Z`, source: 'Matomo réel, site 170' });
 const tables = (s, e = [], ext) => ({ sess: s, evt: e, modes: [], meta: meta(ext) });
@@ -212,6 +213,56 @@ const N = (j) => `2026-11-${String(j).padStart(2, '0')}`; // jours après la rec
   const grist = { ready() {}, onRecords() {}, docApi: { fetchTable: (t) => T[t] ? Promise.resolve(T[t]) : Promise.reject(new Error(`Table not found "${t}"`)) } };
   const { els } = await ouvrir(null, { grist });
   verifier('Extractions absente : la page est rendue', !els.main.innerHTML.includes('Données indisponibles') && els.main.innerHTML.includes('Indicateurs principaux'), els.main.innerHTML);
+}
+
+// --- Colonnes V1.2 présentes mais pas encore remplies (collecte interrompue) ----------
+{
+  // ensureTable a ajouté les colonnes (0 par défaut dans Grist), mais aucune ligne n'a été recollectée.
+  const sansMarque = (day, champs) => { const r = sess(day, champs); delete r.schema_v; return r; };
+  const { onglet } = await ouvrir(tables([sansMarque(N(11), { visites: 200, s_recherche: 120 })], [evt(N(11), 'erreur', '404', '', 12)]));
+  const p = texte(onglet('synthese'));
+  verifier('colonnes à 0 non marquées : erreur non chiffrée', p.includes('Sessions touchées par une erreur – –'), p);
+  verifier('colonnes à 0 non marquées : filtres non chiffrés', !texte(onglet('utilise')).includes('Cherchent et filtrent'));
+}
+{
+  // Fenêtre mixte : un jour recollecté, un jour pas encore.
+  const vieux = sess(N(12), { visites: 100, s_recherche: 60, s_rech_sans_filtre: 0, s_erreur: 0 }); delete vieux.schema_v;
+  const neuf = sess(N(13), { visites: 100, s_recherche: 60, s_rech_sans_filtre: 54, s_erreur: 3 });
+  const { onglet } = await ouvrir(tables([vieux, neuf]));
+  const p = texte(onglet('synthese'));
+  verifier('fenêtre mixte : erreur non chiffrée sur une base qui inclut un jour non mesuré', p.includes('Sessions touchées par une erreur – –'), p);
+  const j = texte(onglet('synthese', { per: 'perso', du: N(13), au: N(13) }));
+  verifier('fenêtre mixte : le jour recollecté seul est chiffré (3 %)', j.includes('3,0 % 3'), j);
+}
+{
+  // Période précédente non marquée : pas de tendance inventée contre un 0.
+  const s = [...Array.from({ length: 7 }, (_, i) => { const r = sess(N(i + 1), { visites: 100 }); delete r.schema_v; return r; }),
+    ...Array.from({ length: 7 }, (_, i) => sess(N(i + 8), { visites: 100, s_erreur: 5 }))];
+  const p = texte((await ouvrir(tables(s, [], N(15)))).onglet('synthese', { per: '7' }));
+  verifier('comparaison : pas de hausse inventée contre une période non mesurée', /Sessions touchées par une erreur 5,0 % 35 [^▲]*?– vs/.test(p), p.slice(0, 300));
+}
+
+// --- Numéros d'urgence : un numéro, une ligne ------------------------------------------
+{
+  const s = [sess(N(14), { visites: 40, s_sortie_urgence: 6 })];
+  const u = texte((await ouvrir(tables(s, [evt(N(14), 'aide', 'clic_telephone', '114', 2), evt(N(14), 'aide', 'clic_sms', '114', 4)]))).onglet('utile'));
+  verifier('urgences : le 114 fusionné sur une ligne (6 clics)', (u.match(/114 \(SMS\)/g) || []).length === 1 && u.includes('114 (SMS) 100,0 % 6'), u);
+}
+
+// --- Porte : chaque event du plan l'ouvre seul, dès le 30/10 ---------------------------
+for (const [nom, e, onglet0, attendu] of [
+  ['retour ALV seul', evt('2026-10-30', 'navigation', 'retour_alv', '', 1), 'utile', 'mesuré depuis le 30/10'],
+  ['réussite géoloc seule', evt('2026-10-30', 'recherche', 'geoloc_reussite', '', 1), 'utilisable', 'mesuré depuis le 30/10'],
+]) {
+  const s = [sess('2026-10-29', { visites: 10 }), sess('2026-10-30', { visites: 10, s_sortie_alv: 1 })];
+  const h = texte((await ouvrir(tables(s, [e]))).onglet(onglet0));
+  verifier(`porte : ${nom} le 30/10 ouvre la mesure ce jour-là`, h.includes(attendu), h.slice(0, 400));
+}
+
+// --- Tables manquantes hors Grist : la page s'affiche quand même ---------------------
+{
+  const { els } = await ouvrir({ sess: [sess(N(10), { visites: 20, s_contact: 2 })], meta: meta() });
+  verifier('Events et Modes absents : la page est rendue', els.main.innerHTML.includes('Indicateurs principaux'), els.main.innerHTML.slice(0, 200));
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
