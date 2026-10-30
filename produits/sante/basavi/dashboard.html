@@ -315,7 +315,7 @@ function utilise(M, P) {
   <div class="kv" style="margin-top:10px"><div><div class="big">${pct(taux(M.rechSansFiltre, M.rech))}<span class="nb">${int(M.rechSansFiltre)} sur ${int(M.rech)}</span></div><div class="hint">${tip('des sessions qui cherchent ne filtrent pas', 'Part des sessions qui lancent une recherche sans jamais appliquer de filtre.')}</div></div></div>` : '<p class="empty">Aucune donnée sur la période.</p>'}
   <div class="grid2" style="margin-top:14px">
     <div class="box"><h3>${tip('Filtres appliqués', 'Part des sessions qui filtrent ayant appliqué ce type. Une session peut en appliquer plusieurs : le total dépasse 100 %.')} <small>: parmi les ${int(M.filtre)} sessions qui appliquent un filtre, avec ou sans recherche</small></h3>
-      ${M.filtre == null ? '<p class="empty">Non mesuré dans ce document.</p>' : barres(M.filtresSess.filter((i) => i.x > 0), M.filtre)}</div>
+      ${!M.mesure ? '<p class="empty">Aucune donnée sur la période.</p>' : M.filtre == null ? '<p class="empty">Collecte V1.2 pas encore passée sur la période.</p>' : barres(M.filtresSess.filter((i) => i.x > 0), M.filtre)}</div>
     <div class="box"><h3>${tip('Recherches lancées', 'Nombre de recherches, toutes sessions confondues : une session peut en lancer plusieurs.')} <small>: ${plage(M.f)}</small></h3>
       <div class="kv"><div><div class="big">${int(M.recherches)}</div><div class="hint">recherches, par ${int(M.rech)} sessions</div></div><div class="trend">${P ? trendN(M.recherches, P.recherches) : sansComp()}</div></div>
       ${courbe(serieJour(M.f, (x) => x.recherches), int, 0.5, true)}</div>
@@ -324,7 +324,8 @@ function utilise(M, P) {
 function sorties(f) {
   const x = depuis(f, DEBUT_SORTIES), X = x && mesures(x.f);
   const h = `<h2>${tip('Portes de sortie', 'Chaque session compte dans une seule sortie, la première atteinte dans cet ordre : contact avec une association, numéro d’urgence, retour vers ALV.')} <small>: en sessions</small>${x ? depuisTxt(x) : ''}</h2>`;
-  if (!x || X.sortUrg == null || X.sortAlv == null) return h + PAS_ENCORE('Numéros d’urgence et retour vers ALV');
+  if (!x) return h + PAS_ENCORE('Numéros d’urgence et retour vers ALV');
+  if (X.sortUrg == null || X.sortAlv == null) return h + '<p class="pend">Des clics sont reçus, mais la collecte V1.2 n’est pas encore passée sur tous les jours de la période.</p>';
   const O = X, sans = Math.max(0, O.V - O.cont - O.sortUrg - O.sortAlv), totU = O.urgences.reduce((a, i) => a + i.x, 0);
   return h + barres([{ n: 'Contact avec une association', x: O.cont }, { n: 'Numéro d’urgence', x: O.sortUrg, tip: 'Clic sur le 3919, le 17, le 112 ou le 114, sans contact avec une association.' }, { n: 'Retour vers ALV', x: O.sortAlv, tip: 'Clic sur le lien vers arretonslesviolences.gouv.fr, sans contact ni numéro d’urgence.' }, { n: 'Sans sortie identifiée', x: sans, gris: true, tip: 'Session sans contact, sans numéro d’urgence et sans retour vers ALV.' }], O.V, { echelle: O.V })
     + `<div class="box" style="margin-top:12px"><h3>Numéros d’urgence <small>: ${int(totU)} clics</small></h3>${barres(O.urgences, totU)}</div>`;

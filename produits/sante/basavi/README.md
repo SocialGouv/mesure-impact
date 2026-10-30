@@ -59,7 +59,12 @@ sont calculés qu'à partir du premier jour où leurs events apparaissent dans `
 le tableau affiche un message d'attente, jamais un zéro.
 
 Chaque collecte repart de `COLLECT_FROM` : la première collecte après le déploiement remplit
-donc les nouvelles colonnes sur tout l'historique.
+donc les nouvelles colonnes sur tout l'historique, et marque chaque ligne (`schema_v = 12`).
+Le tableau ne chiffre un indicateur V1.2 que si toutes les lignes de la période sont marquées.
+
+L'upsert ne supprime rien : une ligne écrite par un autre script (ancien ETL local) ou jamais
+réécrite reste dans le doc. Le remède est une collecte avec `--reset`, une fois cet autre
+écrivain coupé.
 
 Trois points de vigilance :
 

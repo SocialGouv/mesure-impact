@@ -201,7 +201,7 @@ const N = (j) => `2026-11-${String(j).padStart(2, '0')}`; // jours après la rec
   const p = texte(onglet('synthese'));
   verifier('ancien schéma : tuile erreur à –, pas 0,0 %', p.includes('Sessions touchées par une erreur – –') && p.includes('12 erreurs'), p);
   verifier('ancien schéma : 1 ou plusieurs recherches non chiffrés', p.includes('après 1 recherche –') && p.includes('après plusieurs –'), p);
-  verifier('ancien schéma : sorties en attente, pas 0 %', onglet('utile').includes('La mesure démarre'));
+  verifier('ancien schéma : sorties en attente, pas 0 %', onglet('utile').includes('collecte V1.2 n’est pas encore passée') && !texte(onglet('utile')).includes('Numéro d’urgence 0,0 %'));
   verifier('ancien schéma : usage des filtres non chiffré', !texte(onglet('utilise')).includes('Ne cherchent pas'));
 }
 
@@ -263,6 +263,16 @@ for (const [nom, e, onglet0, attendu] of [
 {
   const { els } = await ouvrir({ sess: [sess(N(10), { visites: 20, s_contact: 2 })], meta: meta() });
   verifier('Events et Modes absents : la page est rendue', els.main.innerHTML.includes('Indicateurs principaux'), els.main.innerHTML.slice(0, 200));
+}
+
+// --- Textes cohérents : porte ouverte mais lignes non marquées, fenêtre vide -----------
+{
+  const r = sess(N(3), { visites: 50 }); delete r.schema_v;
+  const u = texte((await ouvrir(tables([r], [evt(N(3), 'aide', 'clic_telephone', '3919', 5)]))).onglet('utile'));
+  verifier('porte ouverte, lignes non marquées : pas de « aucun event reçu »', !u.includes('aucun event reçu') && u.includes('collecte V1.2 n’est pas encore passée'), u);
+  const { onglet } = await ouvrir(tables([sess(N(4), { visites: 30 }, 'mobile')]));
+  const f = texte(onglet('utilise', { dev: 'desktop' }));
+  verifier('fenêtre vide : « Aucune donnée », pas « pas encore passée »', f.includes('Aucune donnée sur la période') && !f.includes('pas encore passée'), f);
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
