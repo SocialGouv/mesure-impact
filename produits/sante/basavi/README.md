@@ -1,8 +1,9 @@
 # BASAVI — tableau de bord d'usage
 
 Annuaire des structures d'aide aux femmes victimes de violences (département Santé).
-Ce tableau de bord mesure l'usage réel : recherches lancées, mises en relation
-(clic téléphone, copie d'adresse), abandon, par jour et par device.
+Ce tableau de bord mesure l'usage réel : recherches lancées, filtres, mises en relation
+par canal, portes de sortie (contact, numéro d'urgence, retour vers ALV), erreurs et échecs
+de géolocalisation, par jour et par device.
 
 ## La chaîne
 
@@ -48,8 +49,17 @@ doc Grist « Preprod - BASAVI ».
 L'accès Grist passe par un **compte de service** (décision 0003), pas par une clé personnelle.
 Il a l'accès éditeur au doc, vérifié en lecture et en écriture avant scellement.
 
-Front en préprod, itéré au fil des retours de l'équipe produit. `dashboard.html` est aligné sur
-la version servie aujourd'hui dans le doc Grist.
+Front au gabarit commun DNUM, **V1.2** (30/10/2026), validée sur maquette avant / après.
+Elle ajoute des compteurs de sessions à la table `Sessions` (voir `COMPTEURS_V12` et
+`s_f_<type>` dans `etl.mjs`) et lit les events du tag de Vincent du 30/10 (`aide`,
+`navigation`, `pagination`, `geoloc_reussite`, `geoloc_echec`).
+
+Un tag récent n'a pas d'historique : les portes de sortie et l'échec de géolocalisation ne
+sont calculés qu'à partir du premier jour où leurs events apparaissent dans `Events`. Avant,
+le tableau affiche un message d'attente, jamais un zéro.
+
+Chaque collecte repart de `COLLECT_FROM` : la première collecte après le déploiement remplit
+donc les nouvelles colonnes sur tout l'historique.
 
 Trois points de vigilance :
 

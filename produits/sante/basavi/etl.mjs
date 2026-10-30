@@ -105,10 +105,29 @@ async function mapi(method, extra = {}) {
 }
 
 // --- Schéma (miroir EXACT du doc de démo) ---
+// Compteurs de sessions de la V1.2. Chaque session compte au plus une fois par colonne.
+//   s_rech_multi        : au moins 2 recherches lancées
+//   s_filtre            : au moins un filtre appliqué
+//   s_rech_sans_filtre  : au moins une recherche, aucun filtre
+//   s_email, s_site     : contact par ce canal (s_tel et s_copie existent déjà)
+//   s_erreur            : au moins une page 404 ou 500
+//   s_sortie_urgence    : sans contact asso, avec un clic sur un numéro d'urgence
+//   s_sortie_alv        : sans contact asso ni numéro d'urgence, avec un retour vers ALV
+// Les deux sorties sont exclusives entre elles et avec s_contact : l'ordre de priorité
+// est contact, puis urgence, puis ALV. Le reste est l'abandon.
+const COMPTEURS_V12 = ['s_rech_multi', 's_filtre', 's_rech_sans_filtre', 's_email', 's_site', 's_erreur', 's_sortie_urgence', 's_sortie_alv'];
+// Sessions par type de violence filtré (une session qui filtre deux fois le même type compte une fois).
+// Les identifiants Grist n'admettent pas le tiret : `violences-conjugales` → `s_f_violences_conjugales`.
+const colFiltre = (t) => `s_f_${t.replace(/-/g, '_')}`;
+const TYPES_FILTRE_LISTE = ['violences-conjugales', 'violences-sexuelles', 'mutilations-sexuelles', 'prostitution', 'mariages-forces', 'harcelement-sexuel'];
+const COMPTEURS = ['visites', 's_recherche', 's_resultats', 's_contact', 's_tel', 's_copie', ...COMPTEURS_V12, ...TYPES_FILTRE_LISTE.map(colFiltre)];
 const SESSIONS_COLS = [
   { id: 'sess_id', type: 'Text' }, { id: 'day', type: 'Text' }, { id: 'date', type: 'Date' }, { id: 'device', type: 'Text' },
   { id: 'visites', type: 'Int' }, { id: 's_recherche', type: 'Int' }, { id: 's_resultats', type: 'Int' },
   { id: 's_contact', type: 'Int' }, { id: 's_tel', type: 'Int' }, { id: 's_copie', type: 'Int' }, { id: 'part_alv_pct', type: 'Numeric' },
+  // V1.2 : compteurs de sessions ajoutés en fin de table (ensureTable n'ajoute que les manquants).
+  ...COMPTEURS_V12.map((id) => ({ id, type: 'Int' })),
+  ...TYPES_FILTRE_LISTE.map((t) => ({ id: colFiltre(t), type: 'Int' })),
 ];
 const EVENTS_COLS = [
   { id: 'event_id', type: 'Text' }, { id: 'day', type: 'Text' }, { id: 'date', type: 'Date' }, { id: 'device', type: 'Text' },
@@ -145,13 +164,18 @@ const EXTRACT_COLS = [
 // des lignes Events reste illimitée, et surtout un `|` dans l'action décale le
 // `split('|')` de la clé d'agrégat et réinjecte du texte choisi dans la colonne
 // `name`, par-dessus l'allowlist. Aucune valeur retenue ne contient de `|`.
-const CATEGORIES = new Set(['recherche', 'contact', 'erreur']);
-const ACTIONS = new Set(['lancer', 'filtrer', 'changer_vue', 'ouvrir_cluster', 'consulter_structure', 'clic_telephone', 'clic_email', 'copie_adresse', 'clic_site', '404', '500']);
+// V1.2 (tag de Vincent, 30/10) : aide (numéros d'urgence), navigation (retour vers ALV),
+// pagination, et l'issue de la géolocalisation.
+const CATEGORIES = new Set(['recherche', 'contact', 'erreur', 'aide', 'navigation', 'pagination']);
+const ACTIONS = new Set(['lancer', 'filtrer', 'changer_vue', 'ouvrir_cluster', 'consulter_structure', 'clic_telephone', 'clic_email', 'copie_adresse', 'clic_site', '404', '500',
+  'clic_sms', 'retour_alv', 'page', 'geoloc_reussite', 'geoloc_echec']);
+// Seul nom gardé hors `recherche` : le numéro d'urgence cliqué (4 valeurs connues).
+const NUMEROS_URGENCE = new Set(['3919', '17', '112', '114']);
 const MODES_ENTREE = new Set(['saisie', 'geoloc', 'ville']);
 const VUES = new Set(['carte', 'liste']);
 // Les 4 funnels du tableau de bord : les 3 modes de lancement + la carte ouverte d'emblée.
 const MODES_FUNNEL = new Set([...MODES_ENTREE, 'carte']);
-const TYPES_FILTRE = new Set(['violences-conjugales', 'violences-sexuelles', 'mutilations-sexuelles', 'prostitution', 'mariages-forces', 'harcelement-sexuel']);
+const TYPES_FILTRE = new Set(TYPES_FILTRE_LISTE);
 const RECHERCHE_NAMES = new Set([
   ...[...MODES_ENTREE].map((n) => `lancer/${n}`),
   ...[...TYPES_FILTRE].map((n) => `filtrer/${n}`),
@@ -177,7 +201,7 @@ function build(visits) {
   const evAgg = new Map();  // day|dev|cat|action|name -> count
   const modeAgg = new Map();// day|dev|mode -> funnel
 
-  const getSess = (day, dev) => { const k = `${day}|${dev}`; if (!sess.has(k)) sess.set(k, { day, dev, visites: 0, s_recherche: 0, s_resultats: 0, s_contact: 0, s_tel: 0, s_copie: 0, alv: 0 }); return sess.get(k); };
+  const getSess = (day, dev) => { const k = `${day}|${dev}`; if (!sess.has(k)) sess.set(k, { day, dev, ...Object.fromEntries(COMPTEURS.map((c) => [c, 0])), alv: 0 }); return sess.get(k); };
   const getMode = (day, dev, mode) => { const k = `${day}|${dev}|${mode}`; if (!modeAgg.has(k)) modeAgg.set(k, { day, dev, mode, s_arrivee: 0, s_recherche: 0, s_resultats: 0, s_contact: 0 }); return modeAgg.get(k); };
 
   // Exclusion des visites de simulation injectées le 06/08 via l'API de tracking (visitorId `ba5a51*`).
@@ -201,6 +225,8 @@ function build(visits) {
     // AVANT tout lancement fait de la carte le mode d'entrée : les 4 modes restent
     // exclusifs, une visite n'est comptée que dans un seul funnel.
     let searched = false, contacted = false, tel = false, copie = false, reached = false, entryMode = null, consulte = false, contactCarte = false;
+    const filtresVus = new Set();
+    let lancers = 0, filtre = false, email = false, site = false, erreur = false, urgence = false, retourAlv = false;
     for (const a of acts) {
       if (a.type === 'action' && /\/search/.test(a.url || '')) reached = true;
       if (a.type !== 'event') continue;
@@ -213,7 +239,9 @@ function build(visits) {
       // ouvrir_cluster n'a pas de nom attendu : un nom éventuel est écarté, pas signalé.
       const sansNom = act === 'consulter_structure' || act === 'ouvrir_cluster';
       // Action déjà signalée hors liste : son nom n'ajoute rien au canari.
-      const evName = cat === 'recherche' && !sansNom ? (RECHERCHE_NAMES.has(`${act}/${name}`) ? name : (!name ? '' : act === 'autre' ? 'autre' : borner(`${act}/${name}`, RECHERCHE_NAMES, 'nom'))) : '';
+      // aide : le nom est le numéro cliqué, borné aux 4 numéros affichés.
+      const evName = cat === 'recherche' && !sansNom ? (RECHERCHE_NAMES.has(`${act}/${name}`) ? name : (!name ? '' : act === 'autre' ? 'autre' : borner(`${act}/${name}`, RECHERCHE_NAMES, 'nom')))
+        : cat === 'aide' && act !== 'autre' ? (!name ? '' : borner(name, NUMEROS_URGENCE, 'numero')) : '';
       const ek = `${day}|${dev}|${cat}|${act}|${evName}`; evAgg.set(ek, (evAgg.get(ek) || 0) + 1);
       if (cat === 'recherche' && act === 'lancer') { searched = true; if (!entryMode && MODES_ENTREE.has(name)) entryMode = name; reached = true; }
       if (cat === 'recherche' && act === 'filtrer') reached = true;
@@ -223,7 +251,14 @@ function build(visits) {
       if (cat === 'recherche' && act === 'consulter_structure') { reached = true; if (entryMode === 'carte') consulte = true; }
       // Contact attribué à la carte seulement s'il suit une structure consultée depuis la carte.
       if (cat === 'contact' && consulte) contactCarte = true;
-      if (cat === 'contact') { contacted = true; if (act === 'clic_telephone') tel = true; if (act === 'copie_adresse') copie = true; }
+      if (cat === 'contact') { contacted = true; if (act === 'clic_telephone') tel = true; if (act === 'copie_adresse') copie = true; if (act === 'clic_email') email = true; if (act === 'clic_site') site = true; }
+      if (cat === 'recherche' && act === 'lancer') lancers += 1;
+      if (cat === 'recherche' && act === 'filtrer') { filtre = true; if (TYPES_FILTRE.has(name)) filtresVus.add(name); }
+      if (cat === 'erreur' && (act === '404' || act === '500')) erreur = true;
+      // Le numéro d'urgence compte par l'action, pas par le nom : un nom hors liste
+      // reste un clic réel sur le bandeau d'aide.
+      if (cat === 'aide' && (act === 'clic_telephone' || act === 'clic_sms')) urgence = true;
+      if (cat === 'navigation' && act === 'retour_alv') retourAlv = true;
     }
     const s = getSess(day, dev);
     s.visites += 1;
@@ -232,6 +267,15 @@ function build(visits) {
     if (contacted) s.s_contact += 1;
     if (tel) s.s_tel += 1;
     if (copie) s.s_copie += 1;
+    if (lancers >= 2) s.s_rech_multi += 1;
+    if (filtre) s.s_filtre += 1;
+    if (searched && !filtre) s.s_rech_sans_filtre += 1;
+    if (email) s.s_email += 1;
+    if (site) s.s_site += 1;
+    if (erreur) s.s_erreur += 1;
+    for (const t of filtresVus) s[colFiltre(t)] += 1;
+    if (!contacted && urgence) s.s_sortie_urgence += 1;
+    if (!contacted && !urgence && retourAlv) s.s_sortie_alv += 1;
     if (isALV(v)) s.alv += 1;
     // funnel par mode d'entrée (une visite = son 1er mode de lancement)
     // Mode `carte` : mêmes colonnes, étapes propres. s_recherche = vue carte ouverte,
@@ -246,7 +290,7 @@ function build(visits) {
   for (const s of sess.values()) {
     days.add(s.day);
     const part_alv = s.visites ? Math.round((100 * s.alv) / s.visites * 10) / 10 : 0;
-    sessions.push({ sess_id: `${s.day}|${s.dev}`, day: s.day, date: dayTs(s.day), device: s.dev, visites: s.visites, s_recherche: s.s_recherche, s_resultats: s.s_resultats, s_contact: s.s_contact, s_tel: s.s_tel, s_copie: s.s_copie, part_alv_pct: part_alv });
+    sessions.push({ sess_id: `${s.day}|${s.dev}`, day: s.day, date: dayTs(s.day), device: s.dev, ...Object.fromEntries(COMPTEURS.map((c) => [c, s[c]])), part_alv_pct: part_alv });
     indic.push({ ind_id: `${s.day}|${s.dev}`, day: s.day, date: dayTs(s.day), device: s.dev });
   }
   for (const [k, count] of evAgg) { const [day, dev, category, action, name] = k.split('|'); events.push({ event_id: k, day, date: dayTs(day), device: dev, category, action, name, count }); }
@@ -258,7 +302,7 @@ function build(visits) {
     const vt = rows.reduce((a, r) => a + r.visites, 0);
     const sum = (f) => rows.reduce((a, r) => a + r[f], 0);
     const alvw = rows.reduce((a, r) => a + r.part_alv_pct * r.visites, 0);
-    sessions.push({ sess_id: `${day}|tous`, day, date: dayTs(day), device: 'tous', visites: vt, s_recherche: sum('s_recherche'), s_resultats: sum('s_resultats'), s_contact: sum('s_contact'), s_tel: sum('s_tel'), s_copie: sum('s_copie'), part_alv_pct: vt ? Math.round(alvw / vt * 10) / 10 : 0 });
+    sessions.push({ sess_id: `${day}|tous`, day, date: dayTs(day), device: 'tous', ...Object.fromEntries(COMPTEURS.map((c) => [c, sum(c)])), part_alv_pct: vt ? Math.round(alvw / vt * 10) / 10 : 0 });
     indic.push({ ind_id: `${day}|tous`, day, date: dayTs(day), device: 'tous' });
     // Events 'tous' = somme par (cat,action,name)
     const agg = Object.create(null);
