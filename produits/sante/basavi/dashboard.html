@@ -2,581 +2,416 @@
 <html lang="fr">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BASAVI : mise en relation femme / association (proto V4)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BASAVI · tableau de bord V1.2</title>
+<!-- DSFR chargé pour la police Marianne uniquement -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@gouvfr/dsfr@1.12.1/dist/dsfr.min.css">
-<!-- API widget Grist : window.grist quand embarqué dans un doc Grist (sinon absente → vide) -->
 <script src="https://grist.numerique.gouv.fr/grist-plugin-api.js"></script>
 <style>
-  :root{ --bf:#000091; --txt:#161616; --mut:#666; --line:#e5e5e5; --soft:#f5f5fe; --neutral:#555; --warn:#b34000;
-         --ok:#18753c; --ok-bg:#e3fbe3; --ko:#b34000; --ko-bg:#ffe9d9; --pend:#6a3d99; --pend-bg:#f3edfb; --pend-line:#d3c2ec; }
-  body{ margin:0; color:var(--txt); background:#fff; font-family:"Marianne",system-ui,sans-serif; }
-  .toolbar{ display:flex; gap:1rem; align-items:center; flex-wrap:wrap; padding:.7rem 1.1rem; background:var(--soft); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
-  .toolbar .grp{ display:flex; align-items:center; gap:.4rem; }
-  .toolbar label{ font-size:.78rem; color:#444; font-weight:600; }
-  .toolbar select{ padding:.36rem .55rem; border-radius:4px; border:1px solid var(--bf); font-size:.84rem; background:#fff; color:var(--txt); font-weight:600; cursor:pointer; }
-  .toolbar input.dt{ padding:.3rem .45rem; border-radius:4px; border:1px solid var(--bf); font-size:.82rem; background:#fff; color:var(--txt); font-weight:600; font-family:inherit; }
-  .toolbar .sp{ flex:1; }
-  .toolbar .state{ font-size:.74rem; color:var(--mut); } .toolbar .state b{ color:var(--bf); }
-  .toolbar .src{ font-size:.74rem; color:var(--ok); font-weight:600; } .toolbar .src.sample{ color:var(--warn); }
-  .volbar{ display:flex; align-items:center; gap:.5rem; padding:.45rem 1.1rem; background:#fff; border-bottom:1px solid var(--line); font-size:.76rem; color:#3a3a3a; }
-  .volbar .dot{ width:.5rem; height:.5rem; border-radius:50%; background:var(--warn); flex-shrink:0; } .volbar b{ color:var(--txt); }
-  .seg{ display:inline-flex; border:1px solid var(--bf); border-radius:6px; overflow:hidden; }
-  .seg button{ border:0; background:#fff; color:var(--bf); padding:.3rem .7rem; font-size:.8rem; font-weight:600; cursor:pointer; }
-  .seg button.on{ background:var(--bf); color:#fff; }
-  .head2{ display:flex; align-items:flex-start; gap:1rem; flex-wrap:wrap; padding:1rem 1.1rem .2rem; }
-  .head2 h1{ font-size:1.25rem; margin:.1rem 0; color:var(--bf); }
-  .head2 .sub{ font-size:.84rem; color:var(--mut); max-width:720px; }
-  .wrap{ padding:0 1.1rem 3rem; }
-  .fr-tabs{ margin-top:.6rem; }
-  h2.sec{ font-size:1.02rem; color:var(--bf); margin:1.5rem 0 .6rem; border-bottom:2px solid var(--soft); padding-bottom:.3rem; }
-  h2.sec small{ font-weight:400; color:var(--mut); font-size:.8rem; }
-  .pilier{ display:grid; grid-template-columns:1fr 1fr; gap:1.1rem; align-items:start; }
-  @media(max-width:880px){ .pilier{ grid-template-columns:1fr; } }
-  .card{ border:1px solid var(--line); border-radius:8px; background:#fff; overflow:hidden; }
-  .card .ph{ display:flex; align-items:center; gap:.5rem; padding:.5rem .8rem; background:var(--soft); border-bottom:1px solid var(--line); }
-  .card .ph .role{ font-weight:700; font-size:.8rem; color:var(--bf); }
-  .card .pb{ display:grid; grid-template-columns:1.4fr 1fr; }
-  @media(max-width:520px){ .card .pb{ grid-template-columns:1fr; } }
-  .coeur{ padding:.85rem 1rem; }
-  .ctrl{ padding:.85rem 1rem; border-left:1px solid var(--line); background:#fcfcff; }
-  @media(max-width:520px){ .ctrl{ border-left:0; border-top:1px solid var(--line); } }
-  .kpi-lbl{ font-size:.72rem; color:var(--mut); text-transform:uppercase; letter-spacing:.02em; }
-  .kpi-cap{ font-size:.78rem; color:var(--mut); margin-bottom:.1rem; }
-  .kpi-cap.def{ border-bottom:1px dotted #b9b9c9; cursor:help; display:inline-block; }
-  .kpi-big{ font-size:2rem; font-weight:700; color:var(--bf); line-height:1.1; margin:.12rem 0; }
-  .kpi-big.ok{ color:var(--ok); } .kpi-big.ko{ color:var(--ko); }
-  .kpi-mid{ font-size:1.4rem; font-weight:700; color:var(--txt); line-height:1.1; margin:.1rem 0; }
-  .kpi-mid.ok{ color:var(--ok); } .kpi-mid.ko{ color:var(--ko); }
-  .kpi-note{ font-size:.76rem; color:var(--mut); }
-  .trend{ font-size:.78rem; font-weight:600; color:var(--neutral); display:inline-flex; align-items:center; gap:.25rem; }
-  .trend small{ font-weight:400; color:var(--mut); }
-  .rc{ display:inline-flex; align-items:center; gap:.3rem; font-size:.7rem; font-weight:700; padding:.12rem .45rem; border-radius:4px; margin-top:.28rem; }
-  .rc.ok{ background:var(--ok-bg); color:var(--ok); } .rc.ko{ background:var(--ko-bg); color:var(--ko); }
-  .chartcard{ border-top:1px solid var(--line); padding:.6rem .9rem .7rem; background:#fcfcff; }
-  .chartcard .ct{ font-size:.74rem; color:var(--mut); font-weight:600; margin-bottom:.25rem; }
-  svg.chart{ width:100%; height:auto; display:block; }
-  .phares{ display:grid; grid-template-columns:repeat(4,1fr); gap:.9rem; }
-  @media(max-width:880px){ .phares{ grid-template-columns:repeat(2,1fr);} }
-  @media(max-width:520px){ .phares{ grid-template-columns:1fr;} }
-  .phare{ border:1px solid var(--line); border-top:3px solid var(--bf); border-radius:6px; background:#fff; padding:.8rem .9rem; }
-  .phare.value1{ border-top-width:5px; box-shadow:0 0 0 1px var(--bf) inset; }
-  .phare.pending{ border-top-color:var(--pend); background:var(--pend-bg); }
-  .phare .pil{ font-size:.7rem; font-weight:700; color:var(--bf); text-transform:uppercase; letter-spacing:.03em; }
-  .phare .v{ font-size:1.6rem; font-weight:700; color:var(--bf); margin:.18rem 0 .04rem; }
-  .phare .v.ok{ color:var(--ok); } .phare .v.ko{ color:var(--ko); } .phare .v.pend{ color:var(--pend); font-size:1.15rem; }
-  .phare .cap{ font-size:.76rem; color:var(--mut); }
-  .phare .tag{ display:inline-block; font-size:.62rem; font-weight:700; color:#555; background:#ececf5; border:1px solid #dcdcf0; border-radius:4px; padding:.02rem .32rem; margin-top:.3rem; }
-  /* funnel */
-  .funnel{ display:flex; flex-direction:column; gap:.4rem; margin:.5rem 0 .3rem; }
-  .step{ display:flex; align-items:center; gap:.7rem; }
-  .step .nm{ width:180px; font-size:.83rem; font-weight:600; flex-shrink:0; }
-  .step .bw{ flex:1; background:#eee; border-radius:4px; overflow:hidden; height:24px; }
-  .step .bar{ height:100%; background:var(--bf); display:flex; align-items:center; justify-content:flex-end; padding-right:.5rem; color:#fff; font-size:.77rem; font-weight:700; white-space:nowrap; }
-  .conv{ font-size:.78rem; color:var(--mut); margin-left:180px; } .conv b{ color:var(--txt); }
-  .conv.big{ color:var(--warn); font-weight:600; }
-  /* barlist */
-  .bl{ display:flex; flex-direction:column; gap:.4rem; margin-top:.3rem; }
-  .bl-row{ display:grid; grid-template-columns:170px 1fr 44px; align-items:center; gap:.6rem; font-size:.82rem; }
-  .bl-tr{ background:#eee; border-radius:3px; height:14px; overflow:hidden; display:block; }
-  .bl-tf{ display:block; height:100%; background:var(--bf); border-radius:3px; }
-  .bl-v{ text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
-  .explain{ font-size:.78rem; color:var(--mut); background:#f6f6f6; border-left:3px solid #ccc; padding:.5rem .7rem; border-radius:0 4px 4px 0; margin-top:.4rem; }
-  .defbox{ font-size:.72rem; color:var(--mut); background:#f6f6f6; border-left:3px solid #ccc; padding:.4rem .55rem; border-radius:0 4px 4px 0; margin-top:.45rem; }
-  .perim{ font-size:.72rem; color:var(--mut); margin-top:.4rem; } .perim b{ color:#444; }
-  .attente{ border:1px dashed var(--pend-line); border-radius:8px; background:var(--pend-bg); padding:.9rem 1rem; }
-  .attente .h{ font-weight:700; font-size:.85rem; color:var(--pend); } .attente .why{ font-size:.79rem; color:var(--mut); margin-top:.2rem; }
-  .src{ font-size:.72rem; color:#999; margin-top:.4rem; } .hint{ font-size:.74rem; color:var(--mut); }
-  .srcbadge{ display:inline-block; font-size:.64rem; font-weight:600; color:#555; background:#ececf5; border:1px solid #dcdcf0; border-radius:4px; padding:.03rem .35rem; vertical-align:middle; }
-  .segnote{ font-size:.74rem; color:var(--bf); background:var(--soft); border:1px solid #d9d9f5; border-radius:6px; padding:.35rem .6rem; margin:.2rem 0 .6rem; display:inline-block; }
+/* Gabarit DNUM (référence maquette BASAVI V8). V1.2 : portes de sortie, contact par canal, usage des filtres, erreurs et géolocalisation en sessions. */
+:root{ --bf:#000091; --bf-soft:#f5f5fe; --fg:#161616; --mut:#666; --line:#e5e5e5; --bg:#ffffff; --track:#eeeeee; --gris:#9a9aa8; }
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Marianne,Arial,sans-serif}
+header{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+header h1{margin:0;font-size:18px;color:var(--bf)}
+header p{margin:2px 0 0;color:var(--mut);font-size:13px}
+.tb{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:10px 16px;background:var(--bf-soft);border-bottom:1px solid var(--line);font-size:13px}
+.tb label{display:flex;gap:6px;align-items:center;color:#444}
+.tb select,.tb input[type=date]{font:inherit;font-weight:500;border:1px solid var(--bf);border-radius:4px;padding:2px 6px;background:#fff;color:var(--fg)}
+.seg{display:inline-flex;border:1px solid var(--bf);border-radius:4px;overflow:hidden}
+.seg button{font:inherit;font-size:13px;border:0;background:#fff;color:var(--bf);padding:2px 10px;cursor:pointer;font-weight:500}
+.seg button[aria-pressed="true"]{background:var(--bf);color:#fff}
+.src{display:flex;gap:8px;align-items:center;padding:8px 16px;font-size:12px;color:#3a3a3a;border-bottom:1px solid var(--line)}
+.src::before{content:'';width:8px;height:8px;border-radius:50%;background:#18753c;flex-shrink:0}
+.src b{color:var(--fg)}
+.tabs{display:flex;gap:2px;flex-wrap:wrap;padding:0 16px;border-bottom:1px solid var(--line);margin-top:8px}
+.tabs button{font:inherit;font-size:14px;font-weight:500;background:none;border:0;border-bottom:3px solid transparent;color:var(--mut);padding:8px 12px;cursor:pointer}
+.tabs button[aria-selected="true"]{color:var(--bf);border-bottom-color:var(--bf);font-weight:700}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--bf);outline-offset:2px}
+main{padding:4px 16px 28px}
+h2{font-size:16px;color:var(--bf);margin:22px 0 10px;padding-bottom:4px;border-bottom:2px solid var(--bf-soft)}
+h2 small{font-weight:400;color:var(--mut);font-size:13px}
+.intro{margin:16px 0 0;padding:10px 12px;background:var(--bf-soft);border-radius:6px;font-size:13px;color:#333;max-width:900px}
+.intro b{color:var(--bf)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.tile{border:1px solid var(--line);border-top:4px solid var(--bf);border-radius:6px;padding:10px 12px;min-width:0}
+.tile .pil{font-size:11px;font-weight:700;color:var(--bf);text-transform:uppercase;letter-spacing:.04em}
+.tile .lab{font-weight:700;font-size:13px;margin-top:2px}
+.tile .v{font-size:24px;font-weight:700;color:var(--bf);font-variant-numeric:tabular-nums;line-height:1.2;margin-top:4px}
+.tile .c{font-size:12px;color:var(--mut);line-height:1.35}
+.tile.wait{border-top-color:#6a3d99;background:#f3edfb}
+.tile.wait .pil,.tile.wait .v{color:#6a3d99} .tile.wait .v{font-size:15px}
+.trend{font-size:12px;font-weight:700;color:#555;margin-top:4px}
+.tip{border-bottom:1px dotted #8a8aa8;cursor:help}
+.tip::after{content:" ⓘ";font-size:.85em;color:#8a8aa8}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.box{border:1px solid var(--line);border-radius:6px;padding:10px 12px;min-width:0}
+.box h3{margin:0 0 6px;font-size:13px;color:var(--bf)}
+.box h3 small{font-weight:400;color:var(--mut)}
+.kv{display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;margin-bottom:6px}
+.kv .big{font-size:22px;font-weight:700;color:var(--bf);font-variant-numeric:tabular-nums}
+.kv .hint{font-size:12px;color:var(--mut)}
+.rows{display:flex;flex-direction:column;gap:5px}
+.row{display:grid;grid-template-columns:minmax(0,13rem) 1fr minmax(6rem,max-content);gap:8px;align-items:center}
+.row .n{font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row .t{background:var(--track);height:14px;border-radius:3px;overflow:hidden}
+.row .f{height:100%;background:var(--bf);display:block}
+.row.gris .f{background:var(--gris)} .row.gris .n{color:var(--mut)}
+.row .v{text-align:right;font-weight:700;font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.row.sub .n{padding-left:14px;font-weight:400}
+/* part en grand, nombre en petit et en gris */
+.nb{font-size:.85em;font-weight:400;color:var(--mut);margin-left:6px}
+.stack{display:flex;height:20px;border-radius:4px;overflow:hidden;margin:6px 0;background:var(--track)}
+.stack span{display:block;height:100%}
+.lg{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.pend{border:1px dashed #d3c2ec;background:#f3edfb;color:#6a3d99;border-radius:5px;padding:6px 10px;font-size:12px;margin-top:8px}
+table.tbl{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+table.tbl th{text-align:left;color:var(--mut);font-weight:500;padding:5px 8px;border-bottom:1px solid var(--line)}
+table.tbl td{padding:5px 8px;border-bottom:1px solid var(--line)}
+table.tbl td.r,table.tbl th.r{text-align:right}
+table.tbl tr.tot td{font-weight:700;border-top:2px solid var(--line)}
+table.tbl tr.gris td{color:var(--mut)}
+.note{font-size:12px;color:var(--mut);margin-top:6px}
+.empty{color:var(--mut);font-size:12px;font-style:italic}
+svg text{font-family:Marianne,Arial,sans-serif}
+dl.lire{display:grid;grid-template-columns:minmax(0,15rem) 1fr;gap:6px 16px;font-size:13px}
+dl.lire dt{font-weight:700} dl.lire dd{margin:0;color:#333}
+@media (max-width:600px){ dl.lire{grid-template-columns:1fr} .row{grid-template-columns:minmax(0,8rem) 1fr max-content} }
 </style>
 </head>
 <body>
-
-<div class="head2">
-  <div>
-    <h1>BASAVI : mettre en relation les femmes avec une association</h1>
-    <div class="sub">Tableau de bord de mesure d'impact du produit BASAVI.</div>
-  </div>
-  <p class="fr-badge fr-badge--sm fr-badge--info" style="margin-left:auto" id="badge">source Grist</p>
+<header>
+  <h1>BASAVI : mettre en relation les femmes avec une association</h1>
+  <p>Annuaire des associations d'aide aux femmes victimes de violences.</p>
+</header>
+<div class="tb" id="filters">
+  <label>Période <select id="f-per">
+    <option value="ouverture">Depuis l'ouverture (01/10)</option>
+    <option value="7">7 derniers jours</option>
+    <option value="30">30 derniers jours</option>
+    <option value="perso">Personnalisé</option>
+  </select></label>
+  <label>Du <input type="date" id="f-du"></label>
+  <label>au <input type="date" id="f-au"></label>
+  <span style="display:flex;gap:6px;align-items:center;color:#444">Appareil
+    <span class="seg" id="f-dev" role="group" aria-label="Appareil">
+      <button data-d="tous" aria-pressed="true">Tous</button><button data-d="mobile" aria-pressed="false">Mobile</button><button data-d="desktop" aria-pressed="false">Ordinateur</button>
+    </span></span>
 </div>
-
-<div class="toolbar">
-  <div class="grp"><label for="f-preset">Période</label>
-    <select id="f-preset" aria-label="Raccourci de période">
-      <option value="all" selected>Toute la période</option>
-      <option value="7">7 derniers jours</option>
-      <option value="30">30 derniers jours</option>
-      <option value="custom" hidden>Personnalisé</option>
-    </select>
-  </div>
-  <div class="grp"><label for="f-from">Du</label>
-    <input type="date" id="f-from" class="dt" aria-label="Date de début">
-    <label for="f-to">au</label>
-    <input type="date" id="f-to" class="dt" aria-label="Date de fin">
-  </div>
-  <div class="grp"><label>Segment</label>
-    <div class="seg" role="group" aria-label="Segment device">
-      <button data-seg="tous" class="on" onclick="setSeg('tous')">Tous</button>
-      <button data-seg="mobile" onclick="setSeg('mobile')">Mobile</button>
-      <button data-seg="desktop" onclick="setSeg('desktop')">Desktop</button>
-    </div>
-  </div>
-  <span class="sp"></span>
-  <span class="state">Comparaison <b id="prevlbl">vs 30 j préc.</b></span>
-  <span class="src" id="src">● source Grist</span>
-</div>
-<div class="volbar" id="volbar" hidden></div>
-
-<div class="wrap">
-  <div class="fr-tabs">
-    <ul class="fr-tabs__list" role="tablist" aria-label="Vues de pilotage">
-      <li role="presentation"><button id="t0" class="fr-tabs__tab" tabindex="0" role="tab" aria-selected="true" aria-controls="p0">Synthèse</button></li>
-      <li role="presentation"><button id="t1" class="fr-tabs__tab" tabindex="-1" role="tab" aria-selected="false" aria-controls="p1">Utilisable</button></li>
-      <li role="presentation"><button id="t2" class="fr-tabs__tab" tabindex="-1" role="tab" aria-selected="false" aria-controls="p2">Utilisé</button></li>
-      <li role="presentation"><button id="t3" class="fr-tabs__tab" tabindex="-1" role="tab" aria-selected="false" aria-controls="p3">Utile</button></li>
-      <li role="presentation"><button id="t4" class="fr-tabs__tab" tabindex="-1" role="tab" aria-selected="false" aria-controls="p4">Impactant</button></li>
-    </ul>
-    <div id="p0" class="fr-tabs__panel fr-tabs__panel--selected" role="tabpanel" aria-labelledby="t0" tabindex="0"></div>
-    <div id="p1" class="fr-tabs__panel" role="tabpanel" aria-labelledby="t1" tabindex="0"></div>
-    <div id="p2" class="fr-tabs__panel" role="tabpanel" aria-labelledby="t2" tabindex="0"></div>
-    <div id="p3" class="fr-tabs__panel" role="tabpanel" aria-labelledby="t3" tabindex="0"></div>
-    <div id="p4" class="fr-tabs__panel" role="tabpanel" aria-labelledby="t4" tabindex="0"></div>
-  </div>
-</div>
-
-<script type="module" src="https://cdn.jsdelivr.net/npm/@gouvfr/dsfr@1.12.1/dist/dsfr.module.min.js"></script>
+<div class="src" id="f-src"></div>
+<nav class="tabs" role="tablist" id="tabs"></nav>
+<main id="main"><p class="empty">Chargement des données…</p></main>
 <script>
-/* ============ COUCHE DONNÉES (source : doc Grist BASAVI, tables Sessions/Events/Modes/Indicateurs) ============ */
-const GRAN_LBL = 'par jour';
-const SEG_LBL = { tous:'tous devices', mobile:'mobile', desktop:'desktop' };
-const FUNNEL_LBL = ['Arrivée annuaire','Recherche lancée','Résultats affichés','Clic contact (mise en relation)'];
-// Funnel du mode carte : mêmes colonnes Modes, étapes propres (vue carte, structure consultée depuis un marqueur).
-const FUNNEL_LBL_CARTE = ['Arrivée annuaire','Vue carte','Structure consultée','Clic contact (mise en relation)'];
-// libellés des filtres : clés = slugs réels émis par le tag (site 168)
-const FILTRE_LBL = {
-  'violences-conjugales':'Violence au sein du couple', 'violences-sexuelles':'Viol, agression sexuelle',
-  'mutilations-sexuelles':'Excision / mutilations', 'prostitution':'Prostitution',
-  'mariages-forces':'Mariage forcé', 'harcelement-sexuel':'Harcèlement, agression au travail',
-};
-const CANAL_LBL = { clic_telephone:'Téléphone', clic_email:'Email', copie_adresse:'Copie adresse', clic_site:'Site web' };
+const TABS = [['synthese', 'Synthèse'], ['utilisable', 'Utilisable'], ['utilise', 'Utilisé'], ['utile', 'Utile'], ['impactant', 'Impactant'], ['lire', 'Comment lire']];
+const OUVERTURE = '2026-10-01';   // ouverture publique retenue par Ali : rien n'est compté ni comparé avant
+const DEV = { tous: 'tous appareils', mobile: 'mobile', desktop: 'ordinateur' };
+const MODES = [['saisie', 'Saisie manuelle'], ['ville', 'Lien ville'], ['carte', 'Carte'], ['geoloc', 'Géolocalisation']];
+const FILTRE = { 'violences-conjugales': 'Violence au sein du couple', 'violences-sexuelles': 'Viol, agression sexuelle', 'mutilations-sexuelles': 'Excision, mutilations', prostitution: 'Prostitution', 'mariages-forces': 'Mariage forcé', 'harcelement-sexuel': 'Harcèlement, agression au travail' };
+const CANAL = { clic_site: 'Site de l’association', clic_email: 'E-mail', copie_adresse: 'Copie d’adresse', clic_telephone: 'Téléphone' };
+const URGENCE = { 3919: '3919', 17: '17', 112: '112', 114: '114 (SMS)', autre: 'Autre' };
+const PETIT = 10;   // règle des petits effectifs : sous 10, effectif seul
+const S = { tab: 'synthese', dev: 'tous', per: 'ouverture', du: null, au: null };
+let D = null;
 
-let fromD=null, toD=null, seg='tous';
-const fmt = n => Number(Math.round(n)).toLocaleString('fr-FR');
-// Un indicateur sans donnée se rend « — », jamais 0 : un zéro se lit comme une mesure.
-// Vaut pour les taux comme pour les compteurs — « 0 page d'erreur » se lit « produit sain ».
-const pct = v => v==null ? '—' : `${v.toLocaleString('fr-FR')} %`;
-const num = v => v==null ? '—' : fmt(v);
+// ---------- formatage ----------
+const nf = new Intl.NumberFormat('fr-FR');
+const int = (n) => n == null ? '–' : nf.format(Math.round(n));
+const pct = (x) => (x == null || !isFinite(x)) ? '–' : (Math.round(x * 1000) / 10).toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' %';
+const valPart = (n, base) => (base && n != null) ? `${pct(n / base)}<span class="nb">${int(n)}</span>` : '–';
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const tip = (label, def) => `<span class="tip" title="${esc(def)}">${label}</span>`;
+const sansComp = () => `<span class="tip" title="${esc(D.prev ? '' : 'Pas de période précédente comparable : elle tomberait avant l’ouverture du 01/10.')}">–</span>`;
+const trendPts = (a, b) => (a == null || b == null) ? sansComp() : (() => { const d = Math.round((a - b) * 1000) / 10; return `${d > 0 ? '▲ +' : d < 0 ? '▼ ' : '= '}${d.toLocaleString('fr-FR')} pts`; })();
+const trendN = (a, b) => (a == null || b == null) ? sansComp() : (() => { const d = a - b; return `${d > 0 ? '▲ +' : d < 0 ? '▼ ' : '= '}${int(d)}`; })();
+const jm = (d) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+const plage = (j) => j && j.length ? (j.length === 1 ? `le ${jm(j[0])}` : `du ${jm(j[0])} au ${jm(j[j.length - 1])}`) : '–';
+const ajoute = (d, n) => { const t = new Date(d + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+const jours = (a, b) => { const out = []; for (let d = a; d <= b; d = ajoute(d, 1)) out.push(d); return out; };
 
-// tables Grist brutes + structures dérivées (mêmes formes que l'ancien proto)
-let SESS=[], EVT=[], MOD=[], INDIC=[], META=null;
-let RATES={}, VOL={}, ERR={}, FUNNEL={}, MODES={}, FILTRES={}, CANAUX={}, CLUSTERS={};
-
-const setSrc = (cls, txt) => { const s=document.getElementById('src'); if(s){ s.className='src'+(cls?' '+cls:''); s.textContent=txt; } };
-const rowsFromColumnar = t => { const cols=Object.keys(t).filter(k=>k!=='manualSort'); const n=(t.id||t[cols[0]]||[]).length; const out=[]; for(let i=0;i<n;i++){const o={};for(const c of cols)o[c]=t[c][i];out.push(o);} return out; };
-
-async function loadData(){
-  const inGrist = window.self!==window.top && window.grist && grist.docApi;
-  if(inGrist){
-    try{
-      const [s,e,m,i] = await Promise.race([
-        Promise.all([grist.docApi.fetchTable('Sessions'),grist.docApi.fetchTable('Events'),grist.docApi.fetchTable('Modes'),grist.docApi.fetchTable('Indicateurs')]),
-        new Promise((_,rej)=>setTimeout(()=>rej(new Error('timeout')),3000))
-      ]);
-      SESS=rowsFromColumnar(s); EVT=rowsFromColumnar(e); MOD=rowsFromColumnar(m); INDIC=rowsFromColumnar(i);
-      try{ META=rowsFromColumnar(await grist.docApi.fetchTable('Extractions')).slice(-1)[0]||null; }catch(_){ META=null; }
-      setSrc('','● source Grist (live)');
-    }catch(e2){ SESS=EVT=MOD=INDIC=[]; META=null; setSrc('sample','● autoriser « accès complet au document » pour le live'); }
-  } else { SESS=EVT=MOD=INDIC=[]; META=null; setSrc('sample','● hors Grist (aperçu vide)'); }
-  buildFixed();
+// ---------- données ----------
+const cols2rows = (t) => { const k = Object.keys(t).filter((c) => c !== 'manualSort'); return (t.id || []).map((_, i) => Object.fromEntries(k.map((c) => [c, t[c][i]]))); };
+async function load() {
+  if (window.self !== window.top && window.grist && grist.docApi) {
+    grist.ready({ requiredAccess: 'read table' });
+    // Extractions est un bandeau de fraîcheur : son absence ne doit pas vider la page.
+    const [s, e, m, x] = await Promise.all([...['Sessions', 'Events', 'Modes'].map((t) => grist.docApi.fetchTable(t)), grist.docApi.fetchTable('Extractions').catch(() => null)]);
+    const ex = x ? cols2rows(x) : [];
+    return { sess: cols2rows(s), evt: cols2rows(e), modes: cols2rows(m), meta: ex[ex.length - 1] || null };
+  }
+  return window.BASAVI_DATA;
 }
 
-/* --- agrégations jour → période --- */
-const allDays = () => [...new Set(INDIC.map(x=>x.day))].sort();
-// fenêtre courante = jours présents dans [fromD, toD] (bornes calendaires) ; période précédente = même nombre de jours juste avant
-const winDays = () => { const d=allDays(); return d.filter(x=> (!fromD||x>=fromD) && (!toD||x<=toD)); };
-const prevDays = () => { const all=allDays(), w=winDays(); if(!w.length) return []; const i0=all.indexOf(w[0]); return all.slice(Math.max(0,i0-w.length), i0); };
-const pick = (arr, days, dev) => arr.filter(x=>days.includes(x.day) && x.device===dev);
-const sum = (arr, f) => arr.reduce((a,b)=>a+(Number(f(b))||0),0);
-const rnd1 = x => Math.round(x*10)/10;
-const diff = (a,b) => (a==null||b==null) ? null : rnd1(a-b);
-
-// taux sur une fenêtre = 100 * somme(numérateur) / somme(visites).
-// Zéro visite ⇒ `null`, jamais 0 : un taux d'abandon rendu « 0 % » se lit comme une
-// conversion parfaite, et son miroir 100−x affiche alors 100 % de mise en relation.
-function rateWin(dev, days, field){ const S=pick(SESS,days,dev), v=sum(S,r=>r.visites); if(!v) return null;
-  return rnd1(100*sum(S,r=>r[field])/v); }
-function alvWin(dev, days){ const S=pick(SESS,days,dev), v=sum(S,r=>r.visites); if(!v) return null;
-  return rnd1(sum(S,r=>r.part_alv_pct*r.visites)/v); }
-
-// RATES / VOL / ERR : par device × période (indépendant de la sélection courante)
-function buildFixed(){
-  RATES={lancement:{},clicTel:{},copieAdr:{},contact:{},abandon:{},partAlv:{}}; VOL={}; ERR={};
-  const F={lancement:'s_recherche',clicTel:'s_tel',copieAdr:'s_copie',contact:'s_contact'};
-  const w=winDays(), pw=prevDays(), hasPrev=pw.length>0;
-  for(const dev of ['tous','mobile','desktop']){
-    for(const k of ['lancement','clicTel','copieAdr','contact']){ const v=rateWin(dev,w,F[k]); RATES[k][dev]={v,d:hasPrev?diff(v,rateWin(dev,pw,F[k])):null}; }
-    // L'abandon est le complément exact du contact, pas un second calcul : deux
-    // arrondis indépendants donneraient deux chiffres qui ne totalisent pas 100.
-    { const c=RATES.contact[dev]; RATES.abandon[dev]={v: c.v==null? null : rnd1(100-c.v), d: c.d==null? null : rnd1(-c.d)}; }
-    { const v=alvWin(dev,w); RATES.partAlv[dev]={v,d:hasPrev?diff(v,alvWin(dev,pw)):null}; }
-    // Rien de collecté pour ce device sur la fenêtre : les compteurs sont absents,
-    // pas nuls. « 0 page d'erreur » sur une collecte muette se lit « produit sain ».
-    const mesure = pick(SESS,w,dev).length > 0;
-    const vw=sum(pick(EVT,w,dev).filter(e=>e.category==='recherche'&&e.action==='lancer'),e=>e.count);
-    const vp=sum(pick(EVT,pw,dev).filter(e=>e.category==='recherche'&&e.action==='lancer'),e=>e.count);
-    VOL[dev]={v: mesure? vw : null, d: (hasPrev&&vp&&mesure)? Math.round((vw-vp)/vp*100): null};
-    const c404=sum(pick(EVT,w,dev).filter(e=>e.category==='erreur'&&e.action==='404'),e=>e.count);
-    const c500=sum(pick(EVT,w,dev).filter(e=>e.category==='erreur'&&e.action==='500'),e=>e.count);
-    // Même périmètre des deux côtés : `c404+c500` ne compte que 404 et 500, donc le
-    // comparatif aussi. Sommer toute la catégorie y ajoute le seau `erreur/autre`,
-    // et deux périodes identiques affichent alors une baisse.
-    const cp=sum(pick(EVT,pw,dev).filter(e=>e.category==='erreur'&&(e.action==='404'||e.action==='500')),e=>e.count);
-    ERR[dev]= mesure? {c404,c500,d: hasPrev? (c404+c500)-cp : null} : {c404:null,c500:null,d:null};
-  }
+// ---------- période unique : chiffres, tableaux et courbes suivent le même choix ----------
+// Dernier jour complet : le jour de l'extraction n'est que partiellement collecté (passage à 6h).
+function bornes() {
+  const tous = [...new Set(D.sess.map((r) => r.day))].sort();
+  const ext = (D.meta?.extracted_at || '').slice(0, 10);
+  const complets = tous.filter((d) => d >= OUVERTURE && (!ext || d < ext));
+  return { min: OUVERTURE, max: complets[complets.length - 1] || tous[tous.length - 1] };
+}
+function appliquerPreset() {
+  const b = bornes();
+  if (S.per === 'perso') return;
+  S.au = b.max;
+  S.du = S.per === 'ouverture' ? b.min : (() => { const d = ajoute(b.max, 1 - Number(S.per)); return d < b.min ? b.min : d; })();
+}
+function fenetres() {
+  const f = jours(S.du, S.au), n = f.length;
+  const pDu = ajoute(S.du, -n), pAu = ajoute(S.du, -1);
+  return { f, p: pDu >= OUVERTURE ? jours(pDu, pAu) : null };
 }
 
-// FUNNEL / MODES / FILTRES / CANAUX : dépendants de la période courante (rebâtis à chaque render)
-function buildPeriod(){
-  const w=winDays();
-  FUNNEL={}; CANAUX={}; CLUSTERS={};
-  MODES={ saisie:{lbl:'Saisie manuelle',part:{},f:{}}, geoloc:{lbl:'Géolocalisation',part:{},f:{}}, ville:{lbl:'Lien ville / territoire',part:{},f:{}}, carte:{lbl:'Carte',part:{},f:{}} };
-  for(const k in MODES) MODES[k].n={};
-  for(const dev of ['tous','mobile','desktop']){
-    const S=pick(SESS,w,dev), vis=sum(S,r=>r.visites);
-    // `null` plutôt qu'un dénominateur de secours : un funnel bâti sur zéro session
-    // affiche « Arrivée 100 % » puis « −100 pts ⚠ principal décrochage ».
-    FUNNEL[dev]= vis? [100, Math.round(100*sum(S,r=>r.s_recherche)/vis), Math.round(100*sum(S,r=>r.s_resultats)/vis), Math.round(100*sum(S,r=>r.s_contact)/vis)] : null;
-    // Repère carte : clics sur cluster de la période, toutes sessions (y compris carte ouverte après une recherche).
-    CLUSTERS[dev]= vis? sum(pick(EVT,w,dev).filter(e=>e.category==='recherche'&&e.action==='ouvrir_cluster'),e=>e.count) : null;
-    for(const mode of ['saisie','geoloc','ville','carte']){
-      const M=pick(MOD,w,dev).filter(r=>r.mode===mode), arr=sum(M,r=>r.s_arrivee);
-      MODES[mode].part[dev]= vis? Math.round(100*arr/vis) : null;
-      // Effectif réel, pas reconstruit depuis le % arrondi (1 entrée sur 300 afficherait « 0 »).
-      MODES[mode].n[dev]= vis? arr : null;
-      MODES[mode].f[dev]= arr? [100, Math.round(100*sum(M,r=>r.s_recherche)/arr), Math.round(100*sum(M,r=>r.s_resultats)/arr), Math.round(100*sum(M,r=>r.s_contact)/arr)] : null;
-    }
-    // Objets nus : les clés viennent de Matomo, et `byX['toString']` partirait
-    // de la fonction héritée d'Object.prototype — la carte entière passe à NaN.
-    const C=pick(EVT,w,dev).filter(e=>e.category==='contact'), totC=sum(C,e=>e.count)||1, byA=Object.create(null);
-    for(const e of C) byA[e.action]=(byA[e.action]||0)+e.count;
-    const canaux=['clic_telephone','clic_email','copie_adresse','clic_site'];
-    CANAUX[dev]=canaux.filter(a=>byA[a]).map(a=>({n:CANAL_LBL[a],p:Math.round(100*byA[a]/totC)}));
-    // Le reliquat est au dénominateur : sans cette ligne, une « répartition » qui ne
-    // totalise pas 100 % sans que rien ne l'indique.
-    const reste=sum(C,e=>e.count)-canaux.reduce((a,k)=>a+(byA[k]||0),0);
-    if(reste>0) CANAUX[dev].push({n:'Autre canal',p:Math.round(100*reste/totC)});
-  }
-  FILTRES={};
-  for(const dev of ['tous','mobile','desktop']){
-    const Fr=pick(EVT,w,dev).filter(e=>e.category==='recherche'&&e.action==='filtrer'), totF=sum(Fr,e=>e.count)||1, byN=Object.create(null);
-    for(const e of Fr) byN[e.name]=(byN[e.name]||0)+e.count;
-    FILTRES[dev]=Object.entries(byN).map(([n,c])=>({n:Object.hasOwn(FILTRE_LBL,n)?FILTRE_LBL[n]:n,p:Math.round(100*c/totF)})).sort((a,b)=>b.p-a.p);
-  }
+// ---------- calculs (mêmes tables que la page « Tableau ») ----------
+const somme = (arr, k) => arr.reduce((a, r) => a + (Number(r[k]) || 0), 0);
+// Colonne Grist du nombre de sessions ayant appliqué un type de filtre (cf. etl.mjs).
+const colFiltre = (t) => `s_f_${t.replace(/-/g, '_')}`;
+function mesures(f, dev = S.dev) {
+  if (!f) return null;
+  const inF = (r) => f.includes(r.day) && r.device === dev;
+  const SS = D.sess.filter(inF), EV = D.evt.filter(inF), MO = D.modes.filter(inF);
+  const ev = (cat, act, nom) => EV.filter((e) => e.category === cat && (!act || e.action === act) && (nom == null || e.name === nom)).reduce((a, e) => a + (Number(e.count) || 0), 0);
+  const V = somme(SS, 'visites');
+  // Compteur V1.2 lu seulement si TOUTES les lignes de la fenêtre ont été écrites par l'ETL
+  // V1.2 (schema_v ≥ 12) : une colonne absente, ajoutée mais pas encore remplie (0 par défaut
+  // dans Grist), ou remplie sur une partie des jours, donne « non mesuré », jamais un chiffre.
+  const v12 = SS.length > 0 && SS.every((r) => Number(r.schema_v) >= 12);
+  const opt = (c) => v12 && SS.every((r) => r[c] != null) ? somme(SS, c) : null;
+  const modes = Object.fromEntries(MODES.map(([k]) => { const r = MO.filter((x) => x.mode === k); return [k, { arr: somme(r, 's_arrivee'), res: somme(r, 's_resultats'), cont: somme(r, 's_contact') }]; }));
+  const arrTot = MODES.reduce((a, [k]) => a + modes[k].arr, 0), contModes = MODES.reduce((a, [k]) => a + modes[k].cont, 0);
+  // act : une action, une liste d'actions, ou null pour toutes.
+  const grouper = (cat, act, cle, lbl) => { const g = Object.create(null); for (const e of EV.filter((x) => x.category === cat && (!act || (Array.isArray(act) ? act.includes(x.action) : x.action === act)))) { const k = e[cle] || ''; g[k] = (g[k] || 0) + (Number(e.count) || 0); } return Object.entries(g).map(([k, x]) => ({ n: (lbl && Object.hasOwn(lbl, k)) ? lbl[k] : (k || 'Non précisé'), x })).sort((a, b) => b.x - a.x); };
+  return {
+    f, V, mesure: SS.length > 0,
+    rech: somme(SS, 's_recherche'), res: somme(SS, 's_resultats'), cont: somme(SS, 's_contact'), tel: somme(SS, 's_tel'), copie: somme(SS, 's_copie'),
+    multi: opt('s_rech_multi'), filtre: opt('s_filtre'), rechSansFiltre: opt('s_rech_sans_filtre'),
+    email: opt('s_email'), site: opt('s_site'), sessErr: opt('s_erreur'),
+    sortUrg: opt('s_sortie_urgence'), sortAlv: opt('s_sortie_alv'),
+    filtresSess: Object.keys(FILTRE).map((k) => ({ n: FILTRE[k], x: opt(colFiltre(k)) })).filter((i) => i.x != null).sort((a, b) => b.x - a.x),
+    recherches: ev('recherche', 'lancer'), e404: ev('erreur', '404'), e500: ev('erreur', '500'), clusters: ev('recherche', 'ouvrir_cluster'),
+    geoLance: ev('recherche', 'lancer', 'geoloc'), geoEchec: ev('recherche', 'geoloc_echec'), geoOk: ev('recherche', 'geoloc_reussite'),
+    urgences: grouper('aide', ['clic_telephone', 'clic_sms'], 'name', URGENCE),
+    modes, sansRech: { arr: Math.max(0, V - arrTot), cont: Math.max(0, somme(SS, 's_contact') - contModes) },
+    canaux: grouper('contact', null, 'action', CANAL), filtres: grouper('recherche', 'filtrer', 'name', FILTRE),
+  };
 }
+// Un tag récent n'a pas d'historique : avant son premier event, « 0 » serait faux.
+// La mesure démarre au premier jour où l'event apparaît, tous appareils confondus.
+// Le tracker est public : un hit forgé ou un essai avant la recette ne doit pas ouvrir la
+// mesure plus tôt. Plancher = recette du tag en préprod (30/10/2026), et seules les actions
+// du plan de tag comptent.
+const TAG_V12 = '2026-10-30';
+function debutMesure(test) { const j = D.evt.filter((e) => e.day && e.day >= TAG_V12 && test(e)).map((e) => e.day).sort(); return j[0] || null; }
+const DEBUT_SORTIES = (e) => (e.category === 'aide' && (e.action === 'clic_telephone' || e.action === 'clic_sms')) || (e.category === 'navigation' && e.action === 'retour_alv');
+const DEBUT_GEOLOC = (e) => e.category === 'recherche' && (e.action === 'geoloc_echec' || e.action === 'geoloc_reussite');
+function depuis(f, test) { const d = debutMesure(test); if (!d) return null; const g = f.filter((x) => x >= d); return g.length ? { f: g, d, partiel: g.length < f.length } : null; }
+const err = (M) => M.e404 + M.e500;
+const taux = (n, V) => (V && n != null) ? n / V : null;
+// série journalière pour la fenêtre : un jour sans collecte reste un trou
+const serieJour = (f, fn) => f.map((d) => { const x = mesures([d]); return { d, v: x.mesure ? fn(x) : null }; });
 
-// séries journalières réelles pour les graphes (device courant, fenêtre courante)
-const KEY_FIELD={lancement:'lancement_pct',clicTel:'clictel_pct',copieAdr:'copieadr_pct',contact:'contact_pct',abandon:'abandon_pct',partAlv:'partalv_pct'};
-// Un jour sans ligne pour ce device est un trou, pas un zéro : la série porte `null`
-// et le graphe rompt sa ligne, au lieu de tracer un pic jusqu'au plafond.
-const serie = field => winDays().map(day=>{ const x=INDIC.find(r=>r.day===day&&r.device===seg);
-  if(!x) return null; const raw=x[field];
-  // `Number(null)` vaut 0 : tester l'absence AVANT de convertir, sinon le trou redevient un zéro.
-  if(raw==null || raw==='') return null; const n=Number(raw); return Number.isFinite(n)? n : null; });
-const serieRate = key => serie(KEY_FIELD[key]);
-const serieVol  = () => serie('recherches');
-const serieErr  = () => winDays().map(day=>{ const x=INDIC.find(r=>r.day===day&&r.device===seg);
-  if(!x) return null; const a=Number(x.err404), b=Number(x.err500);
-  return (Number.isFinite(a)||Number.isFinite(b)) ? (Number.isFinite(a)?a:0)+(Number.isFinite(b)?b:0) : null; });
-
-const r   = (key,s)=> (RATES[key]&&RATES[key][s||seg]) || {v:null,d:null};
-const vol = (s)=> (VOL[s||seg]) || {v:null,d:null};
-const err = (s)=> (ERR[s||seg]) || {c404:null,c500:null,d:null};
-function delta(d, unit){ if(d===null||d===undefined) return ''; const ar=d>0?'▲':d<0?'▼':'▬'; return `<span class="trend">${ar} ${(d>0?'+':'')+d+(unit||'')} <small>vs période préc.</small></span>`; }
-function cap(text, def){ return def ? `<span class="kpi-cap def" title="${def}">${text}</span>` : `<div class="kpi-cap">${text}</div>`; }
-function srcBadge(txt){ return `<span class="srcbadge">source : ${txt}</span>`; }
-// Les libellés viennent de Matomo, dont l'endpoint de tracking est public : ils sont
-// hostiles par défaut et ne doivent jamais atteindre innerHTML tels quels.
-function esc(v){ return String(v==null?'':v).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-const BL_MAX=25;
-function barList(items){
-  if(!items || !items.length) return '<p class="hint">Aucune donnée sur la période / le device sélectionné.</p>';
-  // `Math.max(...tableau)` déborde la pile au-delà d'environ 1e5 entrées, et le nombre
-  // de libellés distincts vient du tracker : réduction plutôt que spread, liste plafonnée.
-  const reste = items.length - BL_MAX;
-  const suite = reste>0 ? `<p class="hint">+ ${fmt(reste)} autres libellés, non affichés.</p>` : '';
-  items = items.slice(0, BL_MAX);
-  const m=items.reduce((a,i)=>Math.max(a,i.p),1);
-  return `<div class="bl">`+items.map(i=>`<div class="bl-row"><span>${esc(i.n)}</span><span class="bl-tr"><span class="bl-tf" style="width:${Math.round(i.p/m*100)}%"></span></span><span class="bl-v">${i.p}%</span></div>`).join('')+`</div>`+suite; }
-
-/* --- graphe d'évolution (SVG inline, pas de lib) — séries réelles depuis Grist --- */
-function xLabels(n){ return [...Array(n)].map((_,i)=>`J-${n-1-i}`); }
-const noData = '<p class="hint">Pas de donnée sur la période.</p>';
-// Découpe une série en tronçons continus : une ligne ne doit pas enjamber un trou.
-function runs(series){ const out=[]; let cur=[];
-  series.forEach((v,i)=>{ if(v==null){ if(cur.length) out.push(cur); cur=[]; } else cur.push({i,v}); });
-  if(cur.length) out.push(cur); return out; }
-function chart(series, mode){
-  const W=560,H=148, mL=42,mR=12,mT=12,mB=22, iw=W-mL-mR, ih=H-mT-mB;
-  const pts=series.map((v,i)=>({i,v})).filter(p=>p.v!=null);
-  if(!pts.length) return noData;
-  let lo=Math.min(...pts.map(p=>p.v)), hi=Math.max(...pts.map(p=>p.v));
-  // Un comptage se lit depuis zéro : sinon trois jours à 0 erreur dessinent trois
-  // barres à mi-hauteur, sous des graduations négatives.
-  if(mode==='bars'){ if(hi<=0) return '<p class="hint">Aucune occurrence sur la période.</p>'; lo=0; hi*=1.12; }
-  else { if(lo===hi){lo-=1;hi+=1;} const pd=(hi-lo)*0.12; lo-=pd; hi+=pd; }
-  const X=i=> mL+(series.length>1? i*(iw/(series.length-1)) : iw/2);
-  const slot=iw/series.length, Xb=i=>mL+i*slot, Y=v=> mT+ih-((v-lo)/(hi-lo))*ih;
-  const ticks=[hi,(lo+hi)/2,lo], tf=v=>(hi-lo)<10?(Math.round(v*10)/10).toLocaleString('fr-FR'):fmt(v);
-  const grid=ticks.map(t=>`<line x1="${mL}" y1="${Y(t).toFixed(1)}" x2="${W-mR}" y2="${Y(t).toFixed(1)}" stroke="#ececec"/><text x="${mL-6}" y="${(Y(t)+3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="#9a9a9a">${tf(t)}</text>`).join('');
-  const lbls=xLabels(series.length), idxs=[...new Set([0,Math.floor((series.length-1)/3),Math.floor(2*(series.length-1)/3),series.length-1])];
-  const xax=idxs.map(i=>`<text x="${(mode==='bars'?Xb(i)+slot/2:X(i)).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="9.5" fill="#9a9a9a">${lbls[i]||''}</text>`).join('');
-  const last=pts[pts.length-1];
-  let body='';
-  if(mode==='bars'){
-    const bw=slot*0.62;
-    body=pts.map(p=>`<rect x="${(Xb(p.i)+(slot-bw)/2).toFixed(1)}" y="${Y(p.v).toFixed(1)}" width="${bw.toFixed(1)}" height="${(mT+ih-Y(p.v)).toFixed(1)}" fill="#000091" opacity="0.82"/>`).join('');
-    body+=`<text x="${(Xb(last.i)+slot/2).toFixed(1)}" y="${(Y(last.v)-4).toFixed(1)}" text-anchor="middle" font-size="10" font-weight="700" fill="#000091">${fmt(last.v)}</text>`;
+// ---------- graphiques ----------
+const largeur = (part = 1) => Math.round(Math.max(300, ((document.getElementById('main').clientWidth || 1200) - 32) * part - (part < 1 ? 40 : 0)));
+function courbe(points, fmt, part = 1, barresMode = false) {
+  const W = largeur(part), H = 180, L = 30, R = 30, T = 22, B = 26;
+  const vals = points.map((p) => p.v).filter((v) => v != null);
+  if (!vals.length) return '<p class="empty">Pas de donnée sur la période.</p>';
+  const max = Math.max(...vals) * 1.2 || 1, n = points.length;
+  const x = (i) => L + (n === 1 ? (W - L - R) / 2 : i * (W - L - R) / (n - 1));
+  const y = (v) => T + (H - T - B) * (1 - v / max);
+  const pas = Math.max(1, Math.ceil(n / Math.max(4, Math.floor((W - L - R) / 70))));
+  const etiq = (i) => n <= 10 || i === n - 1 || i % pas === 0;
+  let g = '';
+  for (let k = 0; k <= 2; k++) { const v = max * k / 2; g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#ececec"/>`; }
+  let corps = '';
+  if (barresMode) {
+    const bw = Math.max(2, Math.min(18, (W - L - R) / n * 0.6));
+    corps = points.map((p, i) => p.v == null ? '' : `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${y(p.v).toFixed(1)}" width="${bw.toFixed(1)}" height="${(H - B - y(p.v)).toFixed(1)}" fill="#000091" opacity=".85"/>${p.v && etiq(i) ? `<text x="${x(i)}" y="${y(p.v) - 5}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#000091">${fmt(p.v)}</text>` : ''}`).join('');
   } else {
-    body=runs(series).filter(g=>g.length>1).map(g=>`<polyline points="${g.map(p=>`${X(p.i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')}" fill="none" stroke="#000091" stroke-width="2" stroke-linejoin="round"/>`).join('');
-    // Les points restent tracés même isolés : un seul jour de collecte doit se voir.
-    body+=pts.map(p=>`<circle cx="${X(p.i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="${p.i===last.i?3.2:1.6}" fill="#000091"/>`).join('');
-    body+=`<text x="${X(last.i).toFixed(1)}" y="${(Y(last.v)-7).toFixed(1)}" text-anchor="end" font-size="10.5" font-weight="700" fill="#000091">${fmt(last.v)}</text>`;
+    let seg = [];
+    const flush = () => { if (seg.length > 1) corps += `<polyline points="${seg.join(' ')}" fill="none" stroke="#000091" stroke-width="2"/>`; seg = []; };
+    points.forEach((p, i) => { if (p.v == null) flush(); else seg.push(`${x(i).toFixed(1)},${y(p.v).toFixed(1)}`); });
+    flush();
+    corps += points.map((p, i) => p.v == null ? '' : `<circle cx="${x(i)}" cy="${y(p.v)}" r="3" fill="#000091"/>${etiq(i) ? `<text x="${x(i)}" y="${y(p.v) - 8}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#000091">${fmt(p.v)}</text>` : ''}`).join('');
   }
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="graphique d'évolution">${grid}${body}${xax}</svg>`;
+  const labels = points.map((p, i) => etiq(i) ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="#8a8a9a">${jm(p.d)}</text>` : '').join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Évolution par jour">${g}${corps}${labels}</svg>`;
 }
-function chartCard(title, svg){ return `<div class="chartcard"><div class="ct">${title}</div>${svg}</div>`; }
-function chartRate(key,label){ return chartCard(`Évolution : ${label} (%, ${GRAN_LBL})`, chart(serieRate(key),'line')); }
-function chartVol(label){ return chartCard(`Évolution : ${label} (${GRAN_LBL})`, chart(serieVol(),'bars')); }
-function chartErr(label){ return chartCard(`Évolution : ${label} (${GRAN_LBL})`, chart(serieErr(),'bars')); }
-
-/* --- funnel --- */
-// `opts.counts` porte les effectifs RÉELS de chaque étape. Les reconstruire depuis
-// le pourcentage arrondi affiche 173 là où il y a 177 sessions : le compte existe,
-// autant le dire. Sans `counts`, seul le pourcentage est rendu.
-function funnelBlock(steps, labels, opts){
-  opts=opts||{}; const max=steps[0], base=opts.base, counts=opts.counts;
-  let maxDrop=0, maxIdx=-1; for(let i=0;i<steps.length-1;i++){ const d=steps[i]-steps[i+1]; if(d>maxDrop){ maxDrop=d; maxIdx=i; } }
-  const flag = maxDrop>=30 ? maxIdx : -1;
-  let html = base ? `<div class="hint" style="margin-bottom:.3rem">Base : <b>${fmt(base)}</b> sessions</div>` : '';
-  html += '<div class="funnel">';
-  steps.forEach((p,i)=>{
-    const eff = counts && counts[i]!=null ? ` · ${fmt(counts[i])}` : '';
-    // Largeur bornée : une étape supérieure à sa base produirait une barre débordante.
-    const largeur = max? Math.min(100, Math.max(0, Math.round(p/max*100))) : 0;
-    html += `<div class="step"><div class="nm">${labels[i]}</div><div class="bw"><div class="bar" style="width:${largeur}%">${p}%${eff}</div></div></div>`;
-    if(i<steps.length-1){ const drop=steps[i]-steps[i+1], big=(i===flag);
-      html += `<div class="conv${big?' big':''}">${drop>=0? '↓ −'+drop : '↑ +'+(-drop)} pts ${big?'⚠ principal décrochage':''}</div>`; }
-  });
-  html += '</div>';
-  return html;
+function barresErreurs(f) {
+  const pts = f.map((d) => { const x = mesures([d]); return { d, a: x.mesure ? x.e404 : null, b: x.mesure ? x.e500 : null }; });
+  const tot = pts.map((p) => (p.a || 0) + (p.b || 0));
+  if (!pts.some((p) => p.a != null) || !Math.max(...tot)) return '<p class="empty">Aucune erreur sur la période.</p>';
+  const W = largeur(0.5), H = 180, L = 30, R = 30, T = 22, B = 26, n = pts.length, max = Math.max(...tot) * 1.2;
+  const x = (i) => L + (n === 1 ? (W - L - R) / 2 : i * (W - L - R) / (n - 1)), y = (v) => T + (H - T - B) * (1 - v / max), h = (v) => (H - T - B) * v / max;
+  const bw = Math.max(2, Math.min(18, (W - L - R) / n * 0.6)), pas = Math.max(1, Math.ceil(n / Math.max(4, Math.floor((W - L - R) / 70))));
+  let g = ''; for (let k = 0; k <= 2; k++) { const v = max * k / 2; g += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="#ececec"/>`; }
+  const barres = pts.map((p, i) => { const a = p.a || 0, b = p.b || 0; if (!a && !b) return ''; const x0 = (x(i) - bw / 2).toFixed(1);
+    return `<rect x="${x0}" y="${y(b).toFixed(1)}" width="${bw.toFixed(1)}" height="${h(b).toFixed(1)}" fill="#000091"/><rect x="${x0}" y="${y(a + b).toFixed(1)}" width="${bw.toFixed(1)}" height="${h(a).toFixed(1)}" fill="#8585f6"/><text x="${x(i)}" y="${y(a + b) - 5}" text-anchor="middle" font-size="10.5" font-weight="700" fill="#000091">${int(a + b)}</text>`; }).join('');
+  const labels = pts.map((p, i) => (n <= 10 || i === n - 1 || i % pas === 0) ? `<text x="${x(i)}" y="${H - 8}" text-anchor="middle" font-size="10" fill="#8a8a9a">${jm(p.d)}</text>` : '').join('');
+  const leg = `<div class="note" style="display:flex;gap:14px"><span><span style="display:inline-block;width:10px;height:10px;background:#000091;vertical-align:-1px"></span> erreurs 500</span><span><span style="display:inline-block;width:10px;height:10px;background:#8585f6;vertical-align:-1px"></span> erreurs 404</span></div>`;
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Erreurs 404 et 500 par jour">${g}${barres}${labels}</svg>${leg}`;
 }
+const pctCourt = (v) => (Math.round(v * 100)).toLocaleString('fr-FR') + ' %';
+function barres(items, base, opts = {}) {
+  if (!items.length || !base) return '<p class="empty">Aucune donnée sur la période.</p>';
+  const mx = Math.max(...items.map((i) => i.x)) || 1;
+  return `<div class="rows">${items.map((i) => `<div class="row${i.gris ? ' gris' : ''}${i.sub ? ' sub' : ''}"><span class="n" title="${esc(i.n)}">${i.tip ? tip(esc(i.n), i.tip) : esc(i.n)}</span><span class="t"><span class="f" style="width:${(100 * i.x / (opts.echelle || mx)).toFixed(1)}%"></span></span><span class="v">${valPart(i.x, base)}</span></div>`).join('')}</div>`;
+}
+const intro = (txt) => `<p class="intro">${txt}</p>`;
+const SANS_RECH = 'Sessions sans recherche lancée : visiteuses reparties sans chercher, et arrivées directes sur une page de résultats (lien depuis Google ou ALV, onglet resté ouvert).';
+const PAS_ENCORE = (quoi) => `<p class="pend">${quoi} : aucun event reçu sur la période. La mesure démarre à la mise en production du tag.</p>`;
+const depuisTxt = (x) => x.partiel ? ` <small>: mesuré depuis le ${jm(x.d)}</small>` : '';
 
-/* ============ RENDU ============ */
-const frDay = d => d.slice(8,10)+'/'+d.slice(5,7);
-function curLbl(){ const w=winDays(); if(!w.length) return 'période sélectionnée'; return w[0]===w[w.length-1] ? ('le '+frDay(w[0])) : ('du '+frDay(w[0])+' au '+frDay(w[w.length-1])); }
-function segNote(){ return seg==='tous' ? '' : `<div class="segnote">Segment actif : <b>${SEG_LBL[seg]}</b> — la lecture des canaux de contact varie fortement selon le device.</div>`; }
-
-function renderSynthese(){
-  // Les 4 phares sont la vue d'ensemble : tous sur le même périmètre « tous devices »,
-  // y compris les erreurs — sinon un phare suit le segment courant et les autres non.
-  const lan=r('lancement','tous'), con=r('contact','tous'), ab=r('abandon','tous'), e=err('tous');
-  const phares = `<div class="phares">
-    <div class="phare"><div class="pil">Utilisable</div><div class="v">${num(e.c404==null ? null : e.c404 + e.c500)}</div><div class="cap">Pages d'erreur (404 + 500)</div><span class="tag">fiabilité technique</span></div>
-    <div class="phare"><div class="pil">Utilisé</div><div class="v">${pct(lan.v)}</div><div class="cap">Sessions lançant une recherche</div></div>
-    <div class="phare value1"><div class="pil">Utile · phare</div><div class="v">${pct(con.v)}</div><div class="cap"><b>Mise en relation</b> — sessions avec interaction asso (tél, mail, site, adresse)</div></div>
-    <div class="phare pending"><div class="pil">Impactant</div><div class="v pend">⏳ en attente</div><div class="cap">Taux de femmes accompagnées par au moins 1 structure suite à l'utilisation de l'annuaire</div><span class="tag" style="color:var(--pend)">source hors Matomo à identifier</span></div>
+// ---------- onglets ----------
+const partErr = (M) => taux(M.sessErr, M.V);
+function synthese(M, P) {
+  const vs = P ? `<div class="c">vs ${plage(P.f)}</div>` : '';
+  return `
+  <h2>Indicateurs principaux <small>: ${plage(M.f)}, ${DEV[S.dev]}</small></h2>
+  <div class="tiles">
+    <div class="tile"><div class="pil">Utilisable</div><div class="lab">${tip('Sessions touchées par une erreur', 'Part des sessions qui affichent au moins une page 404 ou 500.')}</div><div class="v">${M.mesure ? pct(partErr(M)) : '–'}<span class="nb">${M.mesure ? int(M.sessErr) : ''}</span></div><div class="c">${M.mesure ? `${int(err(M))} erreurs sur la période` : ''}</div><div class="trend">${P ? trendPts(partErr(M), partErr(P)) : sansComp()}</div>${vs}</div>
+    <div class="tile"><div class="pil">Utilisé</div><div class="lab">${tip('Sessions qui lancent une recherche', 'Part des sessions qui lancent au moins une recherche.')}</div><div class="v">${pct(taux(M.rech, M.V))}<span class="nb">${M.V ? int(M.rech) : ''}</span></div><div class="c">sur ${int(M.V)} sessions</div><div class="trend">${P ? trendPts(taux(M.rech, M.V), taux(P.rech, P.V)) : sansComp()}</div>${vs}</div>
+    <div class="tile"><div class="pil">Utile</div><div class="lab">${tip('Mise en relation', 'Part des sessions avec au moins un contact vers une association : téléphone, e-mail, site ou copie de l’adresse.')}</div><div class="v">${pct(taux(M.cont, M.V))}<span class="nb">${M.V ? int(M.cont) : ''}</span></div><div class="c">sur ${int(M.V)} sessions</div><div class="trend">${P ? trendPts(taux(M.cont, M.V), taux(P.cont, P.V)) : sansComp()}</div>${vs}</div>
+    <div class="tile wait"><div class="pil">Impactant</div><div class="lab">Femmes accompagnées par une association</div><div class="v">${tip('Non mesuré à ce jour', 'Source externe à Matomo à identifier : la suite du contact se joue hors du site.')}</div></div>
+  </div>
+  <h2>${tip('Parcours jusqu’au contact', 'Toutes les étapes sont comptées en sessions. Une session peut lancer plusieurs recherches.')} <small>: en sessions, ${plage(M.f)}</small></h2>
+  ${barres([{ n: 'Arrivée sur l’annuaire', x: M.V }, { n: 'Résultats vus', x: M.res, tip: 'Sessions qui voient une liste de résultats ou la carte.' }, { n: 'après 1 recherche', x: M.multi == null ? null : Math.max(0, M.rech - M.multi), sub: true }, { n: 'après plusieurs', x: M.multi, sub: true, tip: 'Sessions qui lancent au moins deux recherches : la femme reformule ou change de ville.' }, { n: 'sans recherche lancée', x: Math.max(0, M.res - M.rech), sub: true, gris: true, tip: 'Arrivée directe sur une page de résultats (lien depuis Google ou ALV, onglet resté ouvert) ou carte ouverte sans recherche.' }, { n: 'Contact avec une association', x: M.cont }], M.V, { echelle: M.V })}
+  <p class="note">${M.rech ? `${int(M.recherches)} recherches lancées par ${int(M.rech)} sessions, soit ${(Math.round(10 * M.recherches / M.rech) / 10).toLocaleString('fr-FR')} recherche par session qui cherche.` : ''}</p>`;
+}
+function geoloc(f) {
+  const x = depuis(f, DEBUT_GEOLOC);
+  const h = `<h2>${tip('Échec de la géolocalisation', 'Part des tentatives de géolocalisation qui échouent : refus de l’autorisation, position indisponible ou délai dépassé.')}${x ? depuisTxt(x) : ''}</h2>`;
+  if (!x) return h + PAS_ENCORE('Échecs de la géolocalisation');
+  const G = mesures(x.f), base = G.geoEchec + G.geoOk;
+  return h + `<div class="kv"><div><div class="big">${base ? pct(G.geoEchec / base) : '–'}<span class="nb">${int(G.geoEchec)} sur ${int(base)} tentatives</span></div><div class="hint">géolocalisations qui échouent</div></div></div>`;
+}
+function utilisable(M, P) {
+  const lignes = [{ n: 'Sans recherche', x: M.sansRech.arr, gris: true, tip: SANS_RECH }, ...MODES.map(([k, l]) => ({ n: l, x: M.modes[k].arr }))];
+  return `
+  ${intro('<b>Utilisable</b> : comment la recherche démarre, et la fiabilité technique de l’annuaire.')}
+  <h2>${tip('Mode d’entrée', 'Chaque session compte une seule fois, dans le mode de sa première recherche. Les sessions sans recherche complètent le total.')} <small>: une session = son premier mode, ${DEV[S.dev]}</small></h2>
+  ${barres(lignes, M.V, { echelle: M.V })}
+  <p class="note">Total : ${int(M.V)} sessions.</p>
+  ${geoloc(M.f)}
+  <h2>${tip('Sessions touchées par une erreur', 'Part des sessions qui affichent au moins une page 404 ou 500.')} <small>: ${plage(M.f)}</small></h2>
+  <div class="grid2">
+    <div class="box"><div class="kv"><div><div class="big">${M.mesure ? pct(partErr(M)) : '–'}<span class="nb">${M.mesure ? `${int(M.sessErr)} sessions` : ''}</span></div><div class="hint">sessions touchées</div></div><div><div class="big">${M.mesure ? int(M.e404) : '–'}</div><div class="hint">erreurs 404</div></div><div><div class="big">${M.mesure ? int(M.e500) : '–'}</div><div class="hint">erreurs 500</div></div></div>
+      <div class="trend">${P ? trendPts(partErr(M), partErr(P)) : sansComp()}</div></div>
+    <div class="box"><h3>Erreurs par jour <small>: 404 et 500</small></h3>${barresErreurs(M.f)}</div>
   </div>`;
-
-  const glob = FUNNEL.tous;
-  const S = pick(SESS, winDays(), 'tous');
-  const base = sum(S, x=>x.visites);
-  const funnel = glob
-    ? funnelBlock([glob[0],glob[2],glob[3]], ['Arrivée annuaire','Résultats affichés','Clic contact (mise en relation)'],
-        {base, counts:[base, sum(S,x=>x.s_resultats), sum(S,x=>x.s_contact)]})
-    : noData;
-  const miroir = ab.v==null ? ''
-    : `<div class="explain"><b>Miroir de la valeur :</b> ${pct(ab.v)} des sessions repartent sans aucun clic contact. Le principal décrochage se lit entre l'affichage des résultats et le clic contact.</div>`;
-
-  document.getElementById('p0').innerHTML = `
-    <h2 class="sec">Les 4 indicateurs phares <small>: un par pilier</small></h2>${phares}
-    <h2 class="sec">Funnel global de mise en relation <small>: ${curLbl()}</small></h2>
-    ${funnel}
-    ${miroir}`;
 }
-
-function renderUtilisable(){
-  const e=err();
-  const errCard = `${cap('Pages d’erreur (404 / 500)','Nombre d’occurrences de pages 404 et 500 sur la période.')} ${srcBadge('Matomo · event')}
-    <div style="display:flex;gap:1.4rem;margin:.2rem 0 .1rem"><div><div class="kpi-mid">${num(e.c404)}</div><div class="kpi-note">erreurs 404</div></div><div><div class="kpi-mid">${num(e.c500)}</div><div class="kpi-note">erreurs 500</div></div></div>${delta(e.d,'')}
-    <div class="defbox"><b>Source :</b> events <code>erreur/404</code> + <code>erreur/500</code> (déclenchés au rendu de la page d’erreur). Le <code>nom</code> porte l’URL fautive.</div>`;
-
-  // Mode d'entrée (4 modes : 3 lancements de recherche + carte ouverte avant toute recherche). `part` est un pourcentage de VISITES : l'effectif se
-  // reconstruit sur les visites, pas sur le nombre de recherches lancées (plusieurs
-  // par session), sinon la ligne affiche un effectif supérieur à sa propre base.
-  const S = pick(SESS, winDays(), seg), visites = sum(S, x=>x.visites), modes=['saisie','geoloc','ville','carte'];
-  const modeRow=(lbl,part,n)=> part==null
-    ? `<div class="step"><div class="nm">${lbl}</div><div class="bw"><div class="bar" style="width:0%;min-width:4.6rem">—</div></div></div>`
-    : `<div class="step"><div class="nm">${lbl}</div><div class="bw"><div class="bar" style="width:${part}%;min-width:4.6rem">${part}% · ${fmt(n)}</div></div></div>`;
-  const modeEntree = `<h2 class="sec">Mode d’entrée dans la recherche <small>: comment la recherche démarre · segment ${SEG_LBL[seg]}</small></h2>
-    <div class="card"><div class="ph"><span class="role">Répartition des entrées (4 modes)</span></div>
-      <div style="padding:.7rem .9rem"><div class="funnel">${modes.map(k=>modeRow(MODES[k].lbl, MODES[k].part[seg], MODES[k].n[seg])).join('')}</div>
-      <div class="hint" style="margin-top:.35rem">Base : ${S.length? fmt(visites) : '—'} sessions. Source : event <code>recherche/lancer</code> (nom = saisie | geoloc | ville) ; mode carte = <code>recherche/changer_vue</code> (carte) avant toute recherche lancée.</div></div></div>`;
-
-  document.getElementById('p1').innerHTML = `<h2 class="sec">Utilisable <small>: entrée dans la recherche et fiabilité technique</small></h2>
-    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier vérifie que l'annuaire est <b>utilisable</b> : par quel mode d'entrée la recherche démarre, et ce que le produit renvoie comme pages d'erreur.</div>${segNote()}
-    ${modeEntree}
-    <h2 class="sec">Fiabilité technique <small>: pages d’erreur</small></h2>
-    <div class="pilier">
-      <div class="card"><div class="ph"><span class="role">Pages d’erreur (404 / 500)</span></div><div class="ctrl" style="border-left:0">${errCard}</div>${chartErr('pages d’erreur (404+500)')}</div>
-    </div>
-    <p class="src">Source : Matomo, entrées / erreurs = events. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+function utilise(M, P) {
+  // Trois segments qui partitionnent les sessions : le complément est celui de la tuile recherche.
+  const avecF = M.rechSansFiltre == null ? null : Math.max(0, M.rech - M.rechSansFiltre), sansR = Math.max(0, M.V - M.rech);
+  const pv = (n) => M.V ? (100 * n / M.V).toFixed(1) : 0;
+  return `
+  ${intro('<b>Utilisé</b> : l’usage réel de l’annuaire, lancement de recherches et besoins exprimés par les filtres.')}
+  <h2>${tip('Sessions qui lancent une recherche', 'Part des sessions qui lancent au moins une recherche.')} <small>: ${DEV[S.dev]}</small></h2>
+  <div class="kv"><div><div class="big">${pct(taux(M.rech, M.V))}<span class="nb">${M.V ? int(M.rech) : ''}</span></div><div class="hint">sur ${int(M.V)} sessions</div></div><div class="trend">${P ? trendPts(taux(M.rech, M.V), taux(P.rech, P.V)) : sansComp()}</div></div>
+  ${courbe(serieJour(M.f, (x) => taux(x.rech, x.V)), pctCourt)}
+  <h2>${tip('Usage des filtres', 'Répartition de toutes les sessions : celles qui cherchent et appliquent au moins un filtre, celles qui cherchent sans filtrer, celles qui ne lancent pas de recherche.')} <small>: part des ${int(M.V)} sessions</small></h2>
+  ${M.V && avecF != null ? `<div class="stack" role="img" aria-label="Usage des filtres"><span style="width:${pv(avecF)}%;background:var(--bf)"></span><span style="width:${pv(M.rechSansFiltre)}%;background:#6a6af4"></span><span style="width:${pv(sansR)}%;background:#d6d6e6"></span></div>
+  <div class="lg"><span><i style="background:var(--bf)"></i><b>Cherchent et filtrent</b> ${valPart(avecF, M.V)}</span><span><i style="background:#6a6af4"></i>Cherchent sans filtrer ${valPart(M.rechSansFiltre, M.V)}</span><span><i style="background:#d6d6e6"></i>Ne cherchent pas ${valPart(sansR, M.V)}</span></div>
+  <div class="kv" style="margin-top:10px"><div><div class="big">${pct(taux(M.rechSansFiltre, M.rech))}<span class="nb">${int(M.rechSansFiltre)} sur ${int(M.rech)}</span></div><div class="hint">${tip('des sessions qui cherchent ne filtrent pas', 'Part des sessions qui lancent une recherche sans jamais appliquer de filtre.')}</div></div></div>` : '<p class="empty">Aucune donnée sur la période.</p>'}
+  <div class="grid2" style="margin-top:14px">
+    <div class="box"><h3>${tip('Filtres appliqués', 'Part des sessions qui filtrent ayant appliqué ce type. Une session peut en appliquer plusieurs : le total dépasse 100 %.')} <small>: parmi les ${int(M.filtre)} sessions qui appliquent un filtre, avec ou sans recherche</small></h3>
+      ${!M.mesure ? '<p class="empty">Aucune donnée sur la période.</p>' : M.filtre == null ? '<p class="empty">Collecte V1.2 pas encore passée sur la période.</p>' : barres(M.filtresSess.filter((i) => i.x > 0), M.filtre)}</div>
+    <div class="box"><h3>${tip('Recherches lancées', 'Nombre de recherches, toutes sessions confondues : une session peut en lancer plusieurs.')} <small>: ${plage(M.f)}</small></h3>
+      <div class="kv"><div><div class="big">${int(M.recherches)}</div><div class="hint">recherches, par ${int(M.rech)} sessions</div></div><div class="trend">${P ? trendN(M.recherches, P.recherches) : sansComp()}</div></div>
+      ${courbe(serieJour(M.f, (x) => x.recherches), int, 0.5, true)}</div>
+  </div>`;
 }
-
-function renderUtilise(){
-  const lan=r('lancement'), alv=r('partAlv'), v=vol();
-  const coeur = `${cap('Taux de lancement de recherche','Part des sessions ayant lancé au moins une recherche après l’arrivée sur l’annuaire')} ${srcBadge('Matomo · event')}
-    <div class="kpi-big">${pct(lan.v)}</div>${delta(lan.d,' pts')}`;
-  const alvCard = `${cap('Part des visites venant d’ALV','Repère technique de provenance, mesuré via le référent sur le site annuaire (168). Ne vaut pas indicateur d’impact tant que l’annuaire n’est référencé que sur ALV.')} ${srcBadge('Matomo · référent')} <span class="tag" style="color:var(--pend)">⏳ stand-by</span>
-    <div class="kpi-mid">${pct(alv.v)}</div>${delta(alv.d,' pts')}
-    <div class="perim">ⓘ <b>Statut :</b> indicateur en <b>stand-by</b> (arbitrage Ali, 20/08). <b>Cible</b> : part des visiteurs d’ALV qui accèdent à l’annuaire, pour objectiver le repositionnement de l’annuaire sur ALV. Nécessite le total ALV via l’<b>API Eulerian</b> (faisabilité à vérifier avec Grégoire, chef de projet ALV). Le calcul intermédiaire sur volume ALV figé est écarté : la vraie mesure est attendue avant la fin septembre.</div>`;
-  const volCard = `${cap('Volume de recherches lancées','Nombre de recherches lancées sur la période et son évolution')} ${srcBadge('Matomo · event')}
-    <div class="kpi-mid">${num(v.v)}</div>${delta(v.d,' %')}`;
-
-  // Filtres type de violence
-  const fl=FILTRES[seg]||[];
-  const filtres = `<h2 class="sec">Filtres de type de violence appliqués <small>: besoins exprimés · segment ${SEG_LBL[seg]}</small></h2>
-    <div class="card"><div class="ph"><span class="role">Répartition des filtres</span></div>
-      <div style="padding:.7rem .9rem">${barList(fl)}
-      <div class="hint" style="margin-top:.35rem">Source : event <code>recherche/filtrer</code>. Part des recherches où le filtre est appliqué.</div></div></div>`;
-
-  document.getElementById('p2').innerHTML = `<h2 class="sec">Utilisé <small>: usage de l’annuaire et origine du trafic</small></h2>
-    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier mesure l'<b>usage réel</b> de l'annuaire : part des sessions qui lancent une recherche, filtres appliqués, volume de recherches, et captation du trafic venant d'ALV.</div>${segNote()}
-    <div class="pilier">
-      <div class="card"><div class="ph"><span class="role">Phare · lancement de recherche</span></div><div class="coeur">${coeur}</div>${chartRate('lancement','lancement de recherche')}</div>
-      <div class="card"><div class="ph"><span class="role">Périphérique · captation du trafic ALV (stand-by)</span></div><div class="ctrl" style="border-left:0">${alvCard}</div>${chartRate('partAlv','part venant d’ALV')}</div>
-    </div>
-    <div class="pilier">
-      <div class="card"><div class="ph"><span class="role">Périphérique · volume de recherches</span></div><div class="ctrl" style="border-left:0">${volCard}</div>${chartVol('recherches lancées')}</div>
-    </div>
-    ${filtres}
-    <p class="src">Source : Matomo, lancement / provenance / volume / filtres = events + référent. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+function sorties(f) {
+  const x = depuis(f, DEBUT_SORTIES), X = x && mesures(x.f);
+  const h = `<h2>${tip('Portes de sortie', 'Chaque session compte dans une seule sortie, la première atteinte dans cet ordre : contact avec une association, numéro d’urgence, retour vers ALV.')} <small>: en sessions</small>${x ? depuisTxt(x) : ''}</h2>`;
+  if (!x) return h + PAS_ENCORE('Numéros d’urgence et retour vers ALV');
+  if (X.sortUrg == null || X.sortAlv == null) return h + '<p class="pend">Des clics sont reçus, mais la collecte V1.2 n’est pas encore passée sur tous les jours de la période.</p>';
+  const O = X, sans = Math.max(0, O.V - O.cont - O.sortUrg - O.sortAlv), totU = O.urgences.reduce((a, i) => a + i.x, 0);
+  return h + barres([{ n: 'Contact avec une association', x: O.cont }, { n: 'Numéro d’urgence', x: O.sortUrg, tip: 'Clic sur le 3919, le 17, le 112 ou le 114, sans contact avec une association.' }, { n: 'Retour vers ALV', x: O.sortAlv, tip: 'Clic sur le lien vers arretonslesviolences.gouv.fr, sans contact ni numéro d’urgence.' }, { n: 'Sans sortie identifiée', x: sans, gris: true, tip: 'Session sans contact, sans numéro d’urgence et sans retour vers ALV.' }], O.V, { echelle: O.V })
+    + `<div class="box" style="margin-top:12px"><h3>Numéros d’urgence <small>: ${int(totU)} clics</small></h3>${barres(O.urgences, totU)}</div>`;
 }
-
-function renderUtile(){
-  const adr=r('copieAdr'), ab=r('abandon'), contact=r('contact');
-  const coeur = `${cap('Taux de sessions avec interaction asso','Part des sessions où une femme a contacté au moins une association : clic téléphone, email, site ou copie de l’adresse. Agrégat des 4 canaux de contact.')} ${srcBadge('Matomo · event')}
-    <div class="kpi-big">${pct(contact.v)}</div>${delta(contact.d,' pts')}
-    <div class="hint" style="margin-top:.3rem">Agrège les 4 canaux de contact : téléphone, email, site, copie d’adresse.</div>`;
-  const ctrl = `${cap('Taux de copie d’adresse','Part des sessions ayant copié l’adresse d’une association (bouton « Copier l’adresse »)')} ${srcBadge('Matomo · event')}
-    <div class="kpi-mid">${pct(adr.v)}</div>${delta(adr.d,' pts')}
-    <hr style="border:0;border-top:1px solid var(--line);margin:.7rem 0">
-    ${cap('Taux d’abandon sans mise en relation','Miroir de la conversion : part des sessions repartant sans aucun clic contact. Complément exact du taux d’interaction.')} ${srcBadge('Matomo · dérivé')}
-    <div class="kpi-mid">${pct(ab.v)}</div>${delta(ab.d,' pts')}`;
-
-  // sous-funnels par mode d'entrée (4 modes, device courant), 4 étapes
-  const modeBlock = (k)=>{ const m=MODES[k], f=m.f[seg], part=m.part[seg];
-    return `<div class="card"><div class="ph"><span class="role">${m.lbl}</span><span class="hint" style="margin-left:auto">${part==null?'—':part+'%'} des entrées</span></div>
-      <div style="padding:.6rem .9rem">${f? funnelBlock(f, k==='carte'? FUNNEL_LBL_CARTE : FUNNEL_LBL, {}) : '<p class="hint">Aucune entrée par ce mode sur la période.</p>'}${k==='carte'? `<p class="hint" style="margin:.4rem 0 0">Repère : <b>${num(CLUSTERS[seg])}</b> clics sur un cluster sur la période, toutes sessions confondues.</p>` : ''}</div></div>`; };
-
-  // canaux de contact
-  const canaux = `<h2 class="sec">Canaux de contact utilisés <small>: répartition des mises en relation · ${SEG_LBL[seg]}</small></h2>
-    <div class="card"><div class="ph"><span class="role">Part de chaque canal</span></div>
-      <div style="padding:.7rem .9rem">${barList(CANAUX[seg])}
-      <div class="hint" style="margin-top:.35rem">Source : events <code>contact/clic_telephone · clic_email · copie_adresse · clic_site</code>.</div></div></div>`;
-
-  const sTel=serieRate('clicTel'), sAdr=serieRate('copieAdr');
-  const dual = dualChart(sTel,sAdr);
-  const sContact = serieRate('contact');
-
-  document.getElementById('p3').innerHTML = `<h2 class="sec">Utile <small>: mise en relation via l’annuaire</small></h2>
-    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier mesure la <b>mise en relation</b> : la part des sessions qui aboutissent à un contact avec une association, par téléphone, email, site ou copie de l'adresse.</div>${segNote()}
-    <div class="pilier">
-      <div class="card"><div class="ph"><span class="role">Phare · interaction avec une asso</span></div><div class="coeur">${coeur}</div>${chartCard(`Évolution : interaction asso (%, ${GRAN_LBL})`, chart(sContact,'line'))}</div>
-      <div class="card"><div class="ph"><span class="role">Périphérique · détail par canal</span></div><div class="ctrl" style="border-left:0">${ctrl}</div></div>
-    </div>
-    ${canaux}
-    <h2 class="sec">Funnel de mise en relation par mode d’entrée <small>: 4 étapes · segment ${SEG_LBL[seg]}</small></h2>
-    <div class="pilier">${modeBlock('saisie')}${modeBlock('geoloc')}${modeBlock('ville')}${modeBlock('carte')}</div>
-    <h2 class="sec">Évolution des taux de contact <small>: téléphone &amp; copie adresse (%, ${GRAN_LBL})</small></h2>
-    <div class="chartcard"><div class="ct">Ligne pleine : clic téléphone · ligne pointillée : copie adresse</div>${dual}</div>
-    <p class="src">Source : Matomo, clics contact = events ; abandon = dérivé des sessions ; funnel = reconstruit (composant maison), funnel carte = events <code>changer_vue</code>, <code>consulter_structure</code>, <code>ouvrir_cluster</code>. Segment : <b>${SEG_LBL[seg]}</b>.</p>`;
+function utile(M, P) {
+  const cell = (n, base) => base ? `${pct(n / base)}<span class="nb">${int(n)}</span>` : '–';
+  const conv = (c, a) => !a ? '–' : (a < PETIT || c < PETIT) && c !== 0 ? tip(`${int(c)} sur ${int(a)}`, 'Petit effectif (moins de 10) : le pourcentage n’est pas affiché, il varierait trop d’une période à l’autre.') : pct(c / a);
+  const ligne = (lbl, a, c, gris) => `<tr${gris ? ' class="gris"' : ''}><td>${lbl}</td><td class="r">${cell(a, M.V)}</td><td class="r">${cell(c, M.V)}</td><td class="r"><b>${conv(c, a)}</b></td></tr>`;
+  const ca = M.modes.carte;
+  const canaux = [{ n: CANAL.clic_site, x: M.site }, { n: CANAL.clic_email, x: M.email }, { n: CANAL.copie_adresse, x: M.copie }, { n: CANAL.clic_telephone, x: M.tel }].sort((a, b) => b.x - a.x);
+  return `
+  ${intro('<b>Utile</b> : la mise en relation, c’est-à-dire la part des sessions qui aboutissent à un contact avec une association.')}
+  <h2>${tip('Mise en relation', 'Part des sessions avec au moins un contact : téléphone, e-mail, site ou copie de l’adresse.')} <small>: ${DEV[S.dev]}</small></h2>
+  <div class="kv"><div><div class="big">${pct(taux(M.cont, M.V))}<span class="nb">${M.V ? int(M.cont) : ''}</span></div><div class="hint">sur ${int(M.V)} sessions</div></div><div class="trend">${P ? trendPts(taux(M.cont, M.V), taux(P.cont, P.V)) : sansComp()}</div></div>
+  ${courbe(serieJour(M.f, (x) => taux(x.cont, x.V)), pctCourt)}
+  ${sorties(M.f)}
+  <h2>${tip('Contact par canal', 'Part des sessions qui utilisent ce canal. Une session peut en utiliser plusieurs : la somme dépasse la mise en relation.')} <small>: part des ${int(M.V)} sessions</small></h2>
+  ${barres(canaux, M.V)}
+  <h2>${tip('Du mode d’entrée au contact', 'Entrée et contact en part de toutes les sessions de la période ; conversion = contacts ÷ entrées du mode.')} <small>: en part des ${int(M.V)} sessions</small></h2>
+  <table class="tbl"><thead><tr><th>Mode</th><th class="r">Entrée</th><th class="r">Contact</th><th class="r">Conversion</th></tr></thead><tbody>
+    ${ligne('Saisie manuelle', M.modes.saisie.arr, M.modes.saisie.cont)}
+    ${ligne('Lien ville', M.modes.ville.arr, M.modes.ville.cont)}
+    ${ligne('Géolocalisation', M.modes.geoloc.arr, M.modes.geoloc.cont)}
+    ${ligne(`Carte <span style="color:var(--mut)">(fiche consultée : ${int(ca.res)})</span>`, ca.arr, ca.cont)}
+    ${ligne(tip('Sans recherche', SANS_RECH), M.sansRech.arr, M.sansRech.cont, true)}
+    <tr class="tot"><td>Total</td><td class="r">${cell(M.V, M.V)}</td><td class="r">${cell(M.cont, M.V)}</td><td class="r">${pct(taux(M.cont, M.V))}</td></tr>
+  </tbody></table>`;
 }
-
-function dualChart(s1,s2){
-  const W=560,H=160, mL=42,mR=12,mT=12,mB=22, iw=W-mL-mR, ih=H-mT-mB;
-  const all=[...s1,...s2].filter(v=>v!=null);
-  if(!all.length) return noData;
-  let lo=Math.min(...all), hi=Math.max(...all); if(lo===hi){lo-=1;hi+=1;} const pd=(hi-lo)*0.12; lo-=pd; hi+=pd;
-  const X=i=> mL+(s1.length>1? i*(iw/(s1.length-1)) : iw/2), Y=v=> mT+ih-((v-lo)/(hi-lo))*ih;
-  const ticks=[hi,(lo+hi)/2,lo];
-  const grid=ticks.map(t=>`<line x1="${mL}" y1="${Y(t).toFixed(1)}" x2="${W-mR}" y2="${Y(t).toFixed(1)}" stroke="#ececec"/><text x="${mL-6}" y="${(Y(t)+3).toFixed(1)}" text-anchor="end" font-size="9.5" fill="#9a9a9a">${(Math.round(t*10)/10).toLocaleString('fr-FR')}</text>`).join('');
-  const lbls=xLabels(s1.length), idxs=[...new Set([0,Math.floor((s1.length-1)/3),Math.floor(2*(s1.length-1)/3),s1.length-1])];
-  const xax=idxs.map(i=>`<text x="${X(i).toFixed(1)}" y="${H-6}" text-anchor="middle" font-size="9.5" fill="#9a9a9a">${lbls[i]||''}</text>`).join('');
-  const trace=(s,attrs)=> runs(s).filter(g=>g.length>1).map(g=>`<polyline points="${g.map(p=>`${X(p.i).toFixed(1)},${Y(p.v).toFixed(1)}`).join(' ')}" fill="none" ${attrs}/>`).join('')
-    + runs(s).flat().map(p=>`<circle cx="${X(p.i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="1.6" fill="#000091"/>`).join('');
-  const p1=trace(s1,'stroke="#000091" stroke-width="2"');
-  const p2=trace(s2,'stroke="#000091" stroke-width="1.6" stroke-dasharray="5 3" opacity="0.7"');
-  const l1=runs(s1).flat().pop();
-  const e1= l1? `<text x="${X(l1.i).toFixed(1)}" y="${(Y(l1.v)-7).toFixed(1)}" text-anchor="end" font-size="10.5" font-weight="700" fill="#000091">${fmt(l1.v)}</text>` : '';
-  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="évolution taux de contact">${grid}${p1}${p2}${e1}${xax}</svg>`;
+function impactant() {
+  return `
+  ${intro('<b>Impactant</b> : l’accompagnement effectif des femmes par une association après le contact.')}
+  <div class="tiles" style="margin-top:16px"><div class="tile wait"><div class="pil">Impactant</div><div class="lab">Femmes accompagnées par au moins une association</div><div class="v">Non mesuré à ce jour</div><div class="c">Matomo s’arrête au clic de contact : la suite se joue hors du site. Une source externe est à identifier avec les associations.</div></div></div>`;
 }
+const lire = () => `<h2>Définitions</h2><dl class="lire">
+  <dt>Session</dt><dd>Une visite sur l’annuaire. Toutes les parts du tableau sont en sessions, sauf mention contraire.</dd>
+  <dt>Recherche</dt><dd>Un lancement de recherche. Une session peut en lancer plusieurs : les recherches ne se comparent pas aux sessions.</dd>
+  <dt>Mise en relation</dt><dd>Session avec au moins un contact vers une association : clic téléphone, e-mail, site ou copie de l’adresse.</dd>
+  <dt>Mode d’entrée</dt><dd>Saisie manuelle, lien ville, géolocalisation ou carte ouverte avant toute recherche. Une session compte dans le mode de sa première recherche.</dd>
+  <dt>Sans recherche</dt><dd>${SANS_RECH}</dd>
+  <dt>Sessions touchées par une erreur</dt><dd>Sessions qui affichent au moins une page 404 ou 500.</dd>
+  <dt>Portes de sortie</dt><dd>Chaque session compte dans une seule sortie, dans cet ordre : contact avec une association, numéro d’urgence (3919, 17, 112, 114), retour vers ALV. Le reste est « sans sortie identifiée ».</dd>
+  <dt>Usage des filtres</dt><dd>Les sessions se partagent en trois : celles qui cherchent et appliquent au moins un filtre de type de violence, celles qui cherchent sans filtrer, celles qui ne lancent pas de recherche. Le détail par type se lit parmi toutes les sessions qui appliquent un filtre, avec ou sans recherche lancée.</dd>
+  <dt>Échec de la géolocalisation</dt><dd>Tentatives de géolocalisation qui échouent (réussites et échecs à la base), refus et panne confondus.</dd>
+  <dt>Petits effectifs</dt><dd>Sous 10, une conversion s’affiche en effectifs (« 5 sur 48 ») plutôt qu’en pourcentage.</dd></dl>
+  <h2>Période et comparaison</h2><dl class="lire">
+  <dt>Ouverture</dt><dd>Le tableau démarre au 01/10, date d’ouverture publique. Les visites de test d’avant ne sont pas comptées.</dd>
+  <dt>Comparaison</dt><dd>Avec la période de même durée juste avant (7 jours contre les 7 jours précédents). Si elle tombe avant le 01/10, pas d’évolution : un tiret.</dd>
+  <dt>Dernier jour</dt><dd>La collecte passe chaque nuit à 6h : le jour en cours n’est pas affiché par défaut.</dd></dl>
+  <h2>En attente</h2><dl class="lire">
+  <dt>Part des visiteurs d’ALV</dt><dd>En stand-by : demande le total des visiteurs d’arretonslesviolences.gouv.fr (API Eulerian). Le bouton d’origine sur ALV sera mesurable avec des liens de campagne.</dd>
+  <dt>Nouvelles mesures</dt><dd>Numéros d’urgence, retour vers ALV et échec de la géolocalisation démarrent à la mise en production de leur tag : avant, un tiret.</dd>
+  <dt>Impactant</dt><dd>Femmes accompagnées par une association : source externe à identifier.</dd></dl>
+  <p class="note">Source : Matomo de l’annuaire (annuaire.arretonslesviolences.gouv.fr en production), agrégats par jour et par appareil. Aucune donnée individuelle.</p>`;
 
-function renderImpactant(){
-  document.getElementById('p4').innerHTML = `<h2 class="sec">Impactant <small>: accompagnement effectif des femmes</small></h2>
-    <div class="explain" style="border-left-color:var(--bf);background:var(--soft)">Ce pilier mesure l'<b>effet réel</b> de la mise en relation, au-delà du clic : l'accompagnement effectif par l'association. Il ne se mesure <b>pas dans Matomo</b> : la donnée est hors du périmètre de tagging.</div>
-    <div class="pilier" style="margin-top:.8rem">
-      <div class="card"><div class="ph"><span class="fr-badge fr-badge--sm" style="background:var(--pend-bg);color:var(--pend)">⏳ en attente</span><span class="role">Taux de femmes accompagnées par au moins 1 structure suite à l'utilisation de l'annuaire</span></div>
-        <div style="padding:.9rem 1rem"><div class="attente"><div class="h">⏳ Source externe à identifier</div><div class="why">Part des femmes mises en relation qui bénéficient effectivement d'un accompagnement par une association. <b>Hors Matomo</b> : nécessite une source externe (remontée associations / dispositif dédié), à cadrer. Carte maintenue visible, sans valeur, jusqu'à identification de la source.</div></div></div></div>
-      <div class="card" style="background:#fcfcff"><div class="ph"><span class="role">Pourquoi hors Matomo ?</span></div>
-        <div style="padding:.9rem 1rem;font-size:.83rem;color:#444">Matomo s'arrête au <b>clic contact</b> (dernière action observable côté produit). Ce qui se passe ensuite — appel abouti, prise en charge, suivi — se joue <b>hors du site</b>, sans boucle de retour instrumentable. La mesure d'impact réel relève d'un dispositif partenaire à construire.</div></div>
-    </div>
-    <p class="src">Périmètre : indicateur ⏳ affiché avec sa raison, jamais masqué. Source Matomo non applicable.</p>`;
+// ---------- rendu ----------
+function render() {
+  const b = bornes();
+  const du = document.getElementById('f-du'), au = document.getElementById('f-au');
+  du.min = au.min = b.min; du.max = au.max = b.max; du.value = S.du; au.value = S.au;
+  document.getElementById('f-per').value = S.per;
+  document.querySelectorAll('#f-dev button').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.d === S.dev)));
+  const { f, p } = fenetres();
+  D.prev = p;
+  const ext = D.meta?.extracted_at ? new Date(D.meta.extracted_at).toLocaleDateString('fr-FR') : '';
+  document.getElementById('f-src').innerHTML = `<b>${esc(D.meta?.source || 'Matomo')}</b> · ${plage(f)} · ${f.length} jour${f.length > 1 ? 's' : ''} · ${p ? 'comparé ' + plage(p) : 'sans comparaison'}${ext ? ' · extraction du ' + ext : ''}`;
+  document.getElementById('tabs').innerHTML = TABS.map(([id, l]) => `<button role="tab" aria-selected="${S.tab === id}" data-t="${id}">${l}</button>`).join('');
+  const M = mesures(f), P = p ? mesures(p) : null;
+  try {
+    document.getElementById('main').innerHTML = { synthese: () => synthese(M, P), utilisable: () => utilisable(M, P), utilise: () => utilise(M, P), utile: () => utile(M, P), impactant, lire }[S.tab]();
+  } catch (e) { console.error(e); document.getElementById('main').innerHTML = `<p class="empty">Le tableau n’a pas pu être affiché : ${esc(e.message)}</p>`; }
 }
-
-/* ============ ORCHESTRATION ============ */
-function renderBanner(){
-  const el=document.getElementById('volbar'), b=document.getElementById('badge');
-  if(b && META && META.source) b.textContent = META.source;
-  if(!el) return;
-  if(!META){ el.hidden=true; return; }
-  const d=(META.extracted_at||'').slice(0,10).split('-').reverse().join('/');
-  el.hidden=false;
-  el.innerHTML=`<span class="dot"></span><span><b>${esc(META.source||'Données Grist')}</b>${META.days?' · '+esc(META.days):''}${META.jours?' · '+esc(META.jours)+' jours':''}${d?' · extraction du '+esc(d):''}</span>`;
-}
-function renderPiliers(){ renderUtilisable(); renderUtilise(); renderUtile(); }
-// Les panneaux sont écrits l'un après l'autre : sans ce filet, une exception au 2e
-// laisse les suivants afficher les chiffres de la sélection PRÉCÉDENTE, et la page
-// ressemble à un tableau de bord valide. Tout ce qui redessine passe donc par ici —
-// y compris le changement de segment, qui est l'interaction la plus fréquente.
-function protege(action){ try{ action(); }catch(e){ rendreEchec(e); } }
-function renderAll(){ protege(()=>{ buildFixed(); renderTout(); }); }
-function rendreEchec(e){
-  console.error(e);
-  const msg = `<div class="explain" style="border-left-color:var(--ko);color:var(--ko)"><b>Le tableau de bord n'a pas pu être rendu.</b> ${esc(e && e.message || e)}</div>`;
-  for(const id of ['p0','p1','p2','p3','p4']){ const el=document.getElementById(id); if(el) el.innerHTML = msg; }
-}
-function renderTout(){ buildPeriod(); renderBanner(); const pl=document.getElementById('prevlbl'); if(pl) pl.textContent = prevDays().length? 'vs période précédente' : 'pas d’historique'; renderSynthese(); renderPiliers(); renderImpactant(); }
-function setSeg(s){ protege(()=>{ seg=s; document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on', b.dataset.seg===s)); renderPiliers(); }); }
-
-/* --- sélecteur de date (plage calendaire + raccourcis) --- */
-function syncDateInputs(){ const fi=document.getElementById('f-from'), ti=document.getElementById('f-to'); if(fi) fi.value=fromD||''; if(ti) ti.value=toD||''; }
-function initRange(){ const d=allDays(); fromD=d[0]||null; toD=d[d.length-1]||null;
-  for(const id of ['f-from','f-to']){ const el=document.getElementById(id); if(el){ el.min=d[0]||''; el.max=d[d.length-1]||''; } }
-  syncDateInputs(); const ps=document.getElementById('f-preset'); if(ps) ps.value='all'; buildFixed();
-}
-function applyPreset(v){ protege(()=>{ const d=allDays(); if(!d.length) return; toD=d[d.length-1]; fromD = v==='all' ? d[0] : d[Math.max(0,d.length-Number(v))]; syncDateInputs(); buildFixed(); renderTout(); }); }
-document.getElementById('f-preset').addEventListener('change', e=>applyPreset(e.target.value));
-document.getElementById('f-from').addEventListener('change', e=>{ fromD=e.target.value||null; document.getElementById('f-preset').value='custom'; renderAll(); });
-document.getElementById('f-to').addEventListener('change', e=>{ toD=e.target.value||null; document.getElementById('f-preset').value='custom'; renderAll(); });
-
-(async function init(){
-  if(window.grist){ try{ grist.ready(); }catch(e){} }
-  await loadData();
-  initRange();
-  renderAll();
-  if(window.grist && grist.onRecords) grist.onRecords(async()=>{ await loadData(); initRange(); renderAll(); });
-})();
+let attente; window.addEventListener('resize', () => { clearTimeout(attente); attente = setTimeout(() => D && render(), 150); });
+document.getElementById('tabs').addEventListener('click', (e) => { const x = e.target.closest('button[data-t]'); if (x) { S.tab = x.dataset.t; render(); } });
+document.getElementById('f-dev').addEventListener('click', (e) => { const x = e.target.closest('button[data-d]'); if (x) { S.dev = x.dataset.d; render(); } });
+document.getElementById('filters').addEventListener('change', (e) => {
+  const id = e.target.id, v = e.target.value;
+  if (id === 'f-per') { S.per = v; appliquerPreset(); }
+  if ((id === 'f-du' || id === 'f-au') && v) { S.per = 'perso'; const b = bornes(); const c = v < b.min ? b.min : v > b.max ? b.max : v; if (id === 'f-du') S.du = c; else S.au = c; if (S.du > S.au) { const t = S.du; S.du = S.au; S.au = t; } }
+  render();
+});
+function demarrer(d) { D = d; D.sess ||= []; D.evt ||= []; D.modes ||= []; appliquerPreset(); render(); }
+load().then((d) => {
+  if (!d) { document.getElementById('main').innerHTML = '<p class="empty">Hors Grist : aucune donnée.</p>'; return; }
+  demarrer(d);
+  if (window.grist && grist.onRecords) grist.onRecords(async () => { const n = await load(); if (n) { D = n; render(); } });
+}).catch((e) => { document.getElementById('main').innerHTML = `<p class="empty">Données indisponibles : ${esc(e.message)}</p>`; });
 </script>
 </body>
 </html>

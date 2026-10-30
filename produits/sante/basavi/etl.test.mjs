@@ -19,7 +19,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ici = path.dirname(fileURLToPath(import.meta.url));
 const source = fs.readFileSync(path.join(ici, 'etl.mjs'), 'utf8');
 const sansEntree = source.replace(/^main\(\)\.catch\(.*$/m,
-  'export { build, inconnus, CATEGORIES, ACTIONS, MODES_ENTREE, MODES_FUNNEL, TYPES_FILTRE };');
+  'export { build, inconnus, CATEGORIES, ACTIONS, MODES_ENTREE, MODES_FUNNEL, TYPES_FILTRE, NUMEROS_URGENCE, SESSIONS_COLS, EVENTS_COLS, MODES_COLS };');
 if (sansEntree === source) throw new Error("le point d'entrée main() n'a pas été trouvé dans etl.mjs");
 
 const copie = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'etl-test-')), 'etl.mjs');
@@ -31,7 +31,7 @@ process.env.GRIST_URL ||= 'https://grist.invalid';
 process.env.GRIST_DOC_ID ||= 'x';
 process.env.GRIST_API_KEY ||= 'x';
 process.env.COLLECT_FROM ||= '2020-01-01';
-const { build, inconnus, ACTIONS, MODES_ENTREE, MODES_FUNNEL, TYPES_FILTRE } = await import(pathToFileURL(copie).href);
+const { build, inconnus, ACTIONS, MODES_ENTREE, MODES_FUNNEL, TYPES_FILTRE, NUMEROS_URGENCE, SESSIONS_COLS, EVENTS_COLS, MODES_COLS } = await import(pathToFileURL(copie).href);
 
 let echecs = 0;
 const verifier = (titre, condition) => {
@@ -178,11 +178,11 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
 
 // --- Le canari : une dérive du plan de tag doit rester visible -------------------
 {
-  build([visite([['contact', 'copier_adresse', ''], ['navigation', 'clic_menu', '']])]);
+  build([visite([['contact', 'copier_adresse', ''], ['menu', 'clic_menu', '']])]);
   const note = inconnus();
   console.log(`      ${note.trim()}`);
   verifier('canari : l’action renommée est nommée dans la note', note.includes('copier_adresse'));
-  verifier('canari : la catégorie inconnue est nommée aussi', note.includes('navigation'));
+  verifier('canari : la catégorie inconnue est nommée aussi', note.includes('menu'));
 }
 
 // --- L'allowlist de l'ETL et les libellés du front décrivent le même plan de tag --
@@ -191,12 +191,18 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
 // du produit sans rien casser, et l'inclusion à sens unique ne le voit pas.
 {
   const front = fs.readFileSync(path.join(ici, 'dashboard.html'), 'utf8');
-  const filtresFront = new Set([...front.matchAll(/'([a-z-]+)':'[^']*'/g)].map((m) => m[1]));
-  const canauxFront = new Set([...front.matchAll(/(clic_telephone|clic_email|copie_adresse|clic_site):'[^']*'/g)].map((m) => m[1]));
-  const modesFront = new Set([...front.matchAll(/for\(const mode of \[([^\]]+)\]\)/g)]
-    .flatMap((m) => m[1].split(',').map((x) => x.trim().replace(/'/g, ''))));
-  // Le front lit err404 / err500 : les deux actions doivent exister côté ETL.
-  const erreursFront = new Set([...front.matchAll(/err(\d{3})/g)].map((m) => m[1]));
+  // Clés des tables de libellés du front, lues sur leur ligne de déclaration.
+  const cles = (nom) => {
+    const m = front.match(new RegExp(`const ${nom} = \\{([^}]*)\\}`));
+    if (!m) throw new Error(`table ${nom} introuvable dans dashboard.html`);
+    return new Set([...m[1].matchAll(/'?([a-z0-9_-]+)'?\s*:/g)].map((x) => x[1]));
+  };
+  const filtresFront = cles('FILTRE');
+  const canauxFront = cles('CANAL');
+  const modesFront = new Set([...(front.match(/const MODES = (\[.*\]);/) || [, ''])[1].matchAll(/\[\s*'([a-z]+)'\s*,/g)].map((x) => x[1]));
+  // Le front lit erreur/404 et erreur/500 : les deux actions doivent exister côté ETL.
+  const erreursFront = new Set([...front.matchAll(/ev\('erreur', '(\d{3})'\)/g)].map((m) => m[1]));
+  const urgencesFront = new Set([...cles('URGENCE')].filter((k) => k !== 'autre'));
 
   const memeEnsemble = (etl, front2, quoi) => {
     const manqueFront = [...etl].filter((v) => !front2.has(v));
@@ -214,8 +220,9 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
   memeEnsemble(CANAUX_ATTENDUS, canauxFront, 'canaux de contact (front)');
   memeEnsemble(CANAUX_ATTENDUS, new Set([...ACTIONS].filter((a) => CANAUX_ATTENDUS.has(a))), 'canaux de contact (ETL)');
   // Que le front ITÈRE réellement sur les 4 canaux ne se prouve pas par une regex sur
-  // le source : c'est la fixture à 4 canaux de dashboard.test.mjs qui l'exerce.
+  // le source : c'est la fixture de dashboard.test.mjs qui l'exerce.
   memeEnsemble(new Set([...ACTIONS].filter((a) => /^\d{3}$/.test(a))), erreursFront, 'codes d’erreur');
+  memeEnsemble(NUMEROS_URGENCE, urgencesFront, 'numéros d’urgence');
 }
 
 // --- Le canari est branché sur Extractions.note, pas seulement défini ------------
@@ -234,6 +241,98 @@ const evenementsReels = (r) => r.events.filter((e) => e.device !== 'tous')
   // amplifie ×6 un caractère de contrôle : la note doit rester bornée.
   build([visite([['contact', '\u0001'.repeat(4000), '']])]);
   verifier(`canari : la note reste bornée (${inconnus().length} caractères)`, inconnus().length < 1500);
+}
+
+// --- V1.2 : compteurs de sessions -------------------------------------------------
+{
+  const r = build([
+    visite([['recherche', 'lancer', 'saisie'], ['recherche', 'lancer', 'ville'], ['recherche', 'filtrer', 'prostitution'], ['contact', 'clic_email', '12'], ['contact', 'clic_site', '12']]),
+    visite([['recherche', 'lancer', 'saisie'], ['erreur', '404', '/x'], ['erreur', '500', '/y']]),
+    visite([['recherche', 'filtrer', 'prostitution'], ['recherche', 'filtrer', 'prostitution']]),
+    visite([['recherche', 'changer_vue', 'liste']]),
+  ]);
+  const m = r.sessions.find((s) => s.device === 'mobile');
+  verifier('v1.2 : deux recherches = une session multi', m.s_rech_multi === 1);
+  verifier('v1.2 : une session filtre même sans lancer', m.s_filtre === 2);
+  verifier('v1.2 : recherche sans filtre comptée une fois', m.s_rech_sans_filtre === 1);
+  verifier('v1.2 : e-mail et site comptés par session', m.s_email === 1 && m.s_site === 1);
+  verifier('v1.2 : deux erreurs dans une session = une session touchée', m.s_erreur === 1);
+  verifier('v1.2 : un type filtré dans deux sessions = 2 sessions', m.s_f_prostitution === 2);
+  verifier('v1.2 : un type non filtré reste à 0', m.s_f_violences_conjugales === 0);
+  const t = r.sessions.find((s) => s.device === 'tous');
+  verifier('v1.2 : la ligne « tous » reprend les nouveaux compteurs',
+    t.s_rech_multi === 1 && t.s_filtre === 2 && t.s_erreur === 1 && t.s_email === 1);
+}
+
+// --- V1.2 : portes de sortie exclusives, dans l'ordre contact > urgence > ALV ------
+{
+  const r = build([
+    visite([['contact', 'clic_site', '3'], ['aide', 'clic_telephone', '3919'], ['navigation', 'retour_alv', 'alv']]),
+    visite([['aide', 'clic_sms', '114'], ['navigation', 'retour_alv', 'alv']]),
+    visite([['navigation', 'retour_alv', 'alv']]),
+    visite([['recherche', 'lancer', 'saisie']]),
+  ]);
+  const m = r.sessions.find((s) => s.device === 'mobile');
+  verifier('sorties : le contact asso passe avant le 3919', m.s_contact === 1 && m.s_sortie_urgence === 1);
+  verifier('sorties : l’urgence passe avant le retour ALV', m.s_sortie_alv === 1);
+  verifier('sorties : la somme ne dépasse jamais les visites',
+    m.s_contact + m.s_sortie_urgence + m.s_sortie_alv <= m.visites);
+  verifier('sorties : un clic d’urgence n’est pas un contact asso', m.s_tel === 0);
+}
+
+// --- V1.2 : le numéro d'urgence est borné, l'action reste comptée -----------------
+{
+  const r = build([visite([['aide', 'clic_telephone', '<script>']]), visite([['aide', 'clic_telephone', '17'], ['pagination', 'page', '2'], ['recherche', 'geoloc_echec', '']])]);
+  const ev = evenementsReels(r);
+  verifier('aide : un numéro inconnu devient « autre »', ev.some((e) => e.c === 'aide' && e.n === 'autre'));
+  verifier('aide : un numéro connu est gardé', ev.some((e) => e.c === 'aide' && e.n === '17'));
+  verifier('aide : le clic au numéro inconnu compte comme sortie', r.sessions.find((s) => s.device === 'mobile').s_sortie_urgence === 2);
+  verifier('aide : le numéro inconnu est signalé par le canari', inconnus().includes('numero=<script>'));
+  verifier('pagination : le numéro de page n’est pas gardé', ev.some((e) => e.c === 'pagination' && e.a === 'page' && e.n === ''));
+  verifier('géoloc : l’échec est une action connue', ev.some((e) => e.c === 'recherche' && e.a === 'geoloc_echec'));
+  const ok = evenementsReels(build([visite([['recherche', 'geoloc_reussite', '']])]));
+  verifier('géoloc : la réussite est gardée telle quelle (base du taux d’échec)', ok.some((e) => e.c === 'recherche' && e.a === 'geoloc_reussite'));
+  verifier('schema_v : chaque ligne Sessions est marquée V1.2', r.sessions.every((x) => x.schema_v === 12));
+  verifier('aucune valeur ne contient de « | »', ev.every((e) => !`${e.c}${e.a}${e.n}`.includes('|')));
+}
+
+// --- V1.2 : les 8 combinaisons contact / urgence / ALV, une visite chacune ---------
+{
+  const C = ['contact', 'clic_site', '3'], U = ['aide', 'clic_telephone', '3919'], A = ['navigation', 'retour_alv', 'alv'];
+  const combos = [[], [C], [U], [A], [C, U], [C, A], [U, A], [C, U, A]];
+  for (const evs of combos) {
+    const m = build([visite(evs)]).sessions.find((x) => x.device === 'mobile');
+    const attendu = evs.includes(C) ? 'contact' : evs.includes(U) ? 'urgence' : evs.includes(A) ? 'alv' : 'aucune';
+    const obtenu = [m.s_contact && 'contact', m.s_sortie_urgence && 'urgence', m.s_sortie_alv && 'alv'].filter(Boolean);
+    verifier(`sorties [${evs.map((e) => e[0]).join('+') || 'rien'}] → ${attendu}`, (obtenu.join() || 'aucune') === attendu, obtenu.join());
+  }
+}
+
+// --- V1.2 : un compteur ne se déclenche que dans sa catégorie ----------------------
+{
+  const m = build([visite([['aide', 'clic_email', ''], ['aide', 'clic_site', ''], ['erreur', 'clic_site', ''], ['contact', 'retour_alv', ''], ['aide', 'retour_alv', ''], ['contact', '404', ''], ['navigation', 'clic_telephone', '3919']])])
+    .sessions.find((x) => x.device === 'mobile');
+  verifier('catégorie : e-mail et site comptés seulement sous contact', m.s_email === 0 && m.s_site === 0);
+  verifier('catégorie : retour ALV compté seulement sous navigation', m.s_sortie_alv === 0);
+  verifier('catégorie : erreur comptée seulement sous erreur', m.s_erreur === 0);
+  verifier('catégorie : numéro d’urgence compté seulement sous aide', m.s_sortie_urgence === 0);
+  const autreAction = build([visite([['aide', 'ouvrir', ''], ['erreur', 'autre', '']])]).sessions.find((x) => x.device === 'mobile');
+  // Visite sans contact : sinon la priorité du contact masquerait un retour ALV mal catégorisé.
+  const alvHors = build([visite([['aide', 'retour_alv', ''], ['recherche', 'retour_alv', '']])]).sessions.find((x) => x.device === 'mobile');
+  verifier('catégorie : retour_alv hors navigation, sans contact, n’est pas une sortie', alvHors.s_sortie_alv === 0);
+  verifier('action : une action aide hors liste n’est pas une sortie', autreAction.s_sortie_urgence === 0);
+  verifier('action : une action erreur hors liste n’est pas une erreur', autreAction.s_erreur === 0);
+}
+
+// --- Chaque ligne produite colle au schéma Grist (sinon 400 au PUT, Job en échec) --
+{
+  const r = build([visite([['recherche', 'lancer', 'saisie'], ['recherche', 'filtrer', 'prostitution'], ['contact', 'clic_site', '1'], ['aide', 'clic_sms', '114'], ['erreur', '404', '/x']])]);
+  for (const [nom, lignes, cols] of [['Sessions', r.sessions, SESSIONS_COLS], ['Events', r.events, EVENTS_COLS], ['Modes', r.modes, MODES_COLS]]) {
+    const ids = new Set(cols.map((c) => c.id));
+    const horsSchema = [...new Set(lignes.flatMap((l) => Object.keys(l)).filter((k) => !ids.has(k)))];
+    verifier(`schéma ${nom} : chaque champ produit est une colonne déclarée${horsSchema.length ? ` (${horsSchema.join(', ')})` : ''}`, horsSchema.length === 0);
+    verifier(`schéma ${nom} : chaque identifiant est valide pour Grist`, cols.every((c) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(c.id)));
+  }
 }
 
 console.log(echecs ? `\n${echecs} échec(s)` : '\nTous les tests passent.');
