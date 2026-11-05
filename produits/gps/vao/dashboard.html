@@ -11,6 +11,10 @@
   :root{ --bf:#000091; --txt:#161616; --mut:#666; --line:#e5e5e5; --soft:#f5f5fe; --neutral:#555; --warn:#b34000;
          --ok:#18753c; --ok-bg:#e3fbe3; --ko:#b34000; --ko-bg:#ffe9d9; --pend:#6a3d99; --pend-bg:#f3edfb; --pend-line:#d3c2ec; }
   body{ margin:0; color:var(--txt); background:#fff; font-family:"Marianne",system-ui,sans-serif; }
+  .retour{ flex:none; display:inline-flex; align-items:center; gap:6px; border:1px solid var(--bf); border-radius:4px; padding:4px 10px; color:var(--bf); background:#fff; font-size:13px; font-weight:700; text-decoration:none; margin-left:.6rem; }
+  .retour[hidden]{ display:none; }
+  .retour:hover{ background:var(--soft); }
+  .retour:focus-visible{ outline:2px solid var(--bf); outline-offset:2px; }
   .toolbar{ display:flex; gap:1rem; align-items:center; flex-wrap:wrap; padding:.7rem 1.1rem; background:var(--soft); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
   .toolbar .grp{ display:flex; align-items:center; gap:.4rem; }
   .toolbar label{ font-size:.78rem; color:#444; font-weight:600; }
@@ -106,6 +110,7 @@
     <div class="sub">Tableau de bord de mesure d'impact des démarches VAO : renouvellement d'agrément, hébergement, déclaration de séjour.</div>
   </div>
   <p class="fr-badge fr-badge--sm fr-badge--warning" style="margin-left:auto" id="badge">données fictives</p>
+  <a class="retour" id="f-retour" href="#" target="_blank" rel="noopener" title="Faire un retour (nouvelle fenêtre)" hidden><span aria-hidden="true">✎</span> Faire un retour</a>
 </div>
 
 <div class="toolbar">
@@ -422,6 +427,25 @@ document.getElementById('f-preset').addEventListener('change',e=>applyPreset(e.t
 document.getElementById('f-from').addEventListener('change',e=>{ fromD=e.target.value||null; document.getElementById('f-preset').value='custom'; renderAll(); });
 document.getElementById('f-to').addEventListener('change',e=>{ toD=e.target.value||null; document.getElementById('f-preset').value='custom'; renderAll(); });
 document.getElementById('f-dem').addEventListener('change',()=>protege(applyDem));
+/* ============ BOUTON « FAIRE UN RETOUR » (brique commune, voir produits/README.md) ============
+   Formulaire Grist public sur la table Retours du doc Data Ops ; le contexte part dans l'URL. */
+const FORM_RETOUR='https://grist.numerique.gouv.fr/o/studio/forms/r497cC96asn9nWx7ej3X1G/38';
+const RETOUR={ produit:'VAO', version:'V1' };
+const jourRetour=d=>d?`${d.slice(8,10)}/${d.slice(5,7)}/${d.slice(0,4)}`:'';
+function majRetour(){
+  const a=document.getElementById('f-retour'); if(!a) return;
+  const onglet=document.querySelector('.fr-tabs__tab[aria-selected="true"]')?.textContent.trim()||'';
+  const dem=document.getElementById('f-dem');
+  const segs=[seg!=='tous'?SEG_LBL[seg]:'', dem&&dem.selectedIndex>0?dem.options[dem.selectedIndex].text:''].filter(Boolean);
+  const ctx={ Produit:RETOUR.produit, Tableau_de_bord:'Démo', Onglet:onglet,
+    Periode: fromD===toD?`le ${jourRetour(fromD)}`:`du ${jourRetour(fromD)} au ${jourRetour(toD)}`, Segment:segs.join(' · ')||'Tous', Version_tableau:RETOUR.version };
+  const u=new URL(FORM_RETOUR); for(const [k,v] of Object.entries(ctx)) if(v) u.searchParams.set(k,v);
+  a.href=u.toString(); a.hidden=false;
+}
+function majRetourSur(){ try{ majRetour(); }catch(e){ console.error(e); document.getElementById('f-retour').hidden=true; } }
+/* Le bouton suit chaque réglage (tous passent par protege) et chaque changement d'onglet. */
+{ const garde=protege; protege=function(action){ garde(action); if(ROWS.length) majRetourSur(); }; }
+document.querySelector('.fr-tabs__list')?.addEventListener('click',()=>setTimeout(()=>{ if(ROWS.length) majRetourSur(); }));
 document.getElementById('p0').innerHTML='<p class="explain">Chargement des données…</p>';
 load().then(rows=>{ ROWS=rows; if(!ROWS.length) throw new Error('la table Jours est vide'); initRange(); renderAll(); })
   .catch(e=>{ for(const id of ['p0','p1','p2','p3','p4']){ const el=document.getElementById(id); if(el) el.innerHTML=`<p class="explain">Données indisponibles : ${esc(e&&e.message||e)}</p>`; } });
