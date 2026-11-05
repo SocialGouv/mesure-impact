@@ -181,7 +181,8 @@ async function load(){
     grist.ready({ requiredAccess:'read table' });
     const t=await grist.docApi.fetchTable('Jours');
     const keys=Object.keys(t).filter(k=>k!=='id'&&k!=='manualSort');
-    const ordre=t.id.map((id,i)=>[id,i]).sort((x,y)=>x[0]-y[0]).map(x=>x[1]); // ordre de chargement, comme à la génération
+    const ordre=t.id.map((id,i)=>[id,i]).sort((x,y)=>x[0]-y[0]).map(x=>x[1]) // ordre de chargement, comme à la génération
+      .filter(i=>t.day[i] && t.device[i]); // une ligne ajoutée à la main dans Grist, encore vide, est ignorée
     return ordre.map(i=>Object.fromEntries(keys.map(k=>[k, ARR.includes(k)? JSON.parse(t[k][i]) : t[k][i]])));
   }
   throw new Error('ce tableau s’affiche dans le document Grist « Démo - VAO »');
@@ -409,7 +410,7 @@ function renderImpactant(){
 }
 
 /* ============ ORCHESTRATION (reprise du tableau de bord BASAVI) ============ */
-function protege(action){ try{ action(); }catch(e){ rendreEchec(e); } }
+function protege(action){ if(!ROWS.length) return; try{ action(); }catch(e){ rendreEchec(e); } } // rien à rendre tant que Grist n'a pas répondu
 function rendreEchec(e){ console.error(e); const msg=`<div class="explain" style="border-left-color:var(--ko);color:var(--ko)"><b>Le tableau de bord n'a pas pu être rendu.</b> ${esc(e&&e.message||e)}</div>`; for(const id of ['p0','p1','p2','p3','p4']){ const el=document.getElementById(id); if(el) el.innerHTML=msg; } }
 function renderTout(){ build(); const pl=document.getElementById('prevlbl'); if(pl) pl.textContent=prevDays().length?'vs période précédente':'pas d’historique'; renderSynthese(); renderUtilisable(); renderUtilise(); renderUtile(); renderImpactant(); applyDem(); }
 function renderAll(){ protege(renderTout); }
@@ -421,6 +422,7 @@ document.getElementById('f-preset').addEventListener('change',e=>applyPreset(e.t
 document.getElementById('f-from').addEventListener('change',e=>{ fromD=e.target.value||null; document.getElementById('f-preset').value='custom'; renderAll(); });
 document.getElementById('f-to').addEventListener('change',e=>{ toD=e.target.value||null; document.getElementById('f-preset').value='custom'; renderAll(); });
 document.getElementById('f-dem').addEventListener('change',()=>protege(applyDem));
+document.getElementById('p0').innerHTML='<p class="explain">Chargement des données…</p>';
 load().then(rows=>{ ROWS=rows; if(!ROWS.length) throw new Error('la table Jours est vide'); initRange(); renderAll(); })
   .catch(e=>{ for(const id of ['p0','p1','p2','p3','p4']){ const el=document.getElementById(id); if(el) el.innerHTML=`<p class="explain">Données indisponibles : ${esc(e&&e.message||e)}</p>`; } });
 </script>
