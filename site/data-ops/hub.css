@@ -1,0 +1,277 @@
+/* ============================================================================
+   HUB MESURE D'IMPACT — Couche sur-mesure PAR-DESSUS le DSFR officiel.
+   Le DSFR (dsfr.min.css) fournit le reset, la police Marianne, les tokens
+   et les composants fr-*. Ici on ne style QUE les composants maison
+   (deck de slides, course des produits, panneau commentaires), en réutilisant
+   les variables de couleur DSFR pour rester cohérent et theme-aware.
+   ============================================================================ */
+
+/* ------- Accueil : petits ajustements sur la grille de cartes ------------- */
+.hub-accueil { padding-top: 2rem; padding-bottom: 4rem; }
+.hub-accueil .hub-intro { max-width: 42rem; color: var(--text-mention-grey); }
+.hub-liste-titre {
+  text-transform: uppercase; letter-spacing: .06em; font-weight: 700;
+  font-size: .875rem; color: var(--text-mention-grey); margin: 2rem 0 1rem;
+}
+.fr-card__detail { color: var(--text-mention-grey); }
+
+/* ========================================================================== */
+/* VUE DECK                                                                    */
+/* ========================================================================== */
+.page-deck { display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  background: var(--background-alt-grey); }
+
+.deck-barre {
+  display: flex; align-items: center; gap: 1rem; padding: .75rem 1.5rem;
+  background: var(--background-default-grey);
+  border-bottom: 1px solid var(--border-default-grey); flex-shrink: 0;
+}
+.deck-barre .titre-update { font-weight: 700; font-size: .95rem; color: var(--text-title-grey); }
+.deck-barre .grandir { flex: 1; }
+.deck-barre .compteur { font-variant-numeric: tabular-nums; font-weight: 700;
+  color: var(--text-mention-grey); }
+
+.deck-corps { flex: 1; position: relative; overflow: hidden; display: flex; }
+
+.scene { flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 2rem 3.5rem; overflow: auto; }
+.slide {
+  width: 100%; max-width: 62rem; background: var(--background-default-grey);
+  border: 1px solid var(--border-default-grey); border-radius: .5rem;
+  box-shadow: 0 4px 16px rgba(0,0,18,.06); padding: 2.75rem 3rem; min-height: 62vh;
+  display: flex; flex-direction: column;
+}
+.slide .kicker {
+  font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; font-weight: 700;
+  color: var(--text-action-high-blue-france); margin-bottom: .5rem;
+}
+.slide h2 { font-size: 2rem; line-height: 1.15; color: var(--text-title-grey);
+  margin: 0 0 .35rem; }
+.slide .sous { font-size: 1.15rem; color: var(--text-mention-grey); margin-bottom: 1.75rem; }
+.slide .corps { flex: 1; }
+
+.slide .puce { font-size: 1.1rem; color: var(--text-default-grey);
+  margin: 0 0 .85rem; padding-left: 1.4rem; position: relative; }
+.slide .puce::before { content: ""; position: absolute; left: 0; top: .7rem;
+  width: .5rem; height: .5rem; background: var(--text-default-error); border-radius: 2px; }
+
+.blocs { display: grid; gap: .9rem; }
+.bloc { border: 1px solid var(--border-default-grey);
+  border-left: 4px solid var(--text-action-high-blue-france); border-radius: .5rem;
+  padding: 1rem 1.1rem; background: var(--background-alt-blue-france); }
+.bloc.probleme { border-left-color: var(--text-default-error);
+  background: var(--background-alt-red-marianne); }
+.bloc.jalon { border-left-color: var(--text-default-success);
+  background: var(--background-alt-green-emeraude); position: relative; padding-left: 2.6rem; }
+.bloc.jalon::before { content: "✓"; position: absolute; left: 1rem; top: .9rem;
+  font-weight: 800; color: var(--text-default-success); }
+
+.etape-tag { display: inline-block; vertical-align: middle; font-size: .68rem;
+  font-weight: 700; color: var(--text-inverted-grey); padding: .1rem .5rem; border-radius: 999px;
+  white-space: nowrap; letter-spacing: .01em; }
+.bloc .b-titre { font-weight: 700; font-size: 1rem; margin-bottom: .25rem;
+  color: var(--text-title-grey); }
+.bloc .b-texte { font-size: .95rem; color: var(--text-default-grey); }
+.bloc .b-sol { font-size: .95rem; color: var(--text-default-success);
+  margin-top: .5rem; font-weight: 500; }
+
+/* Deux colonnes dès qu'une slide porte beaucoup de produits, pour rester dans l'écran. */
+.blocs.deux { grid-template-columns: 1fr 1fr; align-items: start; }
+@media (max-width: 900px) { .blocs.deux { grid-template-columns: 1fr; } }
+
+/* Produit qui a changé d'étape dans le mois : il se repère sans lire. */
+.bloc.avance { border-left-color: var(--text-default-success);
+  background: var(--background-alt-green-emeraude); }
+.bloc .marqueur { display: inline-block; vertical-align: middle; margin-left: .4rem;
+  font-size: .68rem; font-weight: 700; letter-spacing: .02em;
+  color: var(--text-default-success); border: 1px solid var(--text-default-success);
+  border-radius: 999px; padding: .05rem .45rem; }
+
+/* Bandeau de chiffres clés en pied de slide d'intro. */
+.chiffres { display: grid; grid-template-columns: repeat(4, 1fr); gap: .9rem;
+  margin-top: 1.6rem; padding-top: 1.4rem;
+  border-top: 1px solid var(--border-default-grey); }
+.chiffre .val { font-size: 2.1rem; font-weight: 800; line-height: 1;
+  color: var(--text-action-high-blue-france); font-variant-numeric: tabular-nums; }
+.chiffre .lab { font-size: .85rem; color: var(--text-default-grey); margin-top: .35rem;
+  font-weight: 500; }
+.chiffre .det { font-size: .78rem; color: var(--text-mention-grey); margin-top: .15rem; }
+
+/* Titre de catégorie (Gouvernance / Technique / Produit) au-dessus d'un paquet de blocs. */
+h3.cat { font-size: .8rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-mention-grey); margin: 1.1rem 0 .5rem; font-weight: 700; }
+h3.cat:first-child { margin-top: 0; }
+
+/* Frise de trajectoire : le mois courant se repère d'abord. */
+.frise { display: grid; grid-template-columns: repeat(6, 1fr); gap: .6rem; margin-top: .4rem; }
+.frise .jalon { border-top: 3px solid var(--border-default-grey); padding-top: .7rem; }
+.frise .jalon.ici { border-top-color: var(--text-action-high-blue-france); }
+.frise .periode { font-weight: 700; font-size: .95rem; color: var(--text-title-grey); }
+.frise .ici-tag { display: inline-block; margin: .2rem 0; font-size: .68rem; font-weight: 700;
+  color: #fff; background: var(--text-action-high-blue-france);
+  border-radius: 999px; padding: .05rem .5rem; }
+.frise .j-texte { font-size: .85rem; color: var(--text-mention-grey); margin-top: .25rem; }
+.frise .jalon.ici .j-texte { color: var(--text-default-grey); }
+@media (max-width: 900px) { .frise { grid-template-columns: repeat(2, 1fr); } }
+
+/* Échéances datées, en pied de slide « prochaines étapes ». */
+.echeances { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem .9rem; }
+.echeance { display: flex; gap: .6rem; align-items: baseline; font-size: .9rem;
+  border-bottom: 1px solid var(--border-default-grey); padding-bottom: .35rem; }
+.echeance .quand { font-weight: 700; color: var(--text-action-high-blue-france);
+  white-space: nowrap; }
+.echeance .quoi { color: var(--text-default-grey); }
+@media (max-width: 900px) { .echeances { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .chiffres { grid-template-columns: repeat(2, 1fr); } }
+
+.deux-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.75rem; }
+.deux-col h3 { font-size: .9rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-mention-grey); margin-bottom: .75rem; }
+
+/* --- Course des produits (petits chevaux) -------------------------------- */
+.course { display: grid; grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--border-default-grey); border-radius: .6rem;
+  overflow: hidden; flex: 1; }
+.couloir { display: flex; flex-direction: column;
+  border-right: 1px dashed var(--border-default-grey);
+  background: var(--background-default-grey); min-height: 0; }
+.couloir:last-child { border-right: none; background: var(--background-alt-green-emeraude); }
+.couloir-tete { padding: .75rem; text-align: center; border-bottom: 2px solid;
+  font-weight: 700; font-size: .8rem; position: sticky; top: 0;
+  background: var(--background-default-grey); }
+.couloir-tete .flag { display: block; font-size: 1.1rem; margin-top: .1rem; min-height: 1.1rem; }
+.couloir-corps { padding: .9rem .75rem; display: flex; flex-direction: column;
+  gap: .6rem; overflow: auto; }
+
+.cheval { display: flex; align-items: center; gap: .5rem; padding: .5rem .65rem;
+  border-radius: 999px; background: var(--background-default-grey);
+  border: 1.5px solid var(--border-default-grey); font-size: .9rem; font-weight: 600;
+  color: var(--text-title-grey); }
+.cheval .ico { font-size: .95rem; line-height: 1; }
+.cheval .dept { font-size: .7rem; color: var(--text-mention-grey); font-weight: 600; }
+.cheval.bouge { box-shadow: 0 0 0 3px rgba(24,117,60,.2);
+  border-color: var(--text-default-success); }
+.cheval.recap { border-style: dashed; background: transparent; font-weight: 500;
+  font-style: italic; color: var(--text-mention-grey); justify-content: center; }
+.cheval .badge-bouge { font-size: .62rem; font-weight: 800;
+  color: var(--text-default-success); margin-left: auto; white-space: nowrap; }
+
+.course-legende { font-size: .75rem; color: var(--text-mention-grey); margin-top: .75rem; }
+
+/* --- Navigation deck ------------------------------------------------------ */
+.nav-fleche { position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
+  width: 2.9rem; height: 2.9rem; border-radius: 50%;
+  border: 1px solid var(--border-default-grey); background: var(--background-default-grey);
+  color: var(--text-action-high-blue-france); font-size: 1.4rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,18,.1); }
+.nav-fleche:hover { background: var(--background-default-grey-hover); }
+.nav-fleche:disabled { opacity: .3; cursor: not-allowed; }
+.nav-fleche.prec { left: .9rem; }
+.nav-fleche.suiv { right: .9rem; }
+
+.points { display: flex; gap: .5rem; justify-content: center; padding: .75rem;
+  background: var(--background-default-grey);
+  border-top: 1px solid var(--border-default-grey); flex-shrink: 0; }
+.point { width: .55rem; height: .55rem; border-radius: 50%;
+  background: var(--border-contrast-grey); border: none; cursor: pointer; padding: 0; }
+.point.on { background: var(--text-action-high-blue-france); transform: scale(1.25); }
+
+/* --- Panneau commentaires ------------------------------------------------- */
+.commentaires { width: 21rem; flex-shrink: 0; background: var(--background-default-grey);
+  border-left: 1px solid var(--border-default-grey); display: none;
+  flex-direction: column; padding: 1.25rem; }
+.commentaires.ouvert { display: flex; }
+.commentaires h3 { font-size: 1rem; margin-bottom: .25rem; color: var(--text-title-grey); }
+.commentaires .aide { font-size: .75rem; color: var(--text-mention-grey); margin-bottom: .75rem; }
+.commentaires textarea { flex: 1; width: 100%; resize: none; font-family: inherit;
+  font-size: .9rem; line-height: 1.5; border: 1px solid var(--border-default-grey);
+  border-radius: .5rem; padding: .75rem; color: var(--text-default-grey);
+  background: var(--background-contrast-grey); }
+.commentaires .etat { font-size: .75rem; color: var(--text-default-success);
+  margin-top: .5rem; min-height: 1rem; }
+.commentaires .actions { margin-top: .75rem; }
+
+.footer-deck { font-size: .7rem; color: var(--text-mention-grey); text-align: center;
+  padding: .4rem; background: var(--background-alt-grey); }
+
+@media (max-width: 48rem) {
+  .scene { padding: 1rem; }
+  .slide { padding: 1.5rem 1.25rem; min-height: 0; }
+  .slide h2 { font-size: 1.6rem; }
+  .deux-col { grid-template-columns: 1fr; }
+  .course { grid-template-columns: 1fr 1fr; }
+  .commentaires { position: absolute; right: 0; top: 0; bottom: 0; z-index: 10; }
+  .nav-fleche { display: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Densité : les slides portent plus de contenu qu'à la création du hub
+   (catégories, 18 produits dans la course). On resserre pour qu'une slide
+   tienne dans l'écran sans défilement, condition d'une revue projetée.
+   --------------------------------------------------------------------------- */
+.slide { padding: 1.9rem 2.4rem; min-height: 0; }
+.slide h2 { font-size: 1.65rem; margin-bottom: .15rem; }
+.slide .sous { font-size: 1rem; margin-bottom: 1rem; }
+.slide .puce { font-size: 1rem; }
+.blocs { gap: .55rem; }
+.bloc { padding: .65rem .85rem; border-radius: .4rem; }
+.bloc .b-titre { font-size: .93rem; }
+.bloc .b-texte, .bloc .b-sol { font-size: .87rem; line-height: 1.45; }
+.bloc.jalon { padding-left: 2.2rem; }
+.bloc.jalon::before { top: .6rem; left: .85rem; }
+h3.cat { margin: .8rem 0 .4rem; }
+.chiffres { margin-top: 1.1rem; padding-top: 1rem; }
+.chiffre .val { font-size: 1.8rem; }
+
+/* Course des produits : 18 chevaux au lieu de 11. */
+.couloir-corps { padding: .6rem .55rem; gap: .35rem; }
+.cheval { padding: .34rem .55rem; font-size: .88rem; }
+.couloir-tete { padding: .55rem; }
+.scene { padding: 1.2rem 3rem; }
+.slide { padding: 1.6rem 2.2rem; }
+.bloc.probleme .b-texte, .bloc.probleme .b-sol { font-size: .84rem; line-height: 1.4; }
+.bloc.probleme .b-sol { margin-top: .35rem; }
+
+/* ---------------------------------------------------------------------------
+   Contexte en blocs titrés, freins numérotés, réponses appariées,
+   histogrammes de progression, colonnes de prochaines étapes.
+   --------------------------------------------------------------------------- */
+.sections { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.1rem; }
+.section .s-titre { font-weight: 700; font-size: 1rem; color: var(--text-title-grey);
+  border-top: 3px solid var(--text-action-high-blue-france); padding-top: .6rem; }
+.section .s-texte { font-size: .9rem; color: var(--text-default-grey); margin-top: .3rem; }
+@media (max-width: 900px) { .sections { grid-template-columns: 1fr; } }
+
+.bloc .num { display: inline-flex; align-items: center; justify-content: center;
+  width: 1.25rem; height: 1.25rem; margin-right: .45rem; border-radius: 999px;
+  background: var(--text-default-error); color: #fff; font-size: .72rem; font-weight: 700;
+  vertical-align: middle; }
+.bloc .num.vert { background: var(--text-default-success); }
+.bloc.reponse { border-left-color: var(--text-default-success);
+  background: var(--background-alt-green-emeraude); }
+
+.courbes { display: grid; grid-template-columns: 1fr 1fr; gap: 1.4rem; margin-top: 1.2rem;
+  padding-top: 1rem; border-top: 1px solid var(--border-default-grey); }
+.courbe .c-titre { font-weight: 700; font-size: .92rem; color: var(--text-title-grey); }
+.courbe .c-note { font-size: .78rem; color: var(--text-mention-grey); margin-bottom: .4rem; }
+.barres { display: flex; align-items: flex-end; gap: .5rem; height: 4.6rem; }
+.barre { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
+.barre .v { font-size: .72rem; font-weight: 700; color: var(--text-mention-grey);
+  font-variant-numeric: tabular-nums; }
+.barre .fut { flex: 1; width: 100%; display: flex; align-items: flex-end;
+  background: var(--background-alt-grey); border-radius: 2px; }
+.barre .rem { width: 100%; background: var(--border-plain-grey); border-radius: 2px; min-height: 2px; }
+.barre.ici .rem { background: var(--text-action-high-blue-france); }
+.barre.ici .v { color: var(--text-action-high-blue-france); }
+.barre .m { font-size: .72rem; color: var(--text-mention-grey); margin-top: .2rem; }
+@media (max-width: 900px) { .courbes { grid-template-columns: 1fr; } }
+
+.cols { display: grid; gap: 1.5rem; }
+.cols h3 { font-size: .85rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--text-mention-grey); margin-bottom: .6rem; }
+@media (max-width: 900px) { .cols { grid-template-columns: 1fr !important; } }
+.bloc.reponse .b-texte { font-size: .84rem; line-height: 1.4; }
+.barres { height: auto; align-items: flex-end; }
+.barre { height: auto; }
+.barre .fut { flex: none; }
