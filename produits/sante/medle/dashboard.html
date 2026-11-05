@@ -19,9 +19,10 @@
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Marianne,Arial,sans-serif}
 .fictif{background:var(--warn-bg);color:var(--warn);font-weight:700;font-size:12px;padding:6px 16px;text-align:center}
 header{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+header{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px}
 header>div{min-width:0}
 .retour{flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bf);border-radius:4px;padding:4px 10px;color:var(--bf);background:#fff;font-size:13px;font-weight:700;text-decoration:none}
+.retour[hidden]{display:none}
 .retour:hover{background:var(--bf-soft)}
 .retour:focus-visible{outline:2px solid var(--bf);outline-offset:2px}
 header h1{margin:0;font-size:18px;color:var(--bf)}
@@ -360,7 +361,7 @@ document.getElementById('filters').addEventListener('change', (e) => {
   render();
 });
 // Le bouton suit chaque rendu (onglet, période, filtres).
-{ const rendu = render; render = function () { rendu(); majRetour(); }; }
+{ const rendu = render; render = function () { rendu(); try { majRetour(); } catch (e) { console.error(e); document.getElementById('f-retour').hidden = true; } }; }
 load().then((d) => {
   D = d;
   D.mois = [...new Set(D.Suivi_mensuel.map((r) => r.Mois))].sort();

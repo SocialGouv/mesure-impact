@@ -78,8 +78,10 @@ formulaire : `Produit` (nom exact de la table `Produits`), `Tableau_de_bord` (Pr
 Préproduction ou Démo), `Onglet`, `Periode`, `Segment` (filtres actifs, sinon « Tous ») et
 `Version_tableau`. Aucun secret : le formulaire est public, il n'écrit que dans `Retours`.
 
-La brique est la même dans chaque `dashboard.html` (l'image ne publie qu'un fichier par
-tableau, elle ne peut donc pas être partagée) : le lien `#f-retour` dans l'en-tête, la constante
-`RETOUR` (produit, version, identifiants des filtres), `envRetour()`, `periodeRetour()` et
-`majRetour()`, appelée après chaque rendu. Une démo sans collecte renvoie toujours « Démo » ;
+La brique est recopiée dans chaque `dashboard.html` (l'image ne publie qu'un fichier par
+tableau, elle ne peut donc pas être partagée) : le lien `#f-retour` dans l'en-tête, caché tant
+que le tableau n'est pas rendu, la constante `RETOUR` (produit, version, identifiants des
+filtres), `envRetour()`, `periodeRetour()` et `majRetour()`, appelée après chaque rendu.
+BASAVI, le premier équipé, suit le même principe avec ses propres noms (`PRODUIT`, `VERSION`,
+`envTableau()`, `lienRetour()`) et une période au jour près. Une démo sans collecte renvoie toujours « Démo » ;
 un tableau collecté lit son environnement sur la source des données (site Matomo).
