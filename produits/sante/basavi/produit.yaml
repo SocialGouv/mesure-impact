@@ -20,7 +20,7 @@ chaine:
   grist:
     url: https://grist.numerique.gouv.fr
     doc_id:
-      dev: 1kb1wHNCjAns     # « Preprod - BASAVI »
+      dev: 1kb1wHNCjAns2qXjWvK8Me   # « Preprod - BASAVI » (ID complet : l'ID court saute quand le doc change d'espace)
       prod: bYiVrDCi85T6XGW7SSUC4G   # « Prod - BASAVI », doc séparé : la préprod ne pollue jamais la prod
     tables: [Sessions, Events, Modes, Indicateurs, Extractions]
   grain: jour × device      # device natif Matomo (mobile / desktop / tous)
