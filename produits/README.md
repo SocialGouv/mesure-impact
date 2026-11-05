@@ -69,3 +69,19 @@ Deux règles, parce que l'image ne copie que ce fichier et que le dépôt est pu
 
 Quand la collecte arrive, on ajoute `produit.yaml`, `etl.mjs` et `secrets/` dans le même
 dossier : l'URL ne change pas. Exemple : `sante/medle/`. Voir `doc/decisions/0005`.
+
+## Bouton « Faire un retour »
+
+Chaque tableau porte en haut à droite un bouton qui ouvre le formulaire Grist public de la table
+`Retours` (doc « Data Ops DNUM »). Le contexte part dans l'URL, vers des champs cachés du
+formulaire : `Produit` (nom exact de la table `Produits`), `Tableau_de_bord` (Production,
+Préproduction ou Démo), `Onglet`, `Periode`, `Segment` (filtres actifs, sinon « Tous ») et
+`Version_tableau`. Aucun secret : le formulaire est public, il n'écrit que dans `Retours`.
+
+La brique est recopiée dans chaque `dashboard.html` (l'image ne publie qu'un fichier par
+tableau, elle ne peut donc pas être partagée) : le lien `#f-retour` dans l'en-tête, caché tant
+que le tableau n'est pas rendu, la constante `RETOUR` (produit, version, identifiants des
+filtres), `envRetour()`, `periodeRetour()` et `majRetour()`, appelée après chaque rendu.
+BASAVI, le premier équipé, suit le même principe avec ses propres noms (`PRODUIT`, `VERSION`,
+`envTableau()`, `lienRetour()`) et une période au jour près. Une démo sans collecte renvoie toujours « Démo » ;
+un tableau collecté lit son environnement sur la source des données (site Matomo).
