@@ -19,6 +19,11 @@
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 Marianne,Arial,sans-serif}
 .fictif{background:var(--warn-bg);color:var(--warn);font-weight:700;font-size:12px;padding:6px 16px;text-align:center}
 header{padding:14px 16px 10px;border-bottom:1px solid var(--line)}
+header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+header>div{min-width:0}
+.retour{flex:none;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--bf);border-radius:4px;padding:4px 10px;color:var(--bf);background:#fff;font-size:13px;font-weight:700;text-decoration:none}
+.retour:hover{background:var(--bf-soft)}
+.retour:focus-visible{outline:2px solid var(--bf);outline-offset:2px}
 header h1{margin:0;font-size:18px;color:var(--bf)}
 header p{margin:2px 0 0;color:var(--mut);font-size:13px}
 header .links{margin-top:6px;display:flex;gap:12px;flex-wrap:wrap;font-size:12px}
@@ -79,9 +84,12 @@ dl.lire dd{margin:0;color:#333}
 <body>
 <div class="fictif">Démo · valeurs fictives, construites sur les volumes 2025 · aucune donnée réelle de Médlé</div>
 <header>
+<div>
   <h1>Médlé : déclaration des actes médico-légaux et des effectifs des UMJ</h1>
   <p>Des données fiables et partagées entre Santé et Justice pour calibrer le financement des structures médico-légales.</p>
   <div class="links"><span>Page produit ↗</span><span>Power BI DGOS-MEDLE ↗</span></div>
+</div>
+  <a class="retour" id="f-retour" href="#" target="_blank" rel="noopener" title="Faire un retour (nouvelle fenêtre)" hidden><span aria-hidden="true">✎</span> Faire un retour</a>
 </header>
 <div class="tb" id="filters">
   <label>Mois <select id="f-mois"></select></label>
@@ -314,6 +322,24 @@ function fillFilters() {
   const p = prevMonth(S.mois);
   document.getElementById('f-cmp').textContent = p ? `${moisLong(S.mois)} · comparé à ${moisLong(p)}` : moisLong(S.mois);
 }
+// Bouton « Faire un retour » (brique commune, voir produits/README.md) : formulaire Grist public
+// sur la table Retours du doc Data Ops. Le contexte part dans l'URL (champs cachés) ; aucun secret ici.
+const FORM_RETOUR = 'https://grist.numerique.gouv.fr/o/studio/forms/r497cC96asn9nWx7ej3X1G/38';
+const RETOUR = { produit: 'Médlé', version: 'V1', filtres: ['f-region', 'f-dep', 'f-struct'] };
+const envRetour = () => 'Démo';
+const periodeRetour = () => moisRetour(S.mois);
+const moisRetour = (m) => (m ? `${m.slice(5, 7)}/${m.slice(0, 4)}` : '');
+function majRetour() {
+  const a = document.getElementById('f-retour');
+  if (!a) return;
+  const choisis = RETOUR.filtres.map((id) => document.getElementById(id)).filter((s) => s && s.selectedIndex > 0).map((s) => s.options[s.selectedIndex].text);
+  const ctx = { Produit: RETOUR.produit, Tableau_de_bord: envRetour(), Onglet: (TABS.find(([id]) => id === S.tab) || [])[1] || '',
+    Periode: periodeRetour(), Segment: choisis.join(' · ') || 'Tous', Version_tableau: RETOUR.version };
+  const u = new URL(FORM_RETOUR);
+  for (const [k, v] of Object.entries(ctx)) if (v) u.searchParams.set(k, v);
+  a.href = u.toString();
+  a.hidden = false;
+}
 function render() {
   fillFilters();
   document.getElementById('tabs').innerHTML = TABS.map(([id, l]) => `<button role="tab" aria-selected="${S.tab === id}" data-t="${id}">${l}</button>`).join('');
@@ -333,6 +359,8 @@ document.getElementById('filters').addEventListener('change', (e) => {
   if (id === 'f-struct') S.struct = e.target.value;
   render();
 });
+// Le bouton suit chaque rendu (onglet, période, filtres).
+{ const rendu = render; render = function () { rendu(); majRetour(); }; }
 load().then((d) => {
   D = d;
   D.mois = [...new Set(D.Suivi_mensuel.map((r) => r.Mois))].sort();
