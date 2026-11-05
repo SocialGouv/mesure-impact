@@ -16,7 +16,7 @@ Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ─
 - **`dashboard.html`** : le front DSFR (Tableau V3), embarqué comme widget dans le doc Grist. Il lit
   les tables `KPI`, `Base`, `Events` et `Extractions` via l'API plugin Grist, aucun token dans la
   page. Polices Marianne embarquées : l'image web ne publie que ce fichier, sous `/sante/helios/`.
-  Hors de Grist, la page affiche « Données indisponibles ».
+  Ouverte directement, hors de Grist, la page affiche « Données indisponibles ».
 - **`produit.yaml`** : les identifiants publics et les critères d'achèvement.
 - **`secrets/`** : les tokens Matomo et Grist, **scellés** (chiffrés), jamais en clair.
 
@@ -49,13 +49,14 @@ visiteur n'est écrit sur la fabrique. Conséquences :
   pas le faire baisser en silence. Après une panne de plus d'un mois, la fenêtre repart du
   mois du dernier succès (lu dans Extractions), qui n'avait été écrit que partiellement.
   `COLLECT_FROM` n'est qu'un plancher. Un run manuel (`--from` ou `--to`) publie sous le
-  `run_id` `helios-manuel` : il ne compte pas comme dernier succès nocturne, ni pour le
-  widget qui en déduit les mois partiels. Lors de la migration depuis l'ancien grain brut, le
+  `run_id` `helios-manuel` : il ne compte pas comme dernier succès nocturne. Lors de la migration depuis l'ancien grain brut, le
   run nocturne relit dans le même run les mois qu'il couvrait à partir du plancher (plus
   bas, l'ancien grain est retiré sans relecture). Un run manuel dont la fenêtre ne les couvre
   pas, ou un mois hérité que Matomo rend vide, fait refuser le run avant toute écriture ;
-- le mois en cours est partiel : le widget le signale « (en cours) » et ne calcule pas
-  d'évolution contre un mois complet. Un mois au taux vide (base incomplète ou incohérente)
+- le mois en cours est partiel et n'a pas encore de base (elle arrive le 1er du mois suivant) :
+  le widget n'en affiche pas le taux, et sa période par défaut est le dernier mois qui a une
+  base. Il ne le marque pas « en cours » : choisi à la main, ce mois est comparé au précédent
+  sur les compteurs. Un mois au taux vide (base incomplète ou incohérente)
   n'est ni affiché en pourcentage, ni tracé, ni pris comme référence d'évolution ;
 - une connexion sans identifiant lisible fait échouer le run : publier quand même ferait
   tomber le RC1 à zéro en silence ;
@@ -114,6 +115,4 @@ Points de vigilance :
 
 - **Le script local `sandbox-impact/grist/preprod-etl.mjs` doit être arrêté.** Il écrit encore
   le grain brut, avec `visitor_id`, sur le même doc.
-- Le widget servi par Netlify (`dnum-helios-shell`) doit lire `Events.count` au lieu de compter
-  les lignes : Events est au grain agrégé depuis la migration du 15/10/2026.
 - La prod (site Matomo 72) viendra avec son propre doc Grist et son propre secret.

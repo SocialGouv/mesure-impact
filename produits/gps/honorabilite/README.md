@@ -15,7 +15,7 @@ doc Grist « Démo - Honorabilité » (données fictives) ──> dashboard.html
   aucun token dans la page. Polices Marianne embarquées : l'image web ne publie que ce fichier.
 - Pas de `produit.yaml` ni de collecte : le dossier est publié sans CronJob, sous `/gps/honorabilite/`.
 
-Hors de Grist, la page affiche « Données indisponibles » : aucune donnée n'est publiée.
+Ouverte directement, hors de Grist, la page affiche « Données indisponibles » : aucune donnée n'est publiée.
 
 ## Données fictives
 
