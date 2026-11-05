@@ -8,13 +8,15 @@ fonctionnalités utilisées (comparaison, export, listes), recherche et navigati
 ## La chaîne
 
 ```
-Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ──> widget (front, hors de ce dépôt)
+Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ──> dashboard.html (widget)
 ```
 
 - **`etl.mjs`** : extrait les visites Matomo mois par mois, agrège au grain mois × rôle et
   peuple les 4 tables du doc Grist (Events, Base, KPI, Extractions). Node pur, aucune dépendance.
-- **Le front** (widget DSFR embarqué dans le doc Grist) est servi par Netlify pour l'instant ;
-  sa migration dans ce dépôt est reportée.
+- **`dashboard.html`** : le front DSFR (Tableau V3), embarqué comme widget dans le doc Grist. Il lit
+  les tables `KPI`, `Base`, `Events` et `Extractions` via l'API plugin Grist, aucun token dans la
+  page. Polices Marianne embarquées : l'image web ne publie que ce fichier, sous `/sante/helios/`.
+  Hors de Grist, la page affiche « Données indisponibles ».
 - **`produit.yaml`** : les identifiants publics et les critères d'achèvement.
 - **`secrets/`** : les tokens Matomo et Grist, **scellés** (chiffrés), jamais en clair.
 
