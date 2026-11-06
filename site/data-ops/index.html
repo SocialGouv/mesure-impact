@@ -267,7 +267,9 @@ dialog.dop-dialog::backdrop { background: rgba(22,22,22,.64); }
               <label class="fr-sr-only" for="statut-maj">Statut de la mise à jour</label><select class="fr-select dop-statut" id="statut-maj"><option value="brouillon">Brouillon</option><option value="valide">Validé</option></select>
               <button class="fr-btn fr-btn--secondary fr-btn--sm" id="btn-comment" aria-pressed="false">Commentaires</button>
               <button class="fr-btn fr-btn--secondary fr-btn--sm" id="btn-export">Exporter</button>
+              <button class="fr-btn fr-btn--secondary fr-btn--sm btn-plein" id="btn-plein" type="button" aria-pressed="false" title="Plein écran (touche F)">Plein écran</button>
             </div>
+            <p class="deck-avis" id="deck-avis" hidden></p>
             <div class="deck-corps">
               <button class="nav-fleche prec" id="prec" aria-label="Slide précédente">‹</button>
               <div class="scene" id="scene"></div>

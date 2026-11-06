@@ -381,6 +381,7 @@ function showHub(mode) {
   state.hubMode = mode;
   $("hub-accueil").hidden = mode !== "maj"; $("deck").hidden = mode !== "deck"; $("cartes").hidden = mode !== "cartes";
   $("seg-revue-box").hidden = mode === "deck";
+  if (mode !== "deck" && document.fullscreenElement) document.exitFullscreen();
   if (mode === "cartes") renderCartes();
 }
 
@@ -414,7 +415,7 @@ function route(sur) {
   renderMenu(r);
   var revue = r.indexOf("revue") === 0;
   $("revue").hidden = !revue; $("vue").hidden = revue; $("legende").hidden = r !== "portefeuille";
-  if (!revue) { $("deck").hidden = true; $("panneau-comment").classList.remove("ouvert"); }
+  if (!revue) { $("deck").hidden = true; $("panneau-comment").classList.remove("ouvert"); if (document.fullscreenElement) document.exitFullscreen(); }
   if (revue) {
     var id = r.slice(6);
     if (id) {
