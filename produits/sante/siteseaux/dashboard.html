@@ -129,7 +129,13 @@ const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;'
 const tip = (label, def) => `<span class="tip" title="${esc(def)}">${label}</span>`;
 
 // ---------- chargement : Grist si le widget y est intégré, sinon données de démo embarquées ou data.json ----------
-const iso = (v) => v == null ? null : (typeof v === 'number' ? new Date(v * 1000).toISOString().slice(0, 10) : String(v).slice(0, 10));
+// Un mois se range toujours au 1er : une date saisie en cours de mois garde sa comparaison un an plus tôt.
+const iso = (v) => {
+  if (v == null || v === '') return null;
+  const d = typeof v === 'number' ? new Date(v * 1000) : null;
+  const s = d ? (isFinite(d) ? d.toISOString() : '') : String(v);
+  return /^\d{4}-\d{2}/.test(s) ? s.slice(0, 7) + '-01' : null;   // cellule en erreur ou texte libre : ligne ignorée
+};
 const cols2rows = (t) => { const keys = Object.keys(t); return t.id.map((_, i) => Object.fromEntries(keys.map((k) => [k, t[k][i]]))); };
 async function load() {
   const inGrist = window.self !== window.top && window.grist && !window.DEMO;
@@ -137,7 +143,8 @@ async function load() {
     grist.ready({ requiredAccess: 'read table' });
     const [te, su, av] = await Promise.all(['Territoires','Suivi_mensuel','Avis'].map((t) => grist.docApi.fetchTable(t)));
     const fix = (r) => ({ ...r, Mois: iso(r.Mois) });
-    return { Territoires: cols2rows(te), Suivi_mensuel: cols2rows(su).map(fix), Avis: cols2rows(av).map(fix) };
+    // une ligne sans mois (ajoutée par erreur dans Grist) est ignorée au lieu de casser le tableau
+    return { Territoires: cols2rows(te), Suivi_mensuel: cols2rows(su).map(fix).filter((r) => r.Mois), Avis: cols2rows(av).map(fix).filter((r) => r.Mois) };
   }
   if (window.DEMO) return window.DEMO;
   return fetch('data.json').then((r) => r.json());
@@ -155,7 +162,7 @@ function mesures(m, terr = territoires(), tys = types()) {
   const rows = D.Suivi_mensuel.filter((r) => r.Mois === m && ids.has(r.Territoire) && tys.includes(r.Type_eau));
   const o = Object.fromEntries(CHAMPS.map((c) => [c, rows.reduce((a, r) => a + (r[c] || 0), 0)]));
   const av = D.Avis.filter((r) => r.Mois === m && tys.includes(r.Type_eau));
-  for (const c of ['Reponses','Facile','Clair','Satisfait']) o[c] = av.reduce((a, r) => a + r[c], 0);
+  for (const c of ['Reponses','Facile','Clair','Satisfait']) o[c] = av.reduce((a, r) => a + (r[c] || 0), 0);
   o.n = rows.length;
   return o;
 }
@@ -186,7 +193,7 @@ function line(points, { fmt = (v) => v, pctAxis = false, part = 0.5 } = {}) {
 const serie = (f) => lastN(S.mois, 12).map((m) => { const p = anAvant(m); return { m, v: f(mesures(m)), c: p ? f(mesures(p)) : null }; });
 const bars = (items, fmtV) => { const mx = Math.max(...items.map((i) => i.x), 0) || 1; return `<div class="rows">${items.map((i) => `<div class="row"><span class="n" title="${esc(i.n)}">${esc(i.n)}</span><span class="t"><span class="f" style="width:${(100 * i.x / mx).toFixed(1)}%;display:block"></span></span><span class="v">${fmtV(i)}</span></div>`).join('')}</div>`; };
 const ratio = (a, b) => b ? a / b : null;
-const portee = () => `${S.type || 'tous types d’eau'}${S.region ? ', ' + S.region : ''}`;
+const portee = () => esc(`${S.type || 'tous types d’eau'}${S.region ? ', ' + S.region : ''}`);
 const noteAvis = '<p class="note">« Je donne mon avis » ne connaît pas la région : ces notes restent nationales quand une région est choisie.</p>';
 
 // ---------- écrans ----------
@@ -234,8 +241,8 @@ function utilise(M, P) {
     <div class="box"><h3>${tip('Visiteurs qui reviennent', 'Visiteurs déjà venus dans les 12 derniers mois. On consulte le site à des moments de vie : un retour fréquent peut signaler une alerte locale.')}</h3><div class="kv"><div><div class="big">${valPart(M.Visiteurs_revenus, M.Visites)}</div><div class="hint">des visites</div></div></div>${line(serie((x) => ratio(x.Visiteurs_revenus, x.Visites)), { fmt: pct, pctAxis: true })}</div>
   </div>
   <h2>${tip('Couverture du territoire', 'Calculée sur la commune ou l’UDI recherchée, plus fiable que la localisation par adresse IP. UDI fictives dans la démo.')} <small>: ${moisLong(S.mois)}</small></h2>
-  <table class="tbl"><thead><tr><th>Région</th><th class="r">Visites</th><th class="r">Pour 10 000 habitants</th><th class="r">UDI consultées</th></tr></thead><tbody>
-  ${terr.map((t) => { const x = mesures(S.mois, [t]); return { t, x, p: x.Visites / t.Population * 1e4 }; }).sort((a, b) => b.p - a.p).map(({ t, x, p }) => `<tr><td>${esc(t.Region)}</td><td class="r">${int(x.Visites)}</td><td class="r b">${p.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</td><td class="r">${S.type ? valPart(x.UDI_consultees, t.UDI) : '<span class="tip" title="Choisir un type d’eau pour lire la couverture.">–</span>'}</td></tr>`).join('')}
+  <table class="tbl"><thead><tr><th>Région</th><th class="r">Visites</th><th class="r">Pour 10 000 habitants</th><th class="r">UDI ou sites consultés</th></tr></thead><tbody>
+  ${terr.map((t) => { const x = mesures(S.mois, [t]); return { t, x, p: t.Population ? x.Visites / t.Population * 1e4 : null }; }).sort((a, b) => (b.p ?? -1) - (a.p ?? -1)).map(({ t, x, p }) => `<tr><td>${esc(t.Region)}</td><td class="r">${int(x.Visites)}</td><td class="r b">${p == null ? '–' : p.toLocaleString('fr-FR', { maximumFractionDigits: 1 })}</td><td class="r">${S.type === 'Eau potable' ? valPart(x.UDI_consultees, t.UDI) : S.type === 'Baignade' ? `${int(x.UDI_consultees)} sites` : '<span class="tip" title="Choisir un type d’eau pour lire la couverture.">–</span>'}</td></tr>`).join('')}
   </tbody></table>`;
 }
 function utile(M) {
@@ -317,7 +324,8 @@ document.getElementById('filters').addEventListener('change', (e) => {
 });
 load().then((d) => {
   D = d;
-  D.mois = [...new Set(D.Suivi_mensuel.map((r) => r.Mois))].sort();
+  D.mois = [...new Set(D.Suivi_mensuel.map((r) => r.Mois).filter(Boolean))].sort();
+  if (!D.mois.length) throw new Error('aucun mois');
   S.mois = D.mois[D.mois.length - 1];
   render();
 }).catch((e) => { console.error(e); document.getElementById('main').innerHTML = '<p class="empty">Données indisponibles.</p>'; });

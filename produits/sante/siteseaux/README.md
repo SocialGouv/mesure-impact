@@ -19,6 +19,9 @@ doc Grist « Démo - Sites Eaux » (données fictives) ──> dashboard.html (w
 
 Hors de Grist, la page affiche « Données indisponibles » : aucune donnée n'est publiée.
 
+La colonne `Mois` doit rester de type **Date** (pas DateTime) : un fuseau horaire décalerait
+tout d'un mois. Une ligne dont le mois est vide ou illisible est ignorée.
+
 ## Indicateurs (V1 proposée le 06/11/2026)
 
 | Pilier | Indicateur principal | Source cible |
