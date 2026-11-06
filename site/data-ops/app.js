@@ -377,10 +377,17 @@ function renderCartes() {
   each("[data-c]", function (i) { i.onchange = function () { var c = CARTES[+i.dataset.c]; if (GRIST) return ecrire([["UpdateRecord", "Cartes", c.rid, { Retenue: i.checked }]], renderCartes); c.on = i.checked; majs(); window.HUB.accueil(); renderCartes(); }; });
   $("c-mois").onchange = function () { state.mois = $("c-mois").value; renderCartes(); };
 }
+/* Deck ouvert = couche plein cadre : ce qui est dessous sort du parcours clavier (frères de chaque ancêtre du deck) */
+function deckInerte(on) {
+  for (var n = $("deck"); n && n.parentElement && n !== document.body; n = n.parentElement)
+    Array.prototype.forEach.call(n.parentElement.children, function (f) { if (f !== n && f.tagName !== "SCRIPT" && f.tagName !== "DIALOG") f.inert = on; });
+}
 function showHub(mode) {
   state.hubMode = mode;
   $("hub-accueil").hidden = mode !== "maj"; $("deck").hidden = mode !== "deck"; $("cartes").hidden = mode !== "cartes";
   $("seg-revue-box").hidden = mode === "deck";
+  if (mode !== "deck" && document.fullscreenElement) document.exitFullscreen();
+  deckInerte(mode === "deck");
   if (mode === "cartes") renderCartes();
 }
 
@@ -414,7 +421,7 @@ function route(sur) {
   renderMenu(r);
   var revue = r.indexOf("revue") === 0;
   $("revue").hidden = !revue; $("vue").hidden = revue; $("legende").hidden = r !== "portefeuille";
-  if (!revue) { $("deck").hidden = true; $("panneau-comment").classList.remove("ouvert"); }
+  if (!revue) { $("deck").hidden = true; $("panneau-comment").classList.remove("ouvert"); if (document.fullscreenElement) document.exitFullscreen(); deckInerte(false); }
   if (revue) {
     var id = r.slice(6);
     if (id) {

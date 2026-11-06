@@ -347,6 +347,18 @@
       );
     } else { window.hubNotice(txt); }
   }
+  /* Plein écran : l'iframe Grist peut refuser l'API, on le dit au lieu d'échouer en silence */
+  function pleinEcran() {
+    var d = el("deck"), avis = el("deck-avis");
+    if (document.fullscreenElement) { document.exitFullscreen(); return; }
+    var refus = function () {
+      avis.textContent = "Le plein écran est bloqué dans Grist. Agrandis la section du widget (icône en haut à droite de la section), puis le plein écran du navigateur (F11 ou Ctrl+Cmd+F).";
+      avis.hidden = false; clearTimeout(pleinEcran.t); pleinEcran.t = setTimeout(function () { avis.hidden = true; }, 9000);
+    };
+    if (!document.fullscreenEnabled || !d.requestFullscreen) { refus(); return; }
+    try { var p = d.requestFullscreen(); if (p && p.catch) p.catch(refus); } catch (e) { refus(); }
+  }
+
   function basculerPanneau(forcer) {
     var p = el("panneau-comment");
     var ouvert = (forcer != null) ? forcer : !p.classList.contains("ouvert");
@@ -410,18 +422,25 @@
     el("suiv").addEventListener("click", function () { aller(etat.i + 1); });
     el("btn-comment").addEventListener("click", function () { basculerPanneau(); });
     el("btn-export").addEventListener("click", exporter);
+    el("btn-plein").addEventListener("click", function () { pleinEcran(); });
+    document.addEventListener("fullscreenchange", function () {
+      var on = document.fullscreenElement === el("deck");
+      el("btn-plein").setAttribute("aria-pressed", on ? "true" : "false");
+      el("btn-plein").lastChild.textContent = on ? "Quitter le plein écran" : "Plein écran";
+    });
     el("btn-copier-tout").addEventListener("click", copierTousComment);
     el("zone-comment").addEventListener("input", sauverComment);
 
     document.addEventListener("keydown", function (e) {
       if (el("deck").hidden || el("revue").hidden) return;
-      if (e.target && (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT")) {
+      if (e.target && (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT" || e.target.tagName === "SELECT")) {
         if (e.key === "Escape") e.target.blur();
         return;
       }
       if (e.key === "ArrowRight") { e.preventDefault(); aller(etat.i + 1); }
       else if (e.key === "ArrowLeft") { e.preventDefault(); aller(etat.i - 1); }
       else if (e.key === "c" || e.key === "C") { e.preventDefault(); basculerPanneau(); }
+      else if ((e.key === "f" || e.key === "F") && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); pleinEcran(); }
       else if (e.key === "Home") { e.preventDefault(); aller(0); }
       else if (e.key === "End") { e.preventDefault(); aller(etat.update.slides.length - 1); }
     });

@@ -275,3 +275,18 @@ h3.cat { margin: .8rem 0 .4rem; }
 .barres { height: auto; align-items: flex-end; }
 .barre { height: auto; }
 .barre .fut { flex: none; }
+
+/* ---------------------------------------------------------------------------
+   Deck plein cadre (06/11/2026) : ouvert, le deck couvre toute la fenêtre du
+   widget, menu et en-tête dessous. La slide se centre par marges automatiques :
+   trop haute, elle part du haut et défile au lieu d'être coupée.
+   --------------------------------------------------------------------------- */
+#deck:not([hidden]) { position: fixed; inset: 0; z-index: 1000; margin: 0 !important;
+  background: var(--background-alt-grey); }
+#deck .page-deck { height: 100%; }
+#deck:fullscreen .page-deck { height: 100vh; }
+.scene { align-items: flex-start; justify-content: flex-start; padding: 1.2rem 4.5rem; }
+.slide { margin: auto; max-width: 96rem; }
+.deck-avis { font-size: .78rem; color: var(--text-mention-grey); padding: .35rem 1.5rem;
+  background: var(--background-contrast-info); }
+@media (max-width: 48rem) { .scene { padding: 1rem; } .btn-plein { display: none; } }
