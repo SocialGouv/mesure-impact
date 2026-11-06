@@ -353,7 +353,7 @@
     if (document.fullscreenElement) { document.exitFullscreen(); return; }
     var refus = function () {
       avis.textContent = "Le plein écran est bloqué dans Grist. Agrandis la section du widget (icône en haut à droite de la section), puis le plein écran du navigateur (F11 ou Ctrl+Cmd+F).";
-      avis.hidden = false; setTimeout(function () { avis.hidden = true; }, 9000);
+      avis.hidden = false; clearTimeout(pleinEcran.t); pleinEcran.t = setTimeout(function () { avis.hidden = true; }, 9000);
     };
     if (!document.fullscreenEnabled || !d.requestFullscreen) { refus(); return; }
     try { var p = d.requestFullscreen(); if (p && p.catch) p.catch(refus); } catch (e) { refus(); }
@@ -433,7 +433,7 @@
 
     document.addEventListener("keydown", function (e) {
       if (el("deck").hidden || el("revue").hidden) return;
-      if (e.target && (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT")) {
+      if (e.target && (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT" || e.target.tagName === "SELECT")) {
         if (e.key === "Escape") e.target.blur();
         return;
       }
