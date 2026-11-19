@@ -36,9 +36,9 @@ Une démo sans collecte est un dossier `produits/<dept>/<nom>/` avec un `dashboa
   l'API plugin chargée depuis `grist.numerique.gouv.fr`.
 - Les sites Netlify sont archivés deux semaines après la bascule de leur doc, puis supprimés.
 
-## Suite prévue : versions côte à côte
+## Versions côte à côte (19/11/2026)
 
-Pour comparer deux itérations dans un même doc Grist, publier aussi
-`produits/<dept>/<nom>/versions/<v>.html` sous `/<dept>/<nom>/<v>/`. Cela demande une boucle
-de plus dans `docker/web/Dockerfile` : PR séparée, qui touche le socle. La même PR peut faire boucler `task url` sur les
-`dashboard.html` plutôt que sur les `produit.yaml`, pour contrôler aussi les démos.
+Pour comparer deux itérations dans un même doc Grist, `produits/<dept>/<nom>/versions/<v>.html`
+est publié sous `/<dept>/<nom>/<v>/` (boucle dans `docker/web/Dockerfile`). Premier usage :
+Sites Eaux V1.1 à côté de la V1. Reste à faire boucler `task url` sur les `dashboard.html` plutôt
+que sur les `produit.yaml`, pour contrôler aussi les démos.

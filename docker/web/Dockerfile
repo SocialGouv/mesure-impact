@@ -1,4 +1,5 @@
-# Sert la page d'accueil et un dashboard par produit, sous /<departement>/<nom>/.
+# Sert la page d'accueil et un dashboard par produit, sous /<departement>/<nom>/,
+# et ses versions côte à côte (versions/<v>.html) sous /<departement>/<nom>/<v>/ (décision 0005).
 # Ces URL sont celles que les docs Grist chargent comme widget custom (cf. doc/decisions/0002).
 FROM alpine:3.21 AS build
 WORKDIR /out
@@ -17,6 +18,16 @@ RUN set -eu; \
       cp "$fichier" "/out/$departement/$nom/index.html"; \
       liste="$liste<li><a href=\"/$departement/$nom/\">$departement / $nom</a></li>"; \
       echo "publié: /$departement/$nom/"; \
+    done; \
+    for fichier in /produits/*/*/versions/*.html; do \
+      [ -e "$fichier" ] || continue; \
+      dossier=$(dirname "$(dirname "$fichier")"); \
+      nom=$(basename "$dossier"); \
+      departement=$(basename "$(dirname "$dossier")"); \
+      version=$(basename "$fichier" .html); \
+      mkdir -p "/out/$departement/$nom/$version"; \
+      cp "$fichier" "/out/$departement/$nom/$version/index.html"; \
+      echo "publié: /$departement/$nom/$version/"; \
     done; \
     [ -n "$liste" ] || liste="<li>aucun tableau de bord publié</li>"; \
     sed -i "s#<!--PRODUITS-->#$liste#" /out/index.html
