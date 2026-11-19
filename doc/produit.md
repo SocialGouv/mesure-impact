@@ -14,7 +14,7 @@ L'enjeu n'est pas la dataviz pour elle-même : c'est de rendre visible l'usage d
 | Produit | Département | État |
 |---|---|---|
 | BASAVI | Santé | Pilote (préprod) |
-| HELIOS | Santé | Préprod (site Matomo 162), grain agrégé mois × rôle |
+| HELIOS | Santé | Préprod (site Matomo 162) ; prod déclarée (site 72), collecte après la MEP du 23/11. Grain agrégé mois × rôle |
 | Médlé | Santé | Démo : front seul, données fictives, pas de collecte |
 | D@CCORD | IDN | Démo : front seul, données synthétiques, pas de collecte |
 | Sites Eaux | Santé | Démo : front seul, données fictives, pas de collecte |

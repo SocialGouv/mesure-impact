@@ -8,7 +8,8 @@ fonctionnalités utilisées (comparaison, export, listes), recherche et navigati
 ## La chaîne
 
 ```
-Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ──> dashboard.html (widget)
+préprod : Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ──> dashboard.html (widget)
+prod    : Matomo (site 72)  ──> etl.mjs ──> doc Grist « Prod - Hélios »    ──> dashboard.html (widget)
 ```
 
 - **`etl.mjs`** : extrait les visites Matomo mois par mois, agrège au grain mois × rôle et
@@ -115,4 +116,9 @@ Points de vigilance :
 
 - **Le script local `sandbox-impact/grist/preprod-etl.mjs` doit être arrêté.** Il écrit encore
   le grain brut, avec `visitor_id`, sur le même doc.
-- La prod (site Matomo 72) viendra avec son propre doc Grist et son propre secret.
+- **Prod déclarée le 19/11/2026**, avant la MEP 1.8.20 du 23/11 qui pose le plan de taggage
+  sur la prod : site Matomo 72, doc « Prod - Hélios » (`b9HgpwiY96ydpAxTD8Z44w`, copie vide de la
+  préprod, compte de service éditeur), secret `secrets/prod.sealedsecret.yaml` (token Matomo
+  prod). Reste à faire : déploiement prod manuel (`workflow_dispatch` env=prod), repointage
+  du widget « Tableau V3 » du doc prod vers l'URL fabrique de prod, vérification de la
+  première collecte de 6h. Le site 72 doit passer en type intranet, comme le 162.

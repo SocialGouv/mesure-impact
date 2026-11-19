@@ -8,19 +8,20 @@ description: >
   des ARS, les référents régionaux et l'administration centrale. Tableau de bord d'adoption :
   taux d'utilisateurs réguliers (RC1) par rôle, fonctionnalités utilisées, recherche, navigation.
 
-# Envs où ce produit est collecté. La prod (site Matomo 72) viendra avec son propre
-# doc Grist : tant qu'elle n'est pas déclarée ici, elle ne reçoit aucun CronJob.
-envs: [dev]
+# Envs où ce produit est collecté. La prod a son propre site Matomo et son propre doc Grist.
+envs: [dev, prod]
 
 chaine:
   matomo:
     url: https://matomo.fabrique.social.gouv.fr
     site_id:
       dev: 162              # site de préprod (type intranet depuis le 12/10/2026)
+      prod: 72              # « SCN ARS - HELIOS - PROD », plan de taggage à la MEP 1.8.20 du 23/11/2026
   grist:
     url: https://grist.numerique.gouv.fr
     doc_id:
       dev: 9vAxVCXu46T88ieM7s3NhF   # « Préprod - Hélios »
+      prod: b9HgpwiY96ydpAxTD8Z44w   # « Prod - Hélios », doc séparé : la préprod ne pollue jamais la prod
     tables: [Events, Base, KPI, Extractions]
   grain: mois × rôle        # rôles ars / regional / central, scope global en plus dans KPI
 
