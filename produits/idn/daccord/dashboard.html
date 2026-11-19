@@ -179,7 +179,7 @@ function appliquerPreset() { if (S.per === 'perso') return; if (S.per === 'tout'
 const versMois = (v) => { const m = String(v || '').slice(0, 7); if (!m) return null; if (m < D.mois[0]) return D.mois[0]; if (m > D.mois[D.mois.length - 1]) return D.mois[D.mois.length - 1]; return D.mois.find((x) => x >= m); };
 // suivi avant / après le nouveau référentiel : toujours les 12 mois qui finissent la période
 function courbe12() { const f = fenetre(), i = D.mois.indexOf(f[f.length - 1]); return D.mois.slice(Math.max(0, i - 11), i + 1); }
-const sousTitre12 = () => { const c = courbe12(); return `${c.length} mois${c.includes(REFERENTIEL) ? ', avant et après le nouveau référentiel' : ''}`; };
+const sousTitre12 = () => { const c = courbe12(), i = c.indexOf(REFERENTIEL); return `${c.length} mois${i < 0 ? '' : i === c.length - 1 ? ', jusqu’au nouveau référentiel' : ', avant et après le nouveau référentiel'}`; };
 function fenetreCourbes() { const f = fenetre(); if (f.length > 1) return f; const i = D.mois.indexOf(f[0]); return D.mois.slice(Math.max(0, i - 11), i + 1); }
 
 // ---------- calculs : les délais sont stockés en histogrammes, la médiane se lit sur les compteurs fusionnés ----------
@@ -231,7 +231,7 @@ function lines(series, { fmt = int, pctAxis = false, part = 0.5, repere = null }
     flush();
   }
   const s0 = series[0], li = s0.points.map((p) => p.v != null).lastIndexOf(true);
-  const dot = li >= 0 ? `<circle cx="${x(li)}" cy="${y(s0.points[li].v)}" r="3.5" fill="${s0.couleur}"/><text x="${x(li) - 6}" y="${y(s0.points[li].v) - 8}" text-anchor="end" font-size="11" font-weight="700" fill="${s0.couleur}">${pctAxis ? pct(s0.points[li].v) : fmt(s0.points[li].v)}</text>` : '';
+  const dot = li >= 0 ? `<circle cx="${x(li)}" cy="${y(s0.points[li].v)}" r="3.5" fill="${s0.couleur}"/><text x="${x(li) - 6}" y="${y(s0.points[li].v) < T + 26 ? y(s0.points[li].v) + 16 : y(s0.points[li].v) - 8}" text-anchor="end" font-size="11" font-weight="700" fill="${s0.couleur}">${pctAxis ? pct(s0.points[li].v) : fmt(s0.points[li].v)}</text>` : '';
   const labels = s0.points.map((p, i) => ((n - 1 - i) % every === 0) ? `<text x="${x(i)}" y="${H - 8}" text-anchor="${i === n - 1 && n > 1 ? 'end' : 'middle'}" font-size="10" fill="#8a8a9a">${moisCourt(p.x)}</text>` : '').join('');
   const legend = series.length > 1 ? `<div class="legend">${series.map((s) => `<span><i style="background:${s.couleur}"></i>${esc(s.nom)}</span>`).join('')}</div>` : '';
   const ri = repere ? s0.points.findIndex((p) => p.x === repere) : -1;
