@@ -15,8 +15,9 @@ Chaque tableau de bord vit dans `produits/<département>/<produit>/`. Le socle t
    produit sans secret naîtrait actif et échouerait chaque nuit.
 6. **Premier run** : un produit qui ne collecte rien du tout échoue volontairement — c'est
    presque toujours un `site_id` faux ou un tag absent. Si l'absence de trafic est
-   attendue, poser `ALLOW_EMPTY_COLLECT: "1"` dans `cron.env` de l'env, et le retirer dès
-   la première collecte réussie.
+   attendue, ajouter le slug du produit à `ALLOW_EMPTY_COLLECT` dans `cron.env` de l'env
+   (liste séparée par des virgules, ex. `"sante/helios"` ; `"1"` ne tolère rien), et l'en
+   retirer dès la première collecte réussie.
 7. **Doc Grist distinct** : deux produits ne peuvent pas partager un `doc_id`. Les clés des
    tables sont `day|device`, sans discriminant de produit : les deux collectes s'écraseraient.
    Le générateur d'inventaire refuse ce cas.

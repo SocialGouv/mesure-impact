@@ -1,4 +1,4 @@
-// Collecte HELIOS : Matomo → doc Grist « Préprod - Hélios ».
+// Collecte HELIOS : Matomo → doc Grist de l'env (« Preprod - Hélios » en dev, « Prod - Hélios » en prod).
 // Extrait le RÉEL depuis Matomo et peuple Events / Base / KPI / Extractions.
 // - Grain mois × rôle (ars / regional / central), scope `global` en plus dans KPI.
 // - AGRÉGÉ : aucun identifiant de visiteur ne quitte ce script. Les visiteurs

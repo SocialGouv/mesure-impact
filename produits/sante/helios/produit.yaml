@@ -20,7 +20,7 @@ chaine:
   grist:
     url: https://grist.numerique.gouv.fr
     doc_id:
-      dev: 9vAxVCXu46T88ieM7s3NhF   # « Préprod - Hélios »
+      dev: 9vAxVCXu46T88ieM7s3NhF   # « Preprod - Hélios »
       prod: b9HgpwiY96ydpAxTD8Z44w   # « Prod - Hélios », doc séparé : la préprod ne pollue jamais la prod
     tables: [Events, Base, KPI, Extractions]
   grain: mois × rôle        # rôles ars / regional / central, scope global en plus dans KPI
