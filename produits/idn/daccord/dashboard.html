@@ -90,6 +90,7 @@ dl.lire{display:grid;grid-template-columns:minmax(0,14rem) 1fr;gap:6px 16px;font
 dl.lire dt{font-weight:700}
 dl.lire dd{margin:0;color:#333}
 .note{font-size:12px;color:var(--mut);margin-top:6px}
+.grid2.g3{grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
 @media(max-width:620px){.row{grid-template-columns:minmax(0,1fr) auto}.row .t{grid-column:1/-1;order:3}dl.lire{grid-template-columns:1fr}}
 </style>
 </head>
@@ -108,7 +109,9 @@ dl.lire dd{margin:0;color:#333}
   <label>Du <input type="month" id="f-du"></label>
   <label>au <input type="month" id="f-au"></label>
   <label>Type de texte <select id="f-type"></select></label>
+  <label>Épargne salariale <select id="f-epargne"></select></label>
   <label>Région <select id="f-region"></select></label>
+  <label>Département <select id="f-dep"></select></label>
 </div>
 <div class="src" id="f-src"></div>
 <nav class="tabs" role="tablist" id="tabs"></nav>
@@ -119,13 +122,14 @@ const TABS = [['synthese','Synthèse'],['utilisable','Utilisable'],['utilise','U
 const MES = '2026-04';        // le journal des actions commence en avril 2026, avec le nouvel outil
 const ACHEVE = '2026-07';     // dernier mois de dépôt achevé : au moins deux mois pleins avant l'extraction du 22/09
 const EXTRACTION = '22/09/2026';
+const REFERENTIEL = '2026-05';  // mise en service du nouveau référentiel des thèmes : date fictive, pour montrer le repère
 const TYPES = { ACC: 'Accord', AVE: 'Avenant', PL: 'Plan d’action ou décision unilatérale', DEN: 'Dénonciation', PVD: 'PV de désaccord', ADH: 'Adhésion', CAD: 'Accord cadre', REN: 'Renouvellement tacite', AUT: 'Autres', NR: 'Non renseigné' };
 const ACTIONS = { RELANCE_DEPOSANT_SUR_ANOMALIE: 'Relance sur anomalie', RAPPEL: 'Rappel', REOUVERTURE: 'Réouverture', TRANSFERT: 'Transfert à une autre unité' };
 const B_J = [0, 1, 2, 3, 5, 7, 10, 15, 21, 30, 45, 60, 90, 120, 180, 270, 365];
 const B_H = [0, 1, 4, 8, 24, 48, 72, 120, 168, 336, 504, 720, 1440];
 const B_M = [0, 1, 2, 5, 10, 15, 30, 60, 120, 240, 480, 1440];
 const B_S = [0, 5, 10, 15, 30, 60, 120, 240, 480, 1440, 2880, 10080];
-const S = { tab:'synthese', per:null, du:null, au:null, type:'', region:'' };
+const S = { tab:'synthese', per:null, du:null, au:null, type:'', epargne:'', region:'', dep:'' };
 let D = null;
 
 // ---------- formatage (une seule fonction par type, R4) ----------
@@ -173,12 +177,15 @@ function precedente(f) {
 }
 function appliquerPreset() { if (S.per === 'perso') return; if (S.per === 'tout') { S.du = D.mois[0]; S.au = D.mois[D.mois.length - 1]; return; } S.du = S.au = S.per; }
 const versMois = (v) => { const m = String(v || '').slice(0, 7); if (!m) return null; if (m < D.mois[0]) return D.mois[0]; if (m > D.mois[D.mois.length - 1]) return D.mois[D.mois.length - 1]; return D.mois.find((x) => x >= m); };
+// suivi avant / après le nouveau référentiel : toujours les 12 mois qui finissent la période
+function courbe12() { const f = fenetre(), i = D.mois.indexOf(f[f.length - 1]); return D.mois.slice(Math.max(0, i - 11), i + 1); }
+const sousTitre12 = () => { const c = courbe12(), i = c.indexOf(REFERENTIEL); return `${c.length} mois${i < 0 ? '' : i === c.length - 1 ? ', jusqu’au nouveau référentiel' : ', avant et après le nouveau référentiel'}`; };
 function fenetreCourbes() { const f = fenetre(); if (f.length > 1) return f; const i = D.mois.indexOf(f[0]); return D.mois.slice(Math.max(0, i - 11), i + 1); }
 
 // ---------- calculs : les délais sont stockés en histogrammes, la médiane se lit sur les compteurs fusionnés ----------
-const lignes = (f) => D.Mensuel.filter((r) => f.includes(r.Mois) && (!S.type || r.Type === S.type) && (!S.region || r.Region === S.region));
+const lignes = (f) => D.Mensuel.filter((r) => f.includes(r.Mois) && (!S.type || r.Type === S.type) && (!S.epargne || r.Epargne === S.epargne) && (!S.region || r.Region === S.region) && (!S.dep || r.Departement === S.dep));
 const sum = (rows, k) => rows.reduce((a, r) => a + (r[k] || 0), 0);
-const hist = (rows, k, n) => rows.reduce((acc, r) => { const h = typeof r[k] === 'string' ? JSON.parse(r[k]) : r[k]; h.forEach((x, i) => { acc[i] += x; }); return acc; }, Array(n).fill(0));
+const hist = (rows, k, n) => rows.reduce((acc, r) => { const v = r[k], h = !v ? [] : typeof v === 'string' ? JSON.parse(v) : v; h.forEach((x, i) => { acc[i] += x; }); return acc; }, Array(n).fill(0));
 function quantile(h, b, q) {
   const tot = h.reduce((a, x) => a + x, 0); if (!tot) return null;
   let cum = 0;
@@ -193,9 +200,9 @@ function mesures(f) {
   const R = lignes(f), hd = hist(R, 'h_delai', B_J.length), ha = hist(R, 'h_attente', B_H.length), ht = hist(R, 'h_traitement', B_M.length), hc = hist(R, 'h_correction', B_J.length), hs = hist(R, 'h_saisie', B_S.length);
   const s = (k) => sum(R, k);
   return {
-    f, R, depots: s('depots'), valides: s('valides'), attente: s('en_attente'), cours: s('en_cours'), anomalie: s('anomalie'),
+    f, R, depots: s('depots'), valides: s('valides'), clos: s('clos'), supprimes: s('supprimes'), traites: s('valides') + s('clos') + s('supprimes'), attente: s('en_attente'), cours: s('en_cours'), anomalie: s('anomalie'),
     invalides: s('invalides'), echange: s('echange'), suivis: s('suivis'), autre: s('autre'), uEnv: s('urssaf_envois'), uErr: s('urssaf_erreurs'),
-    v0: s('valide_m0'), v1: s('valide_m1'), v2: s('valide_m2'), consulte: s('consulte'), provisoire: f.some((m) => m > ACHEVE),
+    v0: s('traite_m0'), v1: s('traite_m1'), v2: s('traite_m2'), consulte: s('consulte'), provisoire: f.some((m) => m > ACHEVE),
     correction: quantile(hc, B_J, .5), nCorr: hc.reduce((a, x) => a + x, 0), saisie: quantile(hs, B_S, .5) == null ? null : quantile(hs, B_S, .5) / 1440, nSaisie: hs.reduce((a, x) => a + x, 0),
     hd, delai: quantile(hd, B_J, .5), delai75: quantile(hd, B_J, .75),
     attenteMed: quantile(ha, B_H, .5) == null ? null : quantile(ha, B_H, .5) / 24, nAtt: ha.reduce((a, x) => a + x, 0),
@@ -205,7 +212,7 @@ function mesures(f) {
 
 // ---------- graphiques ----------
 const largeur = (part) => Math.round(Math.max(320, ((document.getElementById('main').clientWidth || 1200) - 32) * part - (part < 1 ? 40 : 0)));
-function lines(series, { fmt = int, pctAxis = false, part = 0.5 } = {}) {
+function lines(series, { fmt = int, pctAxis = false, part = 0.5, repere = null } = {}) {
   const W = largeur(part), H = 190, L = 52, R = 14, T = 16, B = 26;
   const all = series.flatMap((s) => s.points.map((p) => p.v)).filter((v) => v != null);
   if (!all.length) return '<p class="empty">Pas de donnée sur la période.</p>';
@@ -224,10 +231,12 @@ function lines(series, { fmt = int, pctAxis = false, part = 0.5 } = {}) {
     flush();
   }
   const s0 = series[0], li = s0.points.map((p) => p.v != null).lastIndexOf(true);
-  const dot = li >= 0 ? `<circle cx="${x(li)}" cy="${y(s0.points[li].v)}" r="3.5" fill="${s0.couleur}"/><text x="${x(li) - 6}" y="${y(s0.points[li].v) - 8}" text-anchor="end" font-size="11" font-weight="700" fill="${s0.couleur}">${pctAxis ? pct(s0.points[li].v) : fmt(s0.points[li].v)}</text>` : '';
+  const dot = li >= 0 ? `<circle cx="${x(li)}" cy="${y(s0.points[li].v)}" r="3.5" fill="${s0.couleur}"/><text x="${x(li) - 6}" y="${y(s0.points[li].v) < T + 26 ? y(s0.points[li].v) + 16 : y(s0.points[li].v) - 8}" text-anchor="end" font-size="11" font-weight="700" fill="${s0.couleur}">${pctAxis ? pct(s0.points[li].v) : fmt(s0.points[li].v)}</text>` : '';
   const labels = s0.points.map((p, i) => ((n - 1 - i) % every === 0) ? `<text x="${x(i)}" y="${H - 8}" text-anchor="${i === n - 1 && n > 1 ? 'end' : 'middle'}" font-size="10" fill="#8a8a9a">${moisCourt(p.x)}</text>` : '').join('');
   const legend = series.length > 1 ? `<div class="legend">${series.map((s) => `<span><i style="background:${s.couleur}"></i>${esc(s.nom)}</span>`).join('')}</div>` : '';
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Évolution">${g}${paths}${dot}${labels}</svg>${legend}`;
+  const ri = repere ? s0.points.findIndex((p) => p.x === repere) : -1;
+  const rep = ri >= 0 ? `<line x1="${x(ri)}" x2="${x(ri)}" y1="${T - 6}" y2="${H - B}" stroke="#6a3d99" stroke-width="1.5" stroke-dasharray="4 3"/><text x="${x(ri) + (x(ri) > W - R - 120 ? -5 : 5)}" y="${T + 2}" text-anchor="${x(ri) > W - R - 120 ? 'end' : 'start'}" font-size="10" font-weight="700" fill="#6a3d99">Nouveau référentiel</text>` : '';
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;display:block" role="img" aria-label="Évolution">${g}${rep}${paths}${dot}${labels}</svg>${legend}`;
 }
 const line1 = (pts, opt) => lines([{ nom: '', couleur: '#000091', points: pts }], opt);
 const parMois = (fn) => fenetreCourbes().map((m) => ({ x: m, v: fn(mesures([m])) }));
@@ -245,10 +254,10 @@ function cohortes(ms) {
 
 // aperçu de mesures pas encore en service : valeurs inventées, signalées à l'écran comme simulées
 function simule(M, val, fmt, hint, pctAxis) {
-  const ms = fenetreCourbes().filter((m) => m >= MES);
-  if (!ms.length) return '<p class="empty">Pas de journal sur la période : il commence en avril 2026.</p>';
-  const pts = ms.map((m) => ({ x: m, v: val(D.mois.indexOf(m) - D.mois.indexOf(MES)) }));
-  return `<div class="kv"><div><div class="big">${fmt(pts[pts.length - 1].v)}</div><div class="hint">${hint}</div></div></div>${line1(pts, { pctAxis, fmt })}`;
+  const ms = courbe12().filter((m) => m >= REFERENTIEL);
+  if (!ms.length) return '<p class="empty">Pas de mesure sur la période : elle commence avec le nouveau référentiel.</p>';
+  const pts = ms.map((m) => ({ x: m, v: val(D.mois.indexOf(m) - D.mois.indexOf(REFERENTIEL)) }));
+  return `<div class="kv"><div><div class="big">${fmt(pts[pts.length - 1].v)}</div><div class="hint">${hint}</div></div></div>${line1(pts, { pctAxis, fmt, part: 1 / 3 })}`;
 }
 
 // ---------- écrans ----------
@@ -258,15 +267,15 @@ function synthese(M, P) {
   return `
   <h2>Indicateurs principaux <small>: dossiers déposés en ${plage(M.f)}</small></h2>
   <div class="tiles">
-    <div class="tile"><div class="pil">Utilisable</div><div class="lab">${tip('Dossiers en attente d’un agent', 'Dossiers déposés sur la période qu’aucun agent n’a encore pris en charge, à la date d’extraction.')}</div><div class="v">${valPart(M.attente, M.depots)}</div><div class="c">des ${int(M.depots)} dossiers déposés, au ${EXTRACTION}</div><div class="trend">${P ? trendPts(tA, P.depots ? P.attente / P.depots : null) : sansComp}</div></div>
+    <div class="tile"><div class="pil">Utilisable</div><div class="lab">${tip('Dossiers en attente d’un agent', 'Dossiers au statut transmis : déposés sur la période, qu’aucun agent n’a encore pris en charge à la date d’extraction.')}</div><div class="v">${valPart(M.attente, M.depots)}</div><div class="c">des ${int(M.depots)} dossiers déposés, au ${EXTRACTION}</div><div class="trend">${P ? trendPts(tA, P.depots ? P.attente / P.depots : null) : sansComp}</div></div>
     <div class="tile"><div class="pil">Utilisé</div><div class="lab">${tip('Dossiers avec un échange', 'Dossiers où l’agent et l’entreprise ont échangé au moins un message dans l’outil.')}</div>${depuisMES(M) ? `<div class="v">${valPart(M.echange, M.suivis)}</div><div class="c">des dossiers déposés${M.suivis < M.depots ? ' depuis avril 2026' : ''}</div><div class="trend">${sansComp}</div>` : `<div class="v">–</div><div class="c">${tip('pas de journal sur la période', 'Le journal des actions commence en avril 2026.')}</div>`}</div>
-    <div class="tile"><div class="pil">Utile</div><div class="lab">${tip('Délai médian de traitement', 'Jours entre le dépôt et la validation : la moitié des dossiers validés l’est plus vite. Comparé à la même période un an plus tôt.')}</div><div class="v">${duree(M.delai)}</div><div class="c">entre le dépôt et la validation${M.provisoire ? ` · ${tip('provisoire', 'Une partie des dossiers déposés récemment n’est pas encore validée.')}` : ''}</div><div class="trend">${P ? trendJ(M.delai, P.delai) : sansComp}</div></div>
-    <div class="tile"><div class="pil">Impactant</div><div class="lab">${tip('Dossiers classés en « autre »', 'Dossiers dont au moins un thème déclaré est « autre » : la liste de thèmes ne couvre pas leur contenu.')}</div><div class="v">${valPart(M.autre, M.depots)}</div><div class="c">des dossiers déposés</div><div class="trend">${P ? trendPts(tAu, P.depots ? P.autre / P.depots : null) : sansComp}</div></div>
+    <div class="tile"><div class="pil">Utile</div><div class="lab">${tip('Délai médian de traitement', 'Jours entre le dépôt et le statut final (validé, clos ou supprimé) : la moitié des dossiers traités l’est plus vite. Un dossier supprimé compte comme traité. Comparé à la même période un an plus tôt.')}</div><div class="v">${duree(M.delai)}</div><div class="c">entre le dépôt et le statut final${M.provisoire ? ` · ${tip('provisoire', 'Une partie des dossiers déposés récemment n’est pas encore traitée.')}` : ''}</div><div class="trend">${P ? trendJ(M.delai, P.delai) : sansComp}</div></div>
+    <div class="tile"><div class="pil">Impactant</div><div class="lab">${tip('Dossiers classés en « autre »', 'Dossiers dont au moins un thème retenu par l’agent (thème gestionnaire) est « autre » : le référentiel ne couvre pas leur contenu.')}</div><div class="v">${valPart(M.autre, M.depots)}</div><div class="c">des dossiers déposés</div><div class="trend">${P ? trendPts(tAu, P.depots ? P.autre / P.depots : null) : sansComp}</div></div>
   </div>
   <div class="grid2" style="margin-top:14px">
     <div class="box"><h3>${tip('Parcours des dossiers déposés', 'Chaque étape est rapportée aux dossiers déposés sur la période, état à la date d’extraction.')} <small style="font-weight:400;color:var(--mut)">: en dossiers</small></h3>
-      ${bars([{ n: 'Hors périmètre : en anomalie', x: M.anomalie, cls: 'ghost' }, { n: 'En attente d’un agent', x: M.attente, cls: 'err' }, { n: 'En cours d’instruction', x: M.cours, cls: 'alt' }, { n: 'Validés', x: M.valides }], (i) => valPart(i.x, M.depots))}</div>
-    <div class="box"><h3>${tip('Où passe le délai', 'Médianes : attente entre le dépôt et la prise en charge, puis traitement par l’agent. Mesuré à partir d’avril 2026.')}</h3>
+      ${bars([{ n: 'Hors périmètre : en anomalie', x: M.anomalie, cls: 'ghost' }, { n: 'En attente d’un agent', x: M.attente, cls: 'err' }, { n: 'En cours d’instruction', x: M.cours, cls: 'alt' }, { n: 'Validés', x: M.valides }, { n: 'Clos', x: M.clos }, { n: 'Supprimés', x: M.supprimes }], (i) => valPart(i.x, M.depots))}</div>
+    <div class="box"><h3>${tip('Où passe le délai', 'Médianes : attente entre le dépôt et la prise en charge, puis traitement par l’agent jusqu’au statut final. Mesuré à partir d’avril 2026.')}</h3>
       ${depuisMES(M) && M.nAtt ? `<div class="split"><div class="seg"><div class="k">Attente d’un agent</div><div class="big">${duree(M.attenteMed)}</div><div class="hint">médiane, ${int(M.nAtt)} dossiers</div></div><div class="seg"><div class="k">Traitement par l’agent</div><div class="big">${duree(M.traitMed)}</div><div class="hint">médiane, ${int(M.nTrait)} dossiers</div></div></div>` : '<p class="empty">Pas de journal sur la période : il commence en avril 2026.</p>'}</div>
   </div>`;
 }
@@ -274,7 +283,7 @@ function utilisable(M) {
   const parMoisAtt = fenetreCourbes().map((m) => { const x = mesures([m]); return { n: moisLong(m), x: x.attente, b: x.depots }; }).filter((r) => r.x).reverse();
   return `
   ${intro('<b>Utilisable</b> : la capacité de l’outil et des équipes à absorber les dépôts, et la fiabilité des envois vers les partenaires.')}
-  <h2>${tip('Dossiers en attente d’un agent', 'Dossiers déposés qu’aucun agent n’a encore pris en charge, à la date d’extraction.')} <small>: par mois de dépôt, au ${EXTRACTION}</small></h2>
+  <h2>${tip('Dossiers en attente d’un agent', 'Dossiers au statut transmis, qu’aucun agent n’a encore pris en charge à la date d’extraction.')} <small>: par mois de dépôt, au ${EXTRACTION}</small></h2>
   <div class="grid2">
     <div class="box"><div class="kv"><div><div class="big">${int(M.attente)}</div><div class="hint">dossiers déposés en ${plage(M.f)} en attente</div></div><div><div class="big">${int(M.anomalie)}</div><div class="hint">${tip('en anomalie', 'Dossiers renvoyés à l’entreprise, en attente de sa correction.')}</div></div></div>
       ${parMoisAtt.length ? bars(parMoisAtt, (i) => valPart(i.x, i.b)) : '<p class="empty">Aucun dossier en attente.</p>'}</div>
@@ -282,13 +291,13 @@ function utilisable(M) {
       <div class="kv"><div><div class="big">${valPart(M.uErr, M.uEnv)}</div><div class="hint">des envois de la période</div></div></div>
       ${line1(parMois((x) => x.uEnv ? x.uErr / x.uEnv : null), { pctAxis: true })}</div>
   </div>
-  <h2>${tip('Temps de saisie d’un dossier', 'Temps entre la première saisie de l’entreprise et le dépôt, sur les dossiers créés à partir d’avril 2026. Le choix des thèmes en fait partie.')} <small>: par l’entreprise</small></h2>
+  <h2>${tip('Temps de saisie d’un dossier', 'Temps entre la première saisie de l’entreprise et le dépôt, sur les dossiers créés à partir d’avril 2026.')} <small>: par l’entreprise</small></h2>
   <div class="box">${M.nSaisie ? `<div class="kv"><div><div class="big">${duree(M.saisie)}</div><div class="hint">médiane, ${int(M.nSaisie)} dossiers</div></div></div>${line1(fenetreCourbes().filter((m) => m >= MES).map((m) => ({ x: m, v: mesures([m]).saisie })), { fmt: (v) => duree(v), part: 1 })}` : '<p class="empty">Pas de journal sur la période : il commence en avril 2026.</p>'}</div>`;
 }
 function utilise(M) {
   const t = Object.keys(TYPES).map((k) => ({ n: TYPES[k], x: sum(M.R.filter((r) => r.Type === k), 'depots') })).filter((r) => r.x).sort((a, b) => b.x - a.x);
   const acts = D.Actions.filter((a) => M.f.includes(a.Mois));
-  const nonApp = S.type || S.region ? na('type et région non appliqués') : '';
+  const nonApp = S.type || S.epargne || S.region || S.dep ? na('filtres non appliqués') : '';
   return `
   ${intro('<b>Utilisé</b> : les dépôts des entreprises, les échanges avec les agents et l’usage des nouvelles fonctions.')}
   <h2>Dossiers déposés <small>: ${plage(M.f)}</small></h2>
@@ -308,49 +317,57 @@ function utilise(M) {
 function utile(M, P) {
   const courbe = fenetreCourbes();
   return `
-  ${intro('<b>Utile</b> : le temps que met un dossier à être validé, et la part des dossiers renvoyés pour correction.')}
-  <h2>${tip('Délai médian de traitement', 'Jours entre le dépôt et la validation, sur les dossiers validés.')} <small>: ${plage(M.f)}</small></h2>
+  ${intro('<b>Utile</b> : le temps que met un dossier à être traité (validé, clos ou supprimé), et la part des dossiers renvoyés pour correction. Le délai se suit avant et après le nouveau référentiel des thèmes.')}
+  <h2>${tip('Délai médian de traitement', 'Jours entre le dépôt et le statut final (validé, clos ou supprimé), sur les dossiers traités.')} <small>: ${plage(M.f)}</small></h2>
   <div class="grid2">
     <div class="box"><div class="kv"><div><div class="big">${duree(M.delai)}</div><div class="hint">médiane${M.provisoire ? ', provisoire' : ''}</div></div><div><div class="big">${duree(M.delai75)}</div><div class="hint">pour 3 dossiers sur 4</div></div><div><div class="trend">${P ? trendJ(M.delai, P.delai) : sansComp}</div></div></div>
-      <h3 style="margin-top:10px">Délai par tranche <small style="font-weight:400;color:var(--mut)">: dossiers validés</small></h3>${bars(tranches(M.hd), (i) => valPart(i.x, M.valides))}</div>
-    <div class="box"><h3>${tip('Quand les dossiers sont validés', 'Pour chaque mois de dépôt : part validée le mois même, le mois suivant, plus tard, ou pas encore validée au 22/09. Un mois récent a mécaniquement une grande part en attente.')} <small style="font-weight:400;color:var(--mut)">: par mois de dépôt</small></h3>${cohortes(courbe)}
+      <h3 style="margin-top:10px">Délai par tranche <small style="font-weight:400;color:var(--mut)">: dossiers traités</small></h3>${bars(tranches(M.hd), (i) => valPart(i.x, M.traites))}</div>
+    <div class="box"><h3>${tip('Quand les dossiers sont traités', 'Pour chaque mois de dépôt : part traitée (validée, close ou supprimée) le mois même, le mois suivant, plus tard, ou pas encore au 22/09. Un mois récent a mécaniquement une grande part en attente.')} <small style="font-weight:400;color:var(--mut)">: par mois de dépôt</small></h3>${cohortes(courbe)}
       <div class="legend"><span><i style="background:#000091"></i>le mois même</span><span><i style="background:#6a6af4"></i>le mois suivant</span><span><i style="background:#b8b8d6"></i>plus tard</span><span><i style="background:#eeeeee;border:1px solid #ccc"></i>pas encore</span></div></div>
   </div>
+  <h2>${tip('Délai médian par mois de dépôt', 'Médiane du délai de traitement des dossiers déposés chaque mois, sur les mois achevés. Le repère marque la mise en service du nouveau référentiel des thèmes.')} <small>: ${sousTitre12()}</small></h2>
+  <div class="box">${line1(courbe12().map((m) => ({ x: m, v: m > ACHEVE ? null : mesures([m]).delai })), { fmt: (v) => v ? duree(v) : '0', part: 1, repere: REFERENTIEL })}<p class="note">Mois achevés seulement. Mise en service du référentiel en ${moisLong(REFERENTIEL)} : date fictive, à confirmer.</p></div>
   <h2>${tip('Dossiers renvoyés en anomalie', 'Dossiers que l’agent a renvoyés au moins une fois à l’entreprise pour correction.')}</h2>
   <div class="box">${depuisMES(M) ? `<div class="kv"><div><div class="big">${valPart(M.invalides, M.suivis)}</div><div class="hint">dossiers renvoyés au moins une fois</div></div><div><div class="big">${duree(M.correction)}</div><div class="hint">${tip('délai de correction', 'Médiane du temps entre le renvoi en anomalie et le nouveau dépôt de l’entreprise.')}, ${int(M.nCorr)} dossiers corrigés</div></div></div>${line1(courbe.filter((m) => m >= MES).map((m) => { const x = mesures([m]); return { x: m, v: x.suivis ? x.invalides / x.suivis : null }; }), { pctAxis: true, part: 1 })}` : '<p class="empty">Pas de journal sur la période : il commence en avril 2026.</p>'}</div>`;
 }
 function impactant(M) {
   return `
-  ${intro('<b>Impactant</b> : la qualité du classement des accords, qui conditionne leur publication et les statistiques nationales. La part de « autre » est le point de départ avant le nouveau référentiel et l’aide au classement.')}
-  <h2>${tip('Dossiers classés en « autre »', 'Dossiers dont au moins un thème déclaré est « autre » ou saisi en texte libre.')} <small>: par mois de dépôt</small></h2>
-  <div class="box"><div class="kv"><div><div class="big">${valPart(M.autre, M.depots)}</div><div class="hint">des dossiers déposés en ${plage(M.f)}</div></div></div>${line1(parMois((x) => x.depots ? x.autre / x.depots : null), { pctAxis: true, part: 1 })}</div>
-  <h2>Aide au classement <span class="sim">données simulées</span></h2>
-  <p class="note" style="margin-top:0">Aperçu : ces deux mesures demandent le nouveau référentiel et un tag Matomo sur l’étape des thèmes, pas encore en service au 22/09. Les valeurs sont inventées pour montrer le rendu.</p>
-  <div class="grid2">
-    <div class="box"><h3>${tip('Suggestions de thèmes acceptées', 'Part des thèmes proposés par l’aide au classement que l’entreprise garde tels quels.')}<span class="sim">simulé</span></h3>${simule(M, (i) => 0.48 + 0.03 * i, (v) => pct(v), 'des suggestions gardées', true)}</div>
-    <div class="box"><h3>${tip('Temps passé sur l’étape des thèmes', 'Temps médian entre l’ouverture de l’étape des thèmes et le passage à l’étape suivante, par l’entreprise.')}<span class="sim">simulé</span></h3>${simule(M, (i) => (4.6 - 0.25 * i) / 1440, (v) => duree(v), 'médiane, par dossier', false)}</div>
+  ${intro('<b>Impactant</b> : la qualité du classement des accords par l’agent, qui conditionne leur publication et les statistiques nationales. Le nouveau référentiel et l’aide au classement visent un traitement plus rapide et moins d’erreurs de classement.')}
+  <h2>${tip('Dossiers classés en « autre »', 'Dossiers dont au moins un thème retenu par l’agent (thème gestionnaire) est « autre ». Le thème déclaré par l’entreprise n’entre pas dans le calcul.')} <small>: ${sousTitre12()}</small></h2>
+  <div class="box"><div class="kv"><div><div class="big">${valPart(M.autre, M.depots)}</div><div class="hint">des dossiers déposés en ${plage(M.f)}</div></div></div>${line1(courbe12().map((m) => { const x = mesures([m]); return { x: m, v: x.depots ? x.autre / x.depots : null }; }), { pctAxis: true, part: 1, repere: REFERENTIEL })}<p class="note">Mise en service du référentiel en ${moisLong(REFERENTIEL)} : date fictive, à confirmer.</p></div>
+  <h2>Aide au classement <small>: côté agent</small> <span class="sim">données simulées</span></h2>
+  <p class="note" style="margin-top:0">Aperçu : l’aide au classement est côté agent. Ces mesures demandent le nouveau référentiel, un tag Matomo sur l’étape des thèmes et la trace des corrections. Les valeurs sont inventées pour montrer le rendu.</p>
+  <div class="grid2 g3">
+    <div class="box"><h3>${tip('Suggestions de thèmes acceptées', 'Part des thèmes proposés par l’aide au classement que l’agent garde tels quels. L’aide propose des thèmes du référentiel, elle n’en crée pas.')}<span class="sim">simulé</span></h3>${simule(M, (i) => 0.48 + 0.03 * i, (v) => pct(v), 'des suggestions gardées', true)}</div>
+    <div class="box"><h3>${tip('Temps passé sur l’étape des thèmes', 'Temps médian que l’agent passe sur l’étape des thèmes, entre son ouverture et le passage à l’étape suivante.')}<span class="sim">simulé</span></h3>${simule(M, (i) => (4.6 - 0.25 * i) / 1440, (v) => duree(v), 'médiane, par dossier', false)}</div>
+    <div class="box"><h3>${tip('Dossiers au thème corrigé', 'Part des dossiers traités dont le thème retenu par l’agent est corrigé ensuite (par la DGT ou la DARES). Mesure l’erreur de classement.')}<span class="sim">simulé</span></h3>${simule(M, (i) => 0.09 - 0.007 * i, (v) => pct(v), 'des dossiers traités', true)}</div>
   </div>`;
 }
 function lire() {
   return `<h2>Définitions</h2><dl class="lire">
     <dt>Dossier déposé</dt><dd>Dossier transmis par l’entreprise. Les dossiers sont rangés selon leur mois de dépôt.</dd>
-    <dt>En attente d’un agent</dt><dd>Dossier transmis qu’aucun agent n’a encore pris en charge, à la date d’extraction.</dd>
+    <dt>En attente d’un agent</dt><dd>Dossier au statut transmis qu’aucun agent n’a encore pris en charge, à la date d’extraction.</dd>
+    <dt>Dossier traité</dt><dd>Dossier arrivé à un statut final : validé, clos ou supprimé. Un dossier supprimé compte comme traité.</dd>
     <dt>Suivi du dossier</dt><dd>L’entreprise a consulté l’état de son dossier dans l’outil après le dépôt.</dd>
     <dt>Délai de correction</dt><dd>Temps entre le renvoi en anomalie et le nouveau dépôt de l’entreprise.</dd>
-    <dt>Temps de saisie</dt><dd>Temps entre la première saisie de l’entreprise et le dépôt. Le choix des thèmes en fait partie, sans pouvoir l’isoler.</dd>
-    <dt>Délai de traitement</dt><dd>Jours entre le dépôt et la validation. La médiane est le délai sous lequel la moitié des dossiers validés passe ; elle n’est pas tirée par quelques dossiers très anciens, contrairement à la moyenne.</dd>
-    <dt>Attente, traitement</dt><dd>Le délai se découpe en attente avant la prise en charge, puis en traitement par l’agent jusqu’à la validation.</dd>
+    <dt>Temps de saisie</dt><dd>Temps entre la première saisie de l’entreprise et le dépôt.</dd>
+    <dt>Délai de traitement</dt><dd>Jours entre le dépôt et le statut final (validé, clos ou supprimé). La médiane est le délai sous lequel la moitié des dossiers traités passe ; elle n’est pas tirée par quelques dossiers très anciens, contrairement à la moyenne.</dd>
+    <dt>Attente, traitement</dt><dd>Le délai se découpe en attente avant la prise en charge, puis en traitement par l’agent jusqu’au statut final.</dd>
     <dt>Renvoi en anomalie</dt><dd>L’agent renvoie le dossier à l’entreprise pour correction.</dd>
     <dt>Échange</dt><dd>Message de l’agent ou réponse de l’entreprise dans l’outil.</dd>
-    <dt>Thème « autre »</dt><dd>Thème « autres thèmes » ou thème saisi en texte libre par l’entreprise.</dd></dl>
+    <dt>Thème gestionnaire</dt><dd>Thème retenu par l’agent. Le classement se lit toujours sur lui, jamais sur le thème déclaré par l’entreprise.</dd>
+    <dt>Thème « autre »</dt><dd>Thème gestionnaire « autres thèmes » : le référentiel ne couvre pas le contenu de l’accord.</dd>
+    <dt>Référentiel des thèmes</dt><dd>Environ 240 thèmes, administrés par la DGT. La liste est fermée : l’aide au classement propose des thèmes de la liste, elle n’en crée pas.</dd>
+    <dt>Épargne salariale</dt><dd>Accords d’intéressement, de participation et plans d’épargne salariale, filtrables à part du reste des textes.</dd></dl>
   <h2>Période et comparaison</h2><dl class="lire">
     <dt>Période</dt><dd>Un mois, toute la période ou un intervalle de mois de dépôt.</dd>
     <dt>Comparaison</dt><dd>À la même période un an plus tôt quand elle existe dans les données, pour tenir compte des pics de juin et de décembre. Sinon, à la période précédente de même durée : c’est le cas pendant la première année après la mise en service. La période comparée est toujours écrite sous les filtres.</dd>
-    <dt>Mois achevé</dt><dd>Mois de dépôt antérieur d’au moins deux mois pleins à l’extraction. Pour les mois plus récents, une partie des dossiers n’est pas encore validée : leur délai est provisoire.</dd>
-    <dt>Journal des actions</dt><dd>Il commence en avril 2026. Attente, traitement, échanges, renvois, consultations et temps de saisie sont mesurés à partir de là.</dd></dl>
-  <h2>Sources</h2><dl class="lire"><dt>Base D@CCORD</dt><dd>Dossiers, journal des actions, nature du texte, thèmes déclarés, unités départementales, agrégés par mois.</dd><dt>DARES</dt><dd>Bilan annuel de la négociation collective, en lien.</dd></dl>
-  <h2>Données simulées</h2><dl class="lire"><dt>Aide au classement</dt><dd>Suggestions de thèmes acceptées et temps sur l’étape des thèmes : valeurs inventées, affichées pour montrer le rendu. Mesure réelle avec le nouveau référentiel et un tag Matomo, pas encore en service au 22/09.</dd></dl>
-  <p class="note">Aucune donnée individuelle : uniquement des chiffres agrégés par mois, type de texte et région.</p>`;
+    <dt>Mois achevé</dt><dd>Mois de dépôt antérieur d’au moins deux mois pleins à l’extraction. Pour les mois plus récents, une partie des dossiers n’est pas encore traitée : leur délai est provisoire.</dd>
+    <dt>Journal des actions</dt><dd>Il commence en avril 2026. Attente, traitement, échanges, renvois, consultations et temps de saisie sont mesurés à partir de là.</dd>
+    <dt>Nouveau référentiel</dt><dd>Repère vertical sur les courbes de « autre » et du délai, à sa date de mise en service. Ces deux courbes montrent jusqu’à 12 mois, ceux qui finissent la période choisie. Date fictive dans la démo.</dd></dl>
+  <h2>Sources</h2><dl class="lire"><dt>Base D@CCORD</dt><dd>Dossiers, journal des actions, nature du texte, épargne salariale, statuts, thèmes gestionnaire, unités départementales, agrégés par mois.</dd><dt>DARES</dt><dd>Bilan annuel de la négociation collective, en lien.</dd></dl>
+  <h2>Données simulées</h2><dl class="lire"><dt>Aide au classement</dt><dd>Suggestions acceptées par l’agent, temps de l’agent sur l’étape des thèmes et dossiers au thème corrigé : valeurs inventées, affichées pour montrer le rendu. Mesure réelle avec le nouveau référentiel, un tag Matomo et la trace des corrections.</dd></dl>
+  <p class="note">Aucune donnée individuelle : uniquement des chiffres agrégés par mois, type de texte, épargne salariale, région et département.</p>`;
 }
 
 // ---------- filtres et rendu ----------
@@ -362,11 +379,14 @@ function fillFilters() {
   document.getElementById('f-type').innerHTML = opt('', 'Tous', !S.type) + types.map((t) => opt(t, TYPES[t] || t, t === S.type)).join('');
   const regs = [...new Set(D.Mensuel.map((r) => r.Region))].filter((r) => r !== 'Non renseignée').sort((a, b) => a.localeCompare(b, 'fr'));
   document.getElementById('f-region').innerHTML = opt('', 'Toutes', !S.region) + regs.map((r) => opt(r, r, r === S.region)).join('');
+  document.getElementById('f-epargne').innerHTML = opt('', 'Tous les textes', !S.epargne) + opt('ES', 'Épargne salariale', S.epargne === 'ES') + opt('HES', 'Hors épargne salariale', S.epargne === 'HES');
+  const deps = [...new Set(D.Mensuel.filter((r) => !S.region || r.Region === S.region).map((r) => r.Departement))].filter((d) => d && d !== 'Non renseigné').sort((a, b) => a.localeCompare(b, 'fr'));
+  document.getElementById('f-dep').innerHTML = opt('', 'Tous', !S.dep) + deps.map((d) => opt(d, d, d === S.dep)).join('');
 }
 // Bouton « Faire un retour » (brique commune, voir produits/README.md) : formulaire Grist public
 // sur la table Retours du doc Data Ops. Le contexte part dans l'URL (champs cachés) ; aucun secret ici.
 const FORM_RETOUR = 'https://grist.numerique.gouv.fr/o/studio/forms/r497cC96asn9nWx7ej3X1G/38';
-const RETOUR = { produit: 'D@CCORD', version: '1.1', filtres: ['f-type', 'f-region'] };
+const RETOUR = { produit: 'D@CCORD', version: '1.2', filtres: ['f-type', 'f-epargne', 'f-region', 'f-dep'] };
 const envRetour = () => 'Démo';
 const periodeRetour = () => S.du === S.au ? moisRetour(S.du) : `de ${moisRetour(S.du)} à ${moisRetour(S.au)}`;
 const moisRetour = (m) => (m ? `${m.slice(5, 7)}/${m.slice(0, 4)}` : '');
@@ -387,7 +407,9 @@ function render() {
   document.getElementById('f-src').innerHTML = `<b>Données fictives</b><span>· dossiers déposés en ${plage(f)}</span><span>· ${fp ? 'comparé à ' + plage(fp) : 'sans comparaison'}</span><span>· état au ${EXTRACTION}</span>`;
   document.getElementById('tabs').innerHTML = TABS.map(([id, l]) => `<button role="tab" aria-selected="${S.tab === id}" data-t="${id}">${l}</button>`).join('');
   const M = mesures(f), P = fp ? mesures(fp) : null;
-  document.getElementById('main').innerHTML = { synthese: () => synthese(M, P), utilisable: () => utilisable(M), utilise: () => utilise(M), utile: () => utile(M, P), impactant: () => impactant(M), lire }[S.tab]();
+  // aucune ligne pour ces filtres (fréquent avec épargne × type) : un seul message, plutôt que des encarts vides aux raisons fausses
+  document.getElementById('main').innerHTML = !M.depots && S.tab !== 'lire' ? '<p class="empty">Aucun dossier déposé sur la période pour ces filtres.</p>'
+    : { synthese: () => synthese(M, P), utilisable: () => utilisable(M), utilise: () => utilise(M), utile: () => utile(M, P), impactant: () => impactant(M), lire }[S.tab]();
 }
 let attente; window.addEventListener('resize', () => { clearTimeout(attente); attente = setTimeout(() => D && render(), 150); });
 document.getElementById('tabs').addEventListener('click', (e) => { const b = e.target.closest('button[data-t]'); if (b) { S.tab = b.dataset.t; render(); } });
@@ -396,7 +418,9 @@ document.getElementById('filters').addEventListener('change', (e) => {
   if (id === 'f-per') { S.per = v; appliquerPreset(); }
   if (id === 'f-du' || id === 'f-au') { const m = versMois(v); if (m) { S.per = 'perso'; if (id === 'f-du') S.du = m; else S.au = m; if (S.du > S.au) { const t = S.du; S.du = S.au; S.au = t; } if (S.du === S.au) S.per = S.du; } }
   if (id === 'f-type') S.type = v;
-  if (id === 'f-region') S.region = v;
+  if (id === 'f-region') { S.region = v; if (S.dep && v && !D.Mensuel.some((r) => r.Region === v && r.Departement === S.dep)) S.dep = ''; }
+  if (id === 'f-dep') S.dep = v;
+  if (id === 'f-epargne') S.epargne = v;
   render();
 });
 // Le bouton suit chaque rendu (onglet, période, filtres).
