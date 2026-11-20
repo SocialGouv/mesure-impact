@@ -13,6 +13,10 @@ doc Grist « Démo - Honorabilité » (données fictives) ──> dashboard.html
 - **`dashboard.html`** : le front DSFR (Tableau V3), embarqué comme widget dans le doc Grist. Il lit
   les tables `Activite`, `Delais_departement`, `Hebdo`, `Agents` et `Flux` via l'API plugin Grist,
   aucun token dans la page. Polices Marianne embarquées : l'image web ne publie que ce fichier.
+- **`versions/4.html`** : la V4 (page « Tableau V4 », retours de Laure, Vincent et Benjamin), servie
+  sous `/gps/honorabilite/4/`. Elle lit en plus les tables `Technique`, `B2_jour`, `PDH` et `PHD`
+  (disponibilité, fichiers B2, portails PDH et PHD). Ses hypothèses sont à confirmer par Alexandre
+  (sigle AIA, définition des contrôles réalisés et des personnes écartées, sources Sentry et FIJAISV).
 - Pas de `produit.yaml` ni de collecte : le dossier est publié sans CronJob, sous `/gps/honorabilite/`.
 
 Ouverte directement, hors de Grist, la page affiche « Données indisponibles » : aucune donnée n'est publiée.
