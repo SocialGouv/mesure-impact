@@ -5,14 +5,15 @@ web:
   replicas: 2
 
 cron:
-  # BASAVI, premier produit collecté en prod (secrets scellés le 24/09/2026 dans
-  # produits/sante/basavi/secrets/prod.sealedsecret.yaml). Ce réglage vaut pour tous les
-  # produits de l'env.
+  # Produits collectés en prod : BASAVI (secrets scellés le 24/09/2026), HELIOS (le
+  # 19/11/2026), chacun dans produits/<dept>/<nom>/secrets/prod.sealedsecret.yaml. Ce réglage
+  # vaut pour tous les produits de l'env.
   suspend: false
   schedule: "0 6 * * *"
   env:
     # Mise en ligne publique de BASAVI le 23/09/2026 : le site 170 porte avant cette date
     # des visites de développement (localhost, URL technique) à ne jamais collecter.
-    # ⚠ Vaut pour tous les produits de l'env : à déplacer dans produit.yaml avant d'en
-    # ouvrir un second en prod.
+    # ⚠ Vaut pour tous les produits de l'env. HELIOS en hérite sans effet : son site 72 n'a
+    # aucune visite de septembre au 23/11/2026, et la fenêtre nocturne ne remonte qu'au mois
+    # précédent. À déplacer dans produit.yaml avant d'ouvrir un troisième produit en prod.
     COLLECT_FROM: "2026-09-23"

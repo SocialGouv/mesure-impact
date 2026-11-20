@@ -9,18 +9,19 @@ par GitHub Actions.
 ## État
 
 Le socle est **multitenant** : chaque `produits/<dept>/<nom>/` reçoit son CronJob, son
-SealedSecret et son URL de dashboard. Deux produits sont câblés : **BASAVI**, dont la
-collecte de préprod est **active depuis le 20/08/2026**, et **HELIOS** (préprod, site Matomo 162,
-grain agrégé mois × rôle, aucun identifiant de visiteur dans Grist).
+SealedSecret et son URL de dashboard. Deux produits sont collectés : **BASAVI** (préprod
+active depuis le 20/08/2026, prod depuis le 24/09/2026, sites Matomo 168 et 170) et **HELIOS**
+(préprod site 162 ; prod site 72 déclarée le 19/11/2026, collectée après la MEP applicative du
+23/11 ; grain agrégé mois × rôle, aucun identifiant de visiteur dans Grist).
 
 `cron.suspend` vaut pour **tout l'env**, pas par produit : ajouter un produit à `envs: [dev]`
 le déploie donc actif immédiatement. C'est pourquoi la CI refuse un produit de l'inventaire
 qui n'a pas son `secrets/<env>.sealedsecret.yaml`, et pourquoi le déploiement attend que le
 Secret soit réellement déscellé avant de se déclarer réussi.
 
-`produit.yaml` déclare ses `envs` et un `site_id`/`doc_id` par env. BASAVI ne cible que `dev` :
-la prod ne reçoit donc aucun CronJob tant que son site Matomo et son doc Grist n'existent pas.
-C'est voulu — mieux vaut zéro collecte qu'une prod qui collecte la préprod.
+`produit.yaml` déclare ses `envs` et un `site_id`/`doc_id` par env. Un produit qui ne déclare
+pas `prod` ne reçoit aucun CronJob de prod tant que son site Matomo et son doc Grist de prod
+n'existent pas. C'est voulu : mieux vaut zéro collecte qu'une prod qui collecte la préprod.
 
 ## Cible de déploiement
 
@@ -146,5 +147,5 @@ La doc du dépôt vit dans [doc/](doc/) : `produit.md` (fonctionnel), `architect
 
 Les tableaux de bord vivent dans `produits/<département>/<produit>/` (un dossier par produit,
 cf. [produits/README.md](produits/README.md)). Le collecteur du CronJob est
-`docker/cron/collect.mjs` : il importe aujourd'hui l'ETL du seul produit pilote (Node pur,
+`docker/cron/collect.mjs` : il charge l'ETL du produit désigné par `PRODUIT` (Node pur,
 contrat de variables commun décrit dans `doc/architecture.md`).

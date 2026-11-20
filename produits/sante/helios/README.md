@@ -8,7 +8,8 @@ fonctionnalités utilisées (comparaison, export, listes), recherche et navigati
 ## La chaîne
 
 ```
-Matomo (site 162) ──> etl.mjs ──> doc Grist « Préprod - Hélios » ──> dashboard.html (widget)
+préprod : Matomo (site 162) ──> etl.mjs ──> doc Grist « Preprod - Hélios » ──> dashboard.html (widget)
+prod    : Matomo (site 72)  ──> etl.mjs ──> doc Grist « Prod - Hélios »    ──> dashboard.html (widget)
 ```
 
 - **`etl.mjs`** : extrait les visites Matomo mois par mois, agrège au grain mois × rôle et
@@ -104,15 +105,24 @@ Les formules Grist évitent le motif « `and` … `<` » sur une même ligne : l
 
 ## État
 
-Collecte de préprod prête (site Matomo 162, doc « Préprod - Hélios »), secret dev scellé.
+Collecte de préprod prête (site Matomo 162, doc « Preprod - Hélios »), secret dev scellé.
 Le doc Grist a été migré le 15/10/2026 vers le grain agrégé : colonnes `visitor_id`, `date`
 et `value` retirées d'Events, `KPI.utilisateurs_reguliers` passé de formule à donnée.
 
 L'accès Grist passe par le compte de service `mesure-impact` (décision 0003), éditeur du doc.
-Le token Matomo scellé est celui de préprod, **en intérim** : à remplacer par un token dédié.
+Le token Matomo scellé en dev est celui de préprod, **en intérim** : à remplacer par un token dédié.
 
 Points de vigilance :
 
 - **Le script local `sandbox-impact/grist/preprod-etl.mjs` doit être arrêté.** Il écrit encore
   le grain brut, avec `visitor_id`, sur le même doc.
-- La prod (site Matomo 72) viendra avec son propre doc Grist et son propre secret.
+- **Prod déclarée le 19/11/2026**, avant la MEP 1.8.20 du 23/11 qui pose le plan de taggage
+  sur la prod : site Matomo 72, doc « Prod - Hélios » (`b9HgpwiY96ydpAxTD8Z44w`, copie vide de la
+  préprod, compte de service éditeur), secret `secrets/prod.sealedsecret.yaml` (token Matomo
+  prod). **Ni déploiement prod ni merge avant la MEP du 23/11 à 12h** : le merge ne déploie
+  que dev, mais tout `workflow_dispatch` prod lancé ensuite depuis `main` (pour BASAVI par
+  exemple) embarquerait HELIOS. Avant le plan de taggage, le site 72 n'a aucune visite, et un
+  produit qui n'a jamais rien collecté fait échouer son run (voulu, voir `produits/README.md`
+  § 6) : les alertes sonneraient chaque nuit. Reste à faire : déploiement prod manuel (`workflow_dispatch` env=prod), repointage
+  du widget « Tableau V3 » du doc prod vers l'URL fabrique de prod, vérification de la
+  première collecte de 6h. Le site 72 doit passer en type intranet, comme le 162.

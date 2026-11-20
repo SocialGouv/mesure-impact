@@ -130,7 +130,7 @@ async function load() {
     const e = cols2rows(ex); return { kpi: cols2rows(kpi), base: cols2rows(base), events: cols2rows(events), meta: e[e.length - 1] || null };
   }
   if (window.HELIOS_DATA) return window.HELIOS_DATA;
-  throw new Error('ce tableau s’affiche dans le document Grist « Préprod - Hélios », page Tableau V3');
+  throw new Error('ce tableau s’affiche dans le document Grist « Preprod - Hélios » ou « Prod - Hélios », page Tableau V3');
 }
 
 // ---------- période unique : chiffres et courbes suivent le même choix ----------
