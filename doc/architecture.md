@@ -40,7 +40,8 @@ un `site_id` doit être une PR relisible, pas un rescellement opaque.
 
 Le chart injecte aussi `PRODUIT` (`<dept>/<nom>`, qui indique au runner quel ETL charger),
 `RUN_ID` et `ENVIRONMENT`. Optionnelles : `COLLECT_FROM` (date de début), `GRIST_DOC_NAME`
-(vérif de sécurité).
+(vérif de sécurité), `ALLOW_EMPTY_COLLECT` (slugs des produits dont une collecte vide est
+tolérée, séparés par des virgules).
 
 ## Secrets
 
