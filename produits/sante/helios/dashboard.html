@@ -344,7 +344,7 @@ const lire = () => `<h2>Définitions</h2><dl class="lire">
   <h2>Période et sources</h2><dl class="lire">
   <dt>Période</dt><dd class="mod" data-mod="Modifié">Les volumes s'additionnent sur la période choisie et se comparent à la période précédente de même durée. Sur un mois seul, chaque bloc compare ce mois au mois d'avant ; sur plusieurs mois, les courbes couvrent la période choisie et rien d'autre. Un mois sans donnée reste un trou.</dd>
   <dt>Base d'agents</dt><dd class="mod" data-mod="Modifié">Photo de la base HELIOS prise par le cron du 1er du mois, rangée sur le mois écoulé (la base de septembre est celle du 01/10). Les relances du cron en cours de mois ne sont pas reprises.</dd>
-  <dt>Usage</dt><dd>Matomo préprod (site 162). Seuls les agents qui acceptent le bandeau de consentement sont mesurés.</dd></dl>
+  <dt>Usage</dt><dd>${esc(libSite())}. Seuls les agents qui acceptent le bandeau de consentement sont mesurés.</dd></dl>
   <p class="note">Aucune donnée individuelle : uniquement des agrégats par mois et par rôle.</p>`;
 
 // ---------- rendu ----------
@@ -352,7 +352,10 @@ const lire = () => `<h2>Définitions</h2><dl class="lire">
 // sur la table Retours du doc Data Ops. Le contexte part dans l'URL (champs cachés) ; aucun secret ici.
 const FORM_RETOUR = 'https://grist.numerique.gouv.fr/o/studio/forms/r497cC96asn9nWx7ej3X1G/38';
 const RETOUR = { produit: 'HELIOS', version: 'V3', filtres: ['f-role'] };
-const envRetour = () => { const s = String(D?.meta?.site ?? ''); return s === '72' ? 'Production' : s === '162' ? 'Préproduction' : 'Démo'; };
+const siteMatomo = () => String(D?.meta?.site ?? '');
+// Libellé de la source lu sur le site écrit par la collecte (table Extractions) : la même page sert la préprod et la prod.
+const libSite = () => { const s = siteMatomo(); return s === '72' ? 'Matomo prod (site 72)' : s === '162' ? 'Matomo préprod (site 162)' : 'Données de démonstration'; };
+const envRetour = () => { const s = siteMatomo(); return s === '72' ? 'Production' : s === '162' ? 'Préproduction' : 'Démo'; };
 const periodeRetour = () => S.du === S.au ? moisRetour(S.du) : `de ${moisRetour(S.du)} à ${moisRetour(S.au)}`;
 const moisRetour = (m) => (m ? `${m.slice(5, 7)}/${m.slice(0, 4)}` : '');
 function majRetour() {
@@ -376,7 +379,7 @@ function render() {
   document.getElementById('f-role').value = S.role;
   const f = fenetre(), fp = precedente(f);
   const ext = D.meta?.extracted_at ? new Date(D.meta.extracted_at).toLocaleDateString('fr-FR') : '';
-  document.getElementById('f-src').innerHTML = `<b>Matomo réel, site 162 (préprod)</b> · ${plage(f)} · ${f.length} mois${fp ? ' · comparé à ' + plage(fp) : ''}${D.meta ? ` · rôle renseigné sur ${D.meta.role_fill_pct} % des visites` : ''}${ext ? ' · extraction du ' + ext : ''}`;
+  document.getElementById('f-src').innerHTML = `<b>${esc(libSite())}</b> · ${plage(f)} · ${f.length} mois${fp ? ' · comparé à ' + plage(fp) : ''}${D.meta ? ` · rôle renseigné sur ${D.meta.role_fill_pct} % des visites` : ''}${ext ? ' · extraction du ' + ext : ''}`;
   document.getElementById('tabs').innerHTML = TABS.map(([id, l]) => `<button role="tab" aria-selected="${S.tab === id}" data-t="${id}">${l}</button>`).join('');
   const M = mesures(f), P = fp ? mesures(fp) : null;
   document.getElementById('main').innerHTML = { synthese: () => synthese(M, P), utilisable: () => utilisable(M), utilise: () => utilise(M), utile: () => utile(M, P), impactant, lire }[S.tab]();
