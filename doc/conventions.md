@@ -35,10 +35,13 @@ qui fuit ou qu'on révoque n'affecte que son produit.
 - **Revue adversariale** de la PR, puis commentaire `/revi` pour déclencher le bot de revue.
   Les retours `high` se corrigent avant le merge.
 - **Une démo ou une préprod** se valide sur l'URL dev après le merge, dans le doc Grist.
-- **Une nouvelle version de tableau** ne remplace pas l'ancienne : `versions/<v>.html` et une
-  page Grist de plus, l'ancienne page reste (voir `produits/README.md`). Les tables Grist ne
-  font que s'enrichir.
-- **La prod** ne bouge qu'au déploiement manuel, après validation de l'équipe produit.
+- **Une nouvelle version de tableau** ne remplace pas l'ancienne tant qu'elle n'est pas
+  validée : `versions/<v>.html` et une page Grist de plus, l'ancienne page reste (voir
+  `produits/README.md` et `doc/exploitation.md`, section 6). Les tables Grist ne font que
+  s'enrichir.
+- **La prod** ne bouge qu'au déploiement manuel, après validation de l'équipe produit. Ce
+  déploiement embarque tout `main` : chaque produit modifié depuis le dernier déploiement prod
+  doit être validé, pas seulement celui qu'on veut livrer.
 
 ## Critères d'achèvement
 

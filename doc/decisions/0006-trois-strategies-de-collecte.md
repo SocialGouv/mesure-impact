@@ -13,8 +13,8 @@ statuts de dossiers, nombre de structures ou d'agents. Ces chiffres vivent dans 
 produit.
 
 HELIOS a contourné le problème : un cron applicatif compte les agents actifs le 1er du mois et
-envoie le total à Matomo sous forme d'events. D@CCORD (environ 400 dépôts par jour, une
-dizaine de blocs sur dix à lire en base) et Médlé (comptages par structure et par mois) ne
+envoie le total à Matomo sous forme d'events. D@CCORD (environ 400 dépôts par jour, la
+plupart des blocs du tableau à lire en base) et Médlé (comptages par structure et par mois) ne
 peuvent pas tout faire passer par Matomo.
 
 ## Décision

@@ -20,7 +20,7 @@ Deux briques tournent dans l'infra (Kubernetes / fabrique) :
 
 ## Trois stratégies de collecte
 
-Chaque produit relève de l'une des trois. Le détail et les règles sont dans `decisions/0006`.
+Chaque produit collecté relève de l'une des trois ; une démo n'en a pas encore. Le détail et les règles sont dans `decisions/0006`.
 
 | Stratégie | Sources lues par l'ETL | Exemple |
 |---|---|---|
@@ -123,6 +123,7 @@ Ajouter un produit ne touche donc pas au socle : un dossier, un `produit.yaml` c
 - `.github/workflows/deploy.yml` : build des images + déploiement (push `main` → dev,
   `workflow_dispatch` → prod).
 - `.github/workflows/ci.yml` : portes de qualité sur chaque PR (lint du chart, vérification
-  de syntaxe des collecteurs, tests des tableaux, des ETL et des règles d'alerte).
+  de syntaxe des collecteurs, tests du tableau BASAVI, des ETL BASAVI et HELIOS et des règles
+  d'alerte).
 - `.github/workflows/collecte.yml` : collecte manuelle d'un produit dans un env, sans attendre
   le créneau du CronJob (voir `doc/exploitation.md`).

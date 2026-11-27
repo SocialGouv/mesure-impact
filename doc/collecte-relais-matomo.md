@@ -1,6 +1,7 @@
 # Collecter malgré les bloqueurs : le relais Matomo
 
-**Statut** : proposition, à valider par le studio tech · **Décision** : [`decisions/0004`](decisions/0004-collecte-client-side-via-relais.md)
+**Statut** : en service sur HELIOS (préprod et prod), décision pas encore acceptée (voir ses
+critères) · **Décision** : [`decisions/0004`](decisions/0004-collecte-client-side-via-relais.md)
 
 ## Le problème
 
@@ -159,6 +160,9 @@ aussi à exclure les deux chemins du journal d'accès.
    navigateur, le `User-Agent` n'est pas transmis), et la localisation s'arrête à la région,
    jamais à la ville — c'est le signe que le relais masque bien l'IP. Une seule ville pour tous
    les hits signale l'inverse : le relais transmet l'IP du serveur, pas celle du visiteur.
+   Exception : sur une instance qui ignore `X-Forwarded-For` (c'est le cas de celle de la
+   fabrique, voir « Limites connues »), tous les hits portent l'IP du serveur quoi qu'il
+   arrive, et la localisation n'est pas un critère.
 4. **Dans les journaux du produit** : aucune ligne pour les deux chemins du relais. Une query
    string de hit qui y apparaît porte l'URL visitée et l'identifiant de visiteur.
 
@@ -197,9 +201,9 @@ aussi à exclure les deux chemins du journal d'accès.
   l'IP du pod ingress : tous les hits porteront la même valeur et régler l'instance ne
   rapportera rien. À valider avec les opérateurs de l'instance.
 
-  **Solution retenue sur l'instance de la fabrique : le site en type « intranet ».** Les
-  opérateurs ont refusé `trust_visitors_cookies` (réglage global à l'instance). Ils passent à
-  la place chaque site concerné en type « intranet », où Matomo se fie au seul cookie
+  **Solution retenue sur l'instance de la fabrique : le site en type « intranet ».** Plutôt
+  qu'un réglage global à l'instance (`trust_visitors_cookies`), les opérateurs passent chaque
+  site concerné en type « intranet », où Matomo se fie au seul cookie
   `_pk_id` pour distinguer les visiteurs. Fait sur HELIOS préprod (162) le 12/10/2026 et prod
   (72) le 26/11/2026, vérifié par un test à deux navigateurs (deux visiteurs distincts). À
   demander pour chaque nouveau site placé derrière un relais, avant la mise en service.

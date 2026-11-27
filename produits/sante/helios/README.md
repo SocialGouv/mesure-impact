@@ -123,6 +123,6 @@ Points de vigilance :
   que dev, mais tout `workflow_dispatch` prod lancé ensuite depuis `main` (pour BASAVI par
   exemple) embarquerait HELIOS. Avant le plan de taggage, le site 72 n'a aucune visite, et un
   produit qui n'a jamais rien collecté fait échouer son run (voulu, voir `produits/README.md`
-  § 6) : les alertes sonneraient chaque nuit. Reste à faire : déploiement prod manuel (`workflow_dispatch` env=prod), repointage
-  du widget « Tableau V3 » du doc prod vers l'URL fabrique de prod, vérification de la
-  première collecte de 6h. Le site 72 doit passer en type intranet, comme le 162.
+  § 6) : les alertes sonneraient chaque nuit. **Prod ouverte le 26/11/2026** : déploiement prod
+  manuel, première collecte conforme à Matomo à moins de 1 %, widget « Tableau V3 » du doc prod
+  repointé vers l'URL fabrique de prod, site 72 passé en type intranet comme le 162.

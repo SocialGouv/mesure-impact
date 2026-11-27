@@ -17,12 +17,12 @@ L'enjeu n'est pas la dataviz pour elle-même : c'est de rendre visible l'usage d
 
 | Produit | Dossier | Stratégie | État |
 |---|---|---|---|
-| BASAVI | `sante/basavi` | A. Matomo seul | Prod depuis le 24/09/2026 (V1.2 le 05/11) |
-| HELIOS | `sante/helios` | B. Matomo + base d'agents poussée le 1er du mois | Prod depuis la MEP du 23/11/2026, grain mois × rôle |
+| BASAVI | `sante/basavi` | A. Matomo seul | Prod depuis le 24/09/2026 (V1.2 validée le 30/10, en prod le 05/11) |
+| HELIOS | `sante/helios` | B. Matomo + base d'agents poussée le 1er du mois | Prod depuis le 26/11/2026 (plan de taggage posé à la MEP du 23/11), grain mois × rôle |
 | Médlé | `sante/medle` | C. Matomo + base (prévue) | Démo, plan de taggage chez l'éditeur |
 | D@CCORD | `idn/daccord` | C. Matomo + base (prévue) | Démo V1.2, plan de taggage chez le dev |
 | Sites Eaux | `sante/siteseaux` | À définir | Démo V1 et V1.1 côte à côte |
-| Honorabilité | `gps/honorabilite` | À définir (sources hors Matomo) | Démo V3 et V4 côte à côte |
+| Honorabilité | `gps/honorabilite` | À définir (sources techniques en plus de Matomo) | Démo V3 et V4 côte à côte |
 | VAO | `gps/vao` | À définir | Démo |
 
 « Démo » : front seul sur données fictives, sans collecte (`produits/README.md`, « Tableau

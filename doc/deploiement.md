@@ -80,7 +80,7 @@ leurs identifiants, puis ajouter `prod` à `envs`.
   CronJob sans un mot ; un inventaire de dev passé à la prod ferait collecter la préprod.
 - **Déploiement prod protégé** : le job est rattaché à l'environnement GitHub `prod`, où se
   posent les règles de protection (relecteurs requis).
-- **Alertes** : quatre règles par env, dans `chart/templates/alerts.yaml` : collecte en échec,
+- **Alertes** : quatre alertes par env (la dernière déclinée par produit), dans `chart/templates/alerts.yaml` : collecte en échec,
   sans succès depuis plus de 48 h, plus planifiée, plus observable. La panne qui compte ici est
   silencieuse : rien ne casse, les données vieillissent. Que faire quand l'une sonne :
   `doc/exploitation.md`.
