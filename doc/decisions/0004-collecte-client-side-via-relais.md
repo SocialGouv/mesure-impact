@@ -35,10 +35,12 @@ exemples : [`doc/collecte-relais-matomo.md`](../collecte-relais-matomo.md).
 
 - Chaque outil d'agents choisit un préfixe neutre et met en place le relais selon sa stack.
 - La recette inclut un test depuis un poste agent équipé du bloqueur.
-- Le relais masque l'IP avant de la transmettre (`/16` en IPv4, `/48` en IPv6). Côté instance,
-  il reste à activer `proxy_client_headers[]`, `proxy_ip_read_last_in_list` et `proxy_ips[]` —
-  à trancher avec les opérateurs de l'instance. Sans ce réglage, la mesure fonctionne mais la
-  géolocalisation est fausse et les visiteurs sans cookie fusionnent.
+- Le relais masque l'IP avant de la transmettre (`/16` en IPv4, `/48` en IPv6). Sur
+  l'instance de la fabrique, `proxy_client_headers[]`, `proxy_ip_read_last_in_list` et
+  `proxy_ips[]` ne sont pas activés : la mesure fonctionne, mais la géolocalisation est fausse
+  et les visiteurs sans cookie fusionneraient. Solution retenue avec les opérateurs : chaque
+  site placé derrière un relais passe en type « intranet », où Matomo distingue les visiteurs
+  par leur seul cookie (voir `doc/collecte-relais-matomo.md`, limites).
 - **Les exemples sont un catalogue, pas encore un artefact partagé.** Cinq implémentations
   portent le même contrat : chaque correction doit être rejouée cinq fois, et cette PR l'a déjà
   fait deux fois (écrasement de `X-Forwarded-For`, puis masquage de l'IP). Dès le **deuxième
