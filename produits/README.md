@@ -6,7 +6,9 @@ Chaque tableau de bord vit dans `produits/<département>/<produit>/`. Le socle t
 ## Ajouter un produit
 
 1. **Copier un dossier existant** : `cp -r produits/sante/basavi produits/<dept>/<nom>`.
-2. **Remplir `produit.yaml`** : site Matomo, doc Grist, grain, critères d'achèvement.
+2. **Remplir `produit.yaml`** : site Matomo, doc Grist, grain, critères d'achèvement. Choisir
+   la stratégie de collecte (Matomo seul, totaux poussés, base lue) : `doc/decisions/0006`
+   (pas encore de champ dédié dans `produit.yaml`).
 3. **Adapter `etl.mjs`** : la recette de collecte propre au produit (pour l'instant un script
    par produit ; un moteur générique sera extrait quand le pattern se stabilisera).
 4. **Poser `dashboard.html`** : le front, embarqué dans le doc Grist.
@@ -19,9 +21,10 @@ Chaque tableau de bord vit dans `produits/<département>/<produit>/`. Le socle t
    (liste séparée par des virgules, ex. `"sante/helios"` ; `"1"` ne tolère rien), et l'en
    retirer dès la première collecte réussie.
 7. **Doc Grist distinct** : deux produits ne peuvent pas partager un `doc_id`. Les clés des
-   tables sont `day|device`, sans discriminant de produit : les deux collectes s'écraseraient.
+   tables ne portent pas de discriminant de produit (`day|device` pour BASAVI, mois et rôle
+   pour HELIOS) : les deux collectes s'écraseraient.
    Le générateur d'inventaire refuse ce cas.
-6. **Documenter** : mettre à jour `doc/produit.md` et ouvrir la PR (le modèle de PR rappelle
+8. **Documenter** : mettre à jour `doc/produit.md` et ouvrir la PR (le modèle de PR rappelle
    la checklist).
 
 On ne touche jamais aux autres produits ni au socle. La référence, c'est le dossier
@@ -64,7 +67,8 @@ L'image web publie quand même le `dashboard.html` sous `/<dept>/<nom>/`.
 Pour montrer deux itérations côte à côte dans le même doc Grist, ajouter
 `versions/<v>.html` (par exemple `versions/1.1.html`) : l'image le publie sous
 `/<dept>/<nom>/<v>/`, et une page Grist de plus pointe dessus. `dashboard.html` reste la version
-de référence ; promouvoir une version, c'est la recopier dans `dashboard.html` puis supprimer le fichier.
+de référence ; promouvoir une version, c'est la recopier dans `dashboard.html` puis supprimer le fichier et
+la page Grist qui pointait dessus (voir `doc/exploitation.md`, section 6).
 
 Deux règles, parce que l'image ne copie que ce fichier et que le dépôt est public :
 

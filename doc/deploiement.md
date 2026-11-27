@@ -20,7 +20,8 @@ config et les secrets changent, portés par le secret scellé de chaque env.
 ## Déployer un produit, de bout en bout
 
 1. Copier le moule `produits/<dept>/<produit>/`, remplir `produit.yaml`, adapter `etl.mjs`,
-   poser `dashboard.html`.
+   poser `dashboard.html`. Une démo sans collecte s'arrête au `dashboard.html` (voir
+   `produits/README.md`) : pas de secret, pas de CronJob.
 2. Sceller les tokens du produit (`PRODUIT=<dept>/<nom> ENV=dev task seal`) → fichier chiffré commité.
 3. PR → la CI vérifie → relecture → merge sur `main` → **déploiement dev auto**.
 4. Vérifier que Grist se peuple, **repointer** le widget du doc Grist vers l'URL fabrique.
@@ -45,9 +46,17 @@ Ce qui change, concrètement :
    service en éditeur.
 3. **Scellement** : `PRODUIT=<dept>/<nom> ENV=prod task seal` avec les deux tokens de prod
    → `produits/<dept>/<nom>/secrets/prod.sealedsecret.yaml`.
-4. **Déploiement** : manuel et volontaire (`workflow_dispatch` env=prod), puis réveil du
-   CronJob prod.
-5. **Repointage** du widget du doc prod vers l'URL fabrique de prod.
+4. **Déploiement** : manuel et volontaire (`workflow_dispatch` env=prod), approuvé par un
+   relecteur de l'environnement GitHub `prod`. `cron.suspend` vaut pour tout l'env et vaut déjà
+   `false` en prod : le CronJob du produit est actif dès ce déploiement, sans réveil par
+   produit. L'approbation de l'environnement `prod` est la seule barrière.
+5. **Première collecte** à la main (workflow « Collecte manuelle », env `prod`), et
+   comparaison des visites et events avec Matomo.
+6. **Repointage** du widget du doc prod vers l'URL fabrique de prod, partage du doc en lecteur
+   avec l'équipe produit.
+
+Exemple complet : HELIOS, ouvert en prod le 26/11/2026 (site Matomo 72 passé en type intranet,
+doc « Prod - Hélios », première collecte conforme à Matomo à moins de 1 %).
 
 `produit.yaml` porte un `site_id` et un `doc_id` **par env**, et la liste `envs` des envs où
 le produit est collecté. Un produit qui ne déclare pas `prod` ne reçoit aucun CronJob de prod :
@@ -73,6 +82,8 @@ leurs identifiants, puis ajouter `prod` à `envs`.
   CronJob sans un mot ; un inventaire de dev passé à la prod ferait collecter la préprod.
 - **Déploiement prod protégé** : le job est rattaché à l'environnement GitHub `prod`, où se
   posent les règles de protection (relecteurs requis).
-- **Alertes** : deux `PrometheusRule` par env — collecte en échec, et collecte muette depuis
-  plus de 48 h. La panne qui compte ici est silencieuse : rien ne casse, les données vieillissent.
+- **Alertes** : quatre alertes par env (la dernière déclinée par produit), dans `chart/templates/alerts.yaml` : collecte en échec,
+  sans succès depuis plus de 48 h, plus planifiée, plus observable. La panne qui compte ici est
+  silencieuse : rien ne casse, les données vieillissent. Que faire quand l'une sonne :
+  `doc/exploitation.md`.
 - **Réseau** : ingress fermé par défaut, ouvert au seul contrôleur d'ingress et au monitoring.

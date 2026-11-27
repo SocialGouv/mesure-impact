@@ -139,7 +139,8 @@ fait pour celui-ci.
 ## Documentation & conventions
 
 La doc du dépôt vit dans [doc/](doc/) : `produit.md` (fonctionnel), `architecture.md`
-(technique), `conventions.md` (contribution), `decisions/` (choix structurants). Deux règles :
+(technique), `deploiement.md`, `exploitation.md` (gestes du quotidien), `conventions.md`
+(contribution), `decisions/` (choix structurants). Deux règles :
 
 - **Au démarrage d'une issue ou d'une tâche** : lire `doc/` pour le contexte avant d'agir.
 - **Avant d'ouvrir une PR** : mettre à jour la page `doc/` concernée si le comportement, une

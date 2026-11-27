@@ -9,8 +9,14 @@ poste de développement.
 
 ## Décision
 
-Pour échapper aux bloqueurs de publicité, les produits gardent la **mesure côté navigateur**
-et font passer les appels à Matomo par un **relais sur leur propre domaine**. Le contrat du
+Pour échapper aux bloqueurs de publicité, les **outils utilisés par des agents depuis un poste
+de l'administration** gardent la **mesure côté navigateur** et font passer les appels à Matomo
+par un **relais sur leur propre domaine**. Sur ces postes, le bloqueur est déployé par
+l'administration : sans relais, la mesure est coupée pour presque tous les utilisateurs.
+
+Un produit **grand public** (BASAVI) garde le snippet Matomo direct. Les bloqueurs y sont ceux
+que chacun installe chez soi : un biais faible, accepté. Le relais y reste possible mais n'est
+pas requis. Le contrat du
 relais est commun à tous les produits ; son implémentation dépend de la stack. Détail et
 exemples : [`doc/collecte-relais-matomo.md`](../collecte-relais-matomo.md).
 
@@ -27,12 +33,14 @@ exemples : [`doc/collecte-relais-matomo.md`](../collecte-relais-matomo.md).
 
 ## Conséquences
 
-- Chaque produit choisit un préfixe neutre et met en place le relais selon sa stack.
+- Chaque outil d'agents choisit un préfixe neutre et met en place le relais selon sa stack.
 - La recette inclut un test depuis un poste agent équipé du bloqueur.
-- Le relais masque l'IP avant de la transmettre (`/16` en IPv4, `/48` en IPv6). Côté instance,
-  il reste à activer `proxy_client_headers[]`, `proxy_ip_read_last_in_list` et `proxy_ips[]` —
-  à trancher avec les opérateurs de l'instance. Sans ce réglage, la mesure fonctionne mais la
-  géolocalisation est fausse et les visiteurs sans cookie fusionnent.
+- Le relais masque l'IP avant de la transmettre (`/16` en IPv4, `/48` en IPv6). Sur
+  l'instance de la fabrique, `proxy_client_headers[]`, `proxy_ip_read_last_in_list` et
+  `proxy_ips[]` ne sont pas activés : la mesure fonctionne, mais la géolocalisation est fausse
+  et les visiteurs sans cookie fusionneraient. Solution retenue avec les opérateurs : chaque
+  site placé derrière un relais passe en type « intranet », où Matomo distingue les visiteurs
+  par leur seul cookie (voir `doc/collecte-relais-matomo.md`, limites).
 - **Les exemples sont un catalogue, pas encore un artefact partagé.** Cinq implémentations
   portent le même contrat : chaque correction doit être rejouée cinq fois, et cette PR l'a déjà
   fait deux fois (écrasement de `X-Forwarded-For`, puis masquage de l'IP). Dès le **deuxième

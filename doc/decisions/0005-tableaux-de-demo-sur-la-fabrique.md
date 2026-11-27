@@ -1,9 +1,11 @@
 # 0005 : tableaux de démo et de préprod servis par la fabrique
 
-**Date** : 29/10/2026 · **Statut** : **proposé**
+**Date** : 29/10/2026 · **Statut** : **accepté** (27/11/2026)
 
-Passe en **accepté** après le pilote Médlé : page servie par l'URL dev, widget du doc
-« Démo - Médlé » rebranché dessus, onglets contrôlés.
+Passait en **accepté** après le pilote Médlé : page servie par l'URL dev, widget du doc
+« Démo - Médlé » rebranché dessus, onglets contrôlés. Pilote réussi, puis migration générale le
+05/11/2026 : tous les tableaux sont servis par ce dépôt, les sites Netlify des widgets sont
+hors ligne.
 
 ## Décision
 
@@ -30,11 +32,12 @@ Une démo sans collecte est un dossier `produits/<dept>/<nom>/` avec un `dashboa
 
 ## Conséquences
 
-- Une mise à jour de démo passe par une PR mergée sur `main`. Le délai entre le merge et la page en ligne
-  est mesuré pendant le pilote.
+- Une mise à jour de démo passe par une PR mergée sur `main`. La page est en ligne environ
+  90 s après le merge (mesuré pendant le pilote).
 - L'image ne publie que `dashboard.html` : les ressources sont embarquées dans la page, hors
   l'API plugin chargée depuis `grist.numerique.gouv.fr`.
-- Les sites Netlify sont archivés deux semaines après la bascule de leur doc, puis supprimés.
+- Les sites Netlify des widgets ont été mis hors ligne le 05/11/2026, sans suppression, pour
+  garder un retour arrière possible.
 
 ## Versions côte à côte (19/11/2026)
 

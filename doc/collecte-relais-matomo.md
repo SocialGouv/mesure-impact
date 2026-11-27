@@ -1,6 +1,7 @@
 # Collecter malgré les bloqueurs : le relais Matomo
 
-**Statut** : proposition, à valider par le studio tech · **Décision** : [`decisions/0004`](decisions/0004-collecte-client-side-via-relais.md)
+**Statut** : en service sur HELIOS (préprod et prod), décision pas encore acceptée : le test
+depuis un poste agent équipé du bloqueur reste à faire (étape 2 de la recette) · **Décision** : [`decisions/0004`](decisions/0004-collecte-client-side-via-relais.md)
 
 ## Le problème
 
@@ -8,6 +9,19 @@ Les bloqueurs de publicité installés sur les postes agents (uBlock) coupent la
 Leurs listes bloquent l'adresse de l'instance et les fichiers `matomo.js` et `matomo.php`. Les
 visites bloquées n'apparaissent nulle part : le tableau de bord sous-estime l'usage sans le
 signaler.
+
+## Quand poser le relais
+
+Le critère est le **public du produit**, pas sa stratégie de collecte (`decisions/0006`).
+
+| Public | Relais | Site Matomo | Exemples |
+|---|---|---|---|
+| Agents, sur un poste de l'administration (bloqueur déployé) | **Obligatoire** | type « intranet » (voir les limites) | HELIOS, D@CCORD, Médlé, VAO, Honorabilité |
+| Grand public | Facultatif : snippet Matomo direct | type par défaut | BASAVI |
+
+Un produit à double public (un site public et un back-office d'agents) pose le relais au
+moins sur la partie agents. En cas de doute, le poser : il ne change ni le plan de tagging ni
+le code des events.
 
 ## Le principe
 
@@ -159,6 +173,9 @@ aussi à exclure les deux chemins du journal d'accès.
    navigateur, le `User-Agent` n'est pas transmis), et la localisation s'arrête à la région,
    jamais à la ville — c'est le signe que le relais masque bien l'IP. Une seule ville pour tous
    les hits signale l'inverse : le relais transmet l'IP du serveur, pas celle du visiteur.
+   Exception : sur une instance qui ignore `X-Forwarded-For` (c'est le cas de celle de la
+   fabrique, où `proxy_client_headers[]` n'est pas activé : voir `decisions/0004`), tous les hits portent l'IP du serveur quoi qu'il
+   arrive, et la localisation n'est pas un critère.
 4. **Dans les journaux du produit** : aucune ligne pour les deux chemins du relais. Une query
    string de hit qui y apparaît porte l'URL visitée et l'identifiant de visiteur.
 
@@ -196,6 +213,13 @@ aussi à exclure les deux chemins du journal d'accès.
   `set_real_ip_from` (nginx), `trust proxy` (Express) ou `ProxyFix` (Flask), le relais voit
   l'IP du pod ingress : tous les hits porteront la même valeur et régler l'instance ne
   rapportera rien. À valider avec les opérateurs de l'instance.
+
+  **Solution retenue sur l'instance de la fabrique : le site en type « intranet ».** Le réglage
+  global `trust_visitors_cookies` a été demandé et refusé par les opérateurs. Ils passent
+  site concerné en type « intranet », où Matomo se fie au seul cookie
+  `_pk_id` pour distinguer les visiteurs. Fait sur HELIOS préprod (162) le 12/10/2026 et prod
+  (72) le 26/11/2026, vérifié par un test à deux navigateurs (deux visiteurs distincts). À
+  demander pour chaque nouveau site placé derrière un relais, avant la mise en service.
 - **Le relais n'ajoute pas de droits**, à condition d'écraser `X-Forwarded-For` comme le font
   les exemples. `matomo.php` est déjà public : ce qui passe par le relais (y compris une requête
   portant un `token_auth`) pouvait être envoyé directement à l'instance. Seule différence, ces
@@ -213,5 +237,10 @@ aussi à exclure les deux chemins du journal d'accès.
   redirection). Le relais renvoie alors une erreur visible plutôt qu'un hit tronqué.
 - **Le cookie Matomo reste déposé.** Les obligations d'information des utilisateurs sont
   inchangées par rapport à une intégration classique.
+- **Rien ne part avant le consentement.** Quand le produit ne charge le traceur qu'après
+  l'acceptation du bandeau cookies, un refus ne laisse aucune trace, et les events émis avant
+  l'acceptation sont perdus (par exemple une connexion faite avant d'accepter). Le relais n'y
+  change rien : c'est un biais de mesure à signaler à l'équipe produit et à garder en tête
+  pendant une recette (voir `doc/exploitation.md`, section 3).
 - **Préfixe fixe.** Les exemples utilisent un préfixe choisi une fois. Le changer à chaque
   déploiement (variable d'environnement) rend le blocage plus difficile.

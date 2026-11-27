@@ -30,6 +30,21 @@ PRODUIT=sante/basavi ENV=dev task seal
 Seul le fichier **chiffré** est commité. Renouveler une clé = re-sceller + commiter. Un token
 qui fuit ou qu'on révoque n'affecte que son produit.
 
+## Avant de merger une PR
+
+- **Revue adversariale** de la PR, puis commentaire `/revi` pour déclencher le bot de revue.
+  Les retours `high` se corrigent avant le merge.
+- **Une démo ou une préprod** se valide sur l'URL dev après le merge, dans le doc Grist.
+- **Une nouvelle version de tableau** ne remplace pas l'ancienne tant qu'elle n'est pas
+  validée : `versions/<v>.html` et une page Grist de plus, l'ancienne page reste (voir
+  `produits/README.md` et `doc/exploitation.md`, section 6). Une nouvelle version ajoute des
+  colonnes sans en retirer. L'ETL, lui, peut en retirer (HELIOS l'a fait pour `visitor_id`) :
+  une ancienne page gardée en comparaison se revérifie après la collecte qui suit un
+  changement d'ETL.
+- **La prod** ne bouge qu'au déploiement manuel, après validation de l'équipe produit. Ce
+  déploiement embarque tout `main` : chaque produit modifié depuis le dernier déploiement prod
+  doit être validé, pas seulement celui qu'on veut livrer.
+
 ## Critères d'achèvement
 
 Chaque produit déclare ses critères dans `produit.yaml`. Ils définissent « c'est sain quand… »

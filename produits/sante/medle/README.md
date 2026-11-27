@@ -14,6 +14,7 @@ doc Grist « Démo - Médlé » (données fictives) ──> dashboard.html (widg
   données via l'API plugin Grist, aucun token dans la page). Polices Marianne embarquées :
   l'image web ne publie que ce fichier.
 - Pas de `produit.yaml` ni de collecte : le dossier est publié sans CronJob, sous
-  `/sante/medle/`. Ils arriveront avec le tagging Matomo du produit.
+  `/sante/medle/`. Ils arriveront avec le tagging Matomo du produit et l'extraction de sa base (stratégie C,
+  `doc/decisions/0006`).
 
 Hors de Grist, la page affiche « Données indisponibles » : aucune donnée n'est publiée.
