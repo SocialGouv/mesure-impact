@@ -1,7 +1,7 @@
 # Collecter malgré les bloqueurs : le relais Matomo
 
-**Statut** : en service sur HELIOS (préprod et prod), décision pas encore acceptée (voir ses
-critères) · **Décision** : [`decisions/0004`](decisions/0004-collecte-client-side-via-relais.md)
+**Statut** : en service sur HELIOS (préprod et prod), décision pas encore acceptée : le test
+depuis un poste agent équipé du bloqueur reste à faire (étape 2 de la recette) · **Décision** : [`decisions/0004`](decisions/0004-collecte-client-side-via-relais.md)
 
 ## Le problème
 

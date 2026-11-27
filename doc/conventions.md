@@ -37,8 +37,10 @@ qui fuit ou qu'on révoque n'affecte que son produit.
 - **Une démo ou une préprod** se valide sur l'URL dev après le merge, dans le doc Grist.
 - **Une nouvelle version de tableau** ne remplace pas l'ancienne tant qu'elle n'est pas
   validée : `versions/<v>.html` et une page Grist de plus, l'ancienne page reste (voir
-  `produits/README.md` et `doc/exploitation.md`, section 6). Les tables Grist ne font que
-  s'enrichir.
+  `produits/README.md` et `doc/exploitation.md`, section 6). Une nouvelle version ajoute des
+  colonnes sans en retirer. L'ETL, lui, peut en retirer (HELIOS l'a fait pour `visitor_id`) :
+  une ancienne page gardée en comparaison se revérifie après la collecte qui suit un
+  changement d'ETL.
 - **La prod** ne bouge qu'au déploiement manuel, après validation de l'équipe produit. Ce
   déploiement embarque tout `main` : chaque produit modifié depuis le dernier déploiement prod
   doit être validé, pas seulement celui qu'on veut livrer.
