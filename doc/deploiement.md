@@ -47,7 +47,9 @@ Ce qui change, concrètement :
 3. **Scellement** : `PRODUIT=<dept>/<nom> ENV=prod task seal` avec les deux tokens de prod
    → `produits/<dept>/<nom>/secrets/prod.sealedsecret.yaml`.
 4. **Déploiement** : manuel et volontaire (`workflow_dispatch` env=prod), approuvé par un
-   relecteur de l'environnement GitHub `prod`, puis réveil du CronJob prod.
+   relecteur de l'environnement GitHub `prod`. `cron.suspend` vaut pour tout l'env et vaut déjà
+   `false` en prod : le CronJob du produit est actif dès ce déploiement, sans réveil par
+   produit. L'approbation de l'environnement `prod` est la seule barrière.
 5. **Première collecte** à la main (workflow « Collecte manuelle », env `prod`), et
    comparaison des visites et events avec Matomo.
 6. **Repointage** du widget du doc prod vers l'URL fabrique de prod, partage du doc en lecteur
