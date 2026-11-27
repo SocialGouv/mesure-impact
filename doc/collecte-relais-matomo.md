@@ -196,6 +196,13 @@ aussi à exclure les deux chemins du journal d'accès.
   `set_real_ip_from` (nginx), `trust proxy` (Express) ou `ProxyFix` (Flask), le relais voit
   l'IP du pod ingress : tous les hits porteront la même valeur et régler l'instance ne
   rapportera rien. À valider avec les opérateurs de l'instance.
+
+  **Solution retenue sur l'instance de la fabrique : le site en type « intranet ».** Les
+  opérateurs ont refusé `trust_visitors_cookies` (réglage global à l'instance). Ils passent à
+  la place chaque site concerné en type « intranet », où Matomo se fie au seul cookie
+  `_pk_id` pour distinguer les visiteurs. Fait sur HELIOS préprod (162) le 12/10/2026 et prod
+  (72) le 26/11/2026, vérifié par un test à deux navigateurs (deux visiteurs distincts). À
+  demander pour chaque nouveau site placé derrière un relais, avant la mise en service.
 - **Le relais n'ajoute pas de droits**, à condition d'écraser `X-Forwarded-For` comme le font
   les exemples. `matomo.php` est déjà public : ce qui passe par le relais (y compris une requête
   portant un `token_auth`) pouvait être envoyé directement à l'instance. Seule différence, ces
@@ -213,5 +220,10 @@ aussi à exclure les deux chemins du journal d'accès.
   redirection). Le relais renvoie alors une erreur visible plutôt qu'un hit tronqué.
 - **Le cookie Matomo reste déposé.** Les obligations d'information des utilisateurs sont
   inchangées par rapport à une intégration classique.
+- **Rien ne part avant le consentement.** Quand le produit ne charge le traceur qu'après
+  l'acceptation du bandeau cookies, un refus ne laisse aucune trace, et les events émis avant
+  l'acceptation sont perdus (par exemple une connexion faite avant d'accepter). Le relais n'y
+  change rien : c'est un biais de mesure à signaler à l'équipe produit et à garder en tête
+  pendant une recette (voir `doc/exploitation.md`, section 3).
 - **Préfixe fixe.** Les exemples utilisent un préfixe choisi une fois. Le changer à chaque
   déploiement (variable d'environnement) rend le blocage plus difficile.

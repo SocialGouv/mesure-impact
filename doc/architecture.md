@@ -3,14 +3,33 @@
 ## La chaîne, de bout en bout
 
 ```
-Matomo ──(API)──> ETL (Node) ──(REST)──> Grist ──(API plugin)──> dashboard.html (widget)
- collecte          agrège jour×device      stocke + calcule        affiche
+Matomo ──(API)──┐
+                ├──> ETL (Node) ──(REST)──> Grist ──(API plugin)──> dashboard.html (widget)
+base du produit ┘     agrège                 stocke + calcule        affiche
+ (stratégie C)
 ```
+
+Matomo est toujours là : il mesure la navigation. La base du produit ne s'y ajoute que pour
+les produits en stratégie C (voir plus bas). Le grain dépend du produit : jour × appareil pour
+BASAVI, mois × rôle pour HELIOS.
 
 Deux briques tournent dans l'infra (Kubernetes / fabrique) :
 
 - un **CronJob** qui exécute l'ETL périodiquement (image `docker/cron`) ;
 - un **service web** qui sert les fronts statiques derrière l'ingress (image `docker/web`).
+
+## Trois stratégies de collecte
+
+Chaque produit relève de l'une des trois. Le détail et les règles sont dans `decisions/0006`.
+
+| Stratégie | Sources lues par l'ETL | Exemple |
+|---|---|---|
+| A. Matomo seul | events de navigation | BASAVI |
+| B. Matomo + totaux poussés | events de navigation + events serveur portant un total (cron applicatif) | HELIOS, base d'agents le 1er du mois |
+| C. Base lue par la collecte | events de navigation + extraction de la base du produit, sans identifiant | D@CCORD, Médlé (à venir) |
+
+Aujourd'hui, seules A et B sont codées : la lecture d'une extraction (stratégie C) arrivera
+avec son premier produit, avec ses variables dans le contrat ci-dessous.
 
 ## Socle partagé vs couche produits
 
@@ -51,13 +70,25 @@ tokens en un SealedSecret commitable, déchiffrable uniquement par le cluster. C
 ## Front : widget embarqué dans Grist
 
 Le front est chargé comme **widget custom dans le doc Grist**, pas servi en page autonome :
-il obtient ses données via l'API plugin Grist (`grist.docApi.fetchTable`), sans token. La
-fabrique remplace simplement Netlify comme hébergeur du fichier ; le doc Grist repointe vers
-la nouvelle URL. Cf. `decisions/0002`.
+il obtient ses données via l'API plugin Grist (`grist.docApi.fetchTable`), sans token. Tous
+les tableaux, démos comprises, sont servis par ce dépôt : Netlify n'en héberge plus aucun.
+Cf. `decisions/0002` et `decisions/0005`.
 
 L'image `docker/web` publie chaque `produits/<dept>/<nom>/dashboard.html` sous
 `https://<host>/<dept>/<nom>/` — c'est cette URL qu'attend le widget. La racine `/` liste les
 tableaux de bord publiés, générée au build de l'image.
+
+L'image publie aussi :
+
+- les **versions côte à côte** : `produits/<dept>/<nom>/versions/<v>.html` sous
+  `/<dept>/<nom>/<v>/`, pour comparer deux itérations dans le même doc Grist ;
+- les **tableaux sans collecte** : un dossier sans `produit.yaml` est publié sans CronJob
+  (démo sur données fictives) ;
+- l'**app Data Ops** : `site/data-ops/` sous `/data-ops/`, widget du doc « Data Ops DNUM ».
+
+Chaque tableau porte un bouton **« Faire un retour »** qui ouvre un formulaire Grist public
+(table `Retours` du doc « Data Ops DNUM »), avec le contexte du tableau dans l'URL. Le détail
+est dans `produits/README.md`.
 
 ## Multitenance
 
@@ -92,4 +123,6 @@ Ajouter un produit ne touche donc pas au socle : un dossier, un `produit.yaml` c
 - `.github/workflows/deploy.yml` : build des images + déploiement (push `main` → dev,
   `workflow_dispatch` → prod).
 - `.github/workflows/ci.yml` : portes de qualité sur chaque PR (lint du chart, vérification
-  de syntaxe des collecteurs).
+  de syntaxe des collecteurs, tests des tableaux, des ETL et des règles d'alerte).
+- `.github/workflows/collecte.yml` : collecte manuelle d'un produit dans un env, sans attendre
+  le créneau du CronJob (voir `doc/exploitation.md`).

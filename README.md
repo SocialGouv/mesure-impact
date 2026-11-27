@@ -16,9 +16,11 @@ task             # liste des commandes
 |---|---|
 | `docker/cron/` | image du CronJob de collecte |
 | `docker/web/` | image nginx servant `site/` |
-| `site/` | page d'accueil listant les tableaux de bord |
+| `site/` | page d'accueil listant les tableaux de bord, et l'app Data Ops (`site/data-ops/`) |
 | `exemples/relais-matomo/` | relais anti-bloqueur à poser dans les produits (cf. `doc/collecte-relais-matomo.md`) |
-| `produits/<dept>/<nom>/` | un produit : fiche, ETL, tableau de bord, secrets scellés |
+| `produits/<dept>/<nom>/` | un produit : fiche, ETL, tableau de bord, secrets scellés ; une démo n'a que son `dashboard.html` |
+| `produits/<dept>/<nom>/versions/` | versions d'un tableau publiées côte à côte |
+| `doc/` | documentation : produit, architecture, déploiement, exploitation, décisions |
 | `chart/` | chart Helm (CronJob, Deployment, Service, Ingress) |
 | `envs/<env>/values.yaml` | surcharges par environnement |
 | `produits/<dept>/<nom>/secrets/` | tokens chiffrés du produit, un SealedSecret par env |

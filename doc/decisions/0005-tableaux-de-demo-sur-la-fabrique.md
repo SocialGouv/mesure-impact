@@ -1,9 +1,11 @@
 # 0005 : tableaux de démo et de préprod servis par la fabrique
 
-**Date** : 29/10/2026 · **Statut** : **proposé**
+**Date** : 29/10/2026 · **Statut** : **accepté** (27/11/2026)
 
-Passe en **accepté** après le pilote Médlé : page servie par l'URL dev, widget du doc
-« Démo - Médlé » rebranché dessus, onglets contrôlés.
+Passait en **accepté** après le pilote Médlé : page servie par l'URL dev, widget du doc
+« Démo - Médlé » rebranché dessus, onglets contrôlés. Pilote réussi, puis migration générale le
+05/11/2026 : tous les tableaux sont servis par ce dépôt, les sites Netlify des widgets sont
+hors ligne.
 
 ## Décision
 

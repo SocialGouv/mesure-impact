@@ -6,7 +6,8 @@ Chaque tableau de bord vit dans `produits/<département>/<produit>/`. Le socle t
 ## Ajouter un produit
 
 1. **Copier un dossier existant** : `cp -r produits/sante/basavi produits/<dept>/<nom>`.
-2. **Remplir `produit.yaml`** : site Matomo, doc Grist, grain, critères d'achèvement.
+2. **Remplir `produit.yaml`** : site Matomo, doc Grist, grain, critères d'achèvement. Choisir
+   la stratégie de collecte (Matomo seul, totaux poussés, base lue) : `doc/decisions/0006`.
 3. **Adapter `etl.mjs`** : la recette de collecte propre au produit (pour l'instant un script
    par produit ; un moteur générique sera extrait quand le pattern se stabilisera).
 4. **Poser `dashboard.html`** : le front, embarqué dans le doc Grist.
@@ -21,7 +22,7 @@ Chaque tableau de bord vit dans `produits/<département>/<produit>/`. Le socle t
 7. **Doc Grist distinct** : deux produits ne peuvent pas partager un `doc_id`. Les clés des
    tables sont `day|device`, sans discriminant de produit : les deux collectes s'écraseraient.
    Le générateur d'inventaire refuse ce cas.
-6. **Documenter** : mettre à jour `doc/produit.md` et ouvrir la PR (le modèle de PR rappelle
+8. **Documenter** : mettre à jour `doc/produit.md` et ouvrir la PR (le modèle de PR rappelle
    la checklist).
 
 On ne touche jamais aux autres produits ni au socle. La référence, c'est le dossier

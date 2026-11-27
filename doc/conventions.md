@@ -30,6 +30,16 @@ PRODUIT=sante/basavi ENV=dev task seal
 Seul le fichier **chiffré** est commité. Renouveler une clé = re-sceller + commiter. Un token
 qui fuit ou qu'on révoque n'affecte que son produit.
 
+## Avant de merger une PR
+
+- **Revue adversariale** de la PR, puis commentaire `/revi` pour déclencher le bot de revue.
+  Les retours `high` se corrigent avant le merge.
+- **Une démo ou une préprod** se valide sur l'URL dev après le merge, dans le doc Grist.
+- **Une nouvelle version de tableau** ne remplace pas l'ancienne : `versions/<v>.html` et une
+  page Grist de plus, l'ancienne page reste (voir `produits/README.md`). Les tables Grist ne
+  font que s'enrichir.
+- **La prod** ne bouge qu'au déploiement manuel, après validation de l'équipe produit.
+
 ## Critères d'achèvement
 
 Chaque produit déclare ses critères dans `produit.yaml`. Ils définissent « c'est sain quand… »
