@@ -15,15 +15,18 @@ L'enjeu n'est pas la dataviz pour elle-même : c'est de rendre visible l'usage d
 
 ## Les tableaux de bord
 
-| Produit | Dossier | Stratégie | État |
-|---|---|---|---|
-| BASAVI | `sante/basavi` | A. Matomo seul | Prod depuis le 24/09/2026 (V1.2 validée le 30/10, en prod le 05/11) |
-| HELIOS | `sante/helios` | B. Matomo + base d'agents poussée le 1er du mois | Prod depuis le 26/11/2026 (plan de taggage posé à la MEP du 23/11), grain mois × rôle |
-| Médlé | `sante/medle` | C. Matomo + base (prévue) | Démo, plan de taggage chez l'éditeur |
-| D@CCORD | `idn/daccord` | C. Matomo + base (prévue) | Démo V1.2, plan de taggage chez le dev |
-| Sites Eaux | `sante/siteseaux` | À définir | Démo V1 et V1.1 côte à côte |
-| Honorabilité | `gps/honorabilite` | À définir (sources techniques en plus de Matomo) | Démo V3 et V4 côte à côte |
-| VAO | `gps/vao` | À définir | Démo |
+| Produit | Dossier | Stratégie | Relais | État |
+|---|---|---|---|---|
+| BASAVI | `sante/basavi` | A. Matomo seul | Non (grand public) | Prod depuis le 24/09/2026 (V1.2 validée le 30/10, en prod le 05/11) |
+| HELIOS | `sante/helios` | B. Matomo + base d'agents poussée le 1er du mois | Oui, en service | Prod depuis le 26/11/2026 (plan de taggage posé à la MEP du 23/11), grain mois × rôle |
+| Médlé | `sante/medle` | C. Matomo + base (prévue) | Prévu | Démo, plan de taggage chez l'éditeur |
+| D@CCORD | `idn/daccord` | C. Matomo + base (prévue) | Prévu | Démo V1.2, plan de taggage chez le dev |
+| Sites Eaux | `sante/siteseaux` | À définir | À définir | Démo V1 et V1.1 côte à côte |
+| Honorabilité | `gps/honorabilite` | À définir (sources techniques en plus de Matomo) | Oui (outil d'agents) | Démo V3 et V4 côte à côte |
+| VAO | `gps/vao` | À définir | Oui (back-office d'agents) | Démo |
+
+« Relais » : le relais Matomo anti-bloqueur, requis pour un outil d'agents
+(`collecte-relais-matomo.md`, « Quand poser le relais »).
 
 « Démo » : front seul sur données fictives, sans collecte (`produits/README.md`, « Tableau
 sans collecte »).

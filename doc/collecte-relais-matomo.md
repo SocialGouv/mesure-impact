@@ -10,6 +10,19 @@ Leurs listes bloquent l'adresse de l'instance et les fichiers `matomo.js` et `ma
 visites bloquées n'apparaissent nulle part : le tableau de bord sous-estime l'usage sans le
 signaler.
 
+## Quand poser le relais
+
+Le critère est le **public du produit**, pas sa stratégie de collecte (`decisions/0006`).
+
+| Public | Relais | Site Matomo | Exemples |
+|---|---|---|---|
+| Agents, sur un poste de l'administration (bloqueur déployé) | **Obligatoire** | type « intranet » (voir les limites) | HELIOS, D@CCORD, Médlé, VAO, Honorabilité |
+| Grand public | Facultatif : snippet Matomo direct | type par défaut | BASAVI |
+
+Un produit à double public (un site public et un back-office d'agents) pose le relais au
+moins sur la partie agents. En cas de doute, le poser : il ne change ni le plan de tagging ni
+le code des events.
+
 ## Le principe
 
 La page ne parle plus à Matomo directement. Elle appelle **deux adresses neutres sur le domaine

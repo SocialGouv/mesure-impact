@@ -25,10 +25,15 @@ changent pas : seule la partie « extraire » de l'ETL diffère.
 | | A. Matomo seul | B. Matomo + totaux poussés | C. Base lue par la collecte |
 |---|---|---|---|
 | Source | events de navigation | events de navigation + events serveur portant un total | events de navigation + extraction de la base du produit |
-| Côté produit | plan de taggage, relais | plan de taggage, relais, un cron qui envoie le total à Matomo | plan de taggage, relais, une extraction prête avant 6h |
+| Côté produit | plan de taggage | plan de taggage, un cron qui envoie le total à Matomo | plan de taggage, une extraction prête avant 6h |
 | Côté `mesure-impact` | ETL Matomo | ETL Matomo, qui sépare les events serveur | ETL Matomo + lecture de l'extraction, un secret de plus |
 | Bon pour | usage pur | un ou deux totaux à petite cadence (mensuel) | volumes, délais, statuts, tout ce qui est compté par dossier |
 | Exemple | BASAVI | HELIOS (base d'agents, le 1er du mois) | D@CCORD, Médlé (plans de taggage envoyés le 26/11/2026) |
+
+Le relais Matomo est un choix distinct de la stratégie : il dépend du public du produit, pas
+de ses sources. Un outil d'agents le pose quelle que soit sa stratégie (HELIOS en B, D@CCORD
+et Médlé en C), un produit grand public s'en passe (BASAVI en A). Règle dans
+`doc/collecte-relais-matomo.md`, « Quand poser le relais ».
 
 ### Règles de la stratégie C
 
