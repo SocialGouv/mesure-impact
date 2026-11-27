@@ -67,7 +67,8 @@ L'image web publie quand même le `dashboard.html` sous `/<dept>/<nom>/`.
 Pour montrer deux itérations côte à côte dans le même doc Grist, ajouter
 `versions/<v>.html` (par exemple `versions/1.1.html`) : l'image le publie sous
 `/<dept>/<nom>/<v>/`, et une page Grist de plus pointe dessus. `dashboard.html` reste la version
-de référence ; promouvoir une version, c'est la recopier dans `dashboard.html` puis supprimer le fichier.
+de référence ; promouvoir une version, c'est la recopier dans `dashboard.html` puis supprimer le fichier et
+la page Grist qui pointait dessus (voir `doc/exploitation.md`, section 6).
 
 Deux règles, parce que l'image ne copie que ce fichier et que le dépôt est public :
 

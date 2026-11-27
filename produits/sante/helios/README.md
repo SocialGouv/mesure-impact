@@ -116,13 +116,10 @@ Points de vigilance :
 
 - **Le script local `sandbox-impact/grist/preprod-etl.mjs` doit être arrêté.** Il écrit encore
   le grain brut, avec `visitor_id`, sur le même doc.
-- **Prod déclarée le 19/11/2026**, avant la MEP 1.8.20 du 23/11 qui pose le plan de taggage
-  sur la prod : site Matomo 72, doc « Prod - Hélios » (`b9HgpwiY96ydpAxTD8Z44w`, copie vide de la
-  préprod, compte de service éditeur), secret `secrets/prod.sealedsecret.yaml` (token Matomo
-  prod). **Ni déploiement prod ni merge avant la MEP du 23/11 à 12h** : le merge ne déploie
-  que dev, mais tout `workflow_dispatch` prod lancé ensuite depuis `main` (pour BASAVI par
-  exemple) embarquerait HELIOS. Avant le plan de taggage, le site 72 n'a aucune visite, et un
-  produit qui n'a jamais rien collecté fait échouer son run (voulu, voir `produits/README.md`
-  § 6) : les alertes sonneraient chaque nuit. **Prod ouverte le 26/11/2026** : déploiement prod
-  manuel, première collecte conforme à Matomo à moins de 1 %, widget « Tableau V3 » du doc prod
-  repointé vers l'URL fabrique de prod, site 72 passé en type intranet comme le 162.
+- **Prod déclarée le 19/11/2026, ouverte le 26/11/2026** après la MEP 1.8.20 du 23/11 qui pose
+  le plan de taggage sur la prod : site Matomo 72 (type intranet, comme le 162), doc « Prod -
+  Hélios » (`b9HgpwiY96ydpAxTD8Z44w`, compte de service éditeur), secret
+  `secrets/prod.sealedsecret.yaml`. Le déploiement prod a attendu la MEP : avant le plan de
+  taggage, le site 72 n'avait aucune visite, et un produit qui n'a jamais rien collecté fait
+  échouer son run (voulu, voir `produits/README.md` § 6). Première collecte conforme à Matomo à
+  moins de 1 %, widget « Tableau V3 » du doc prod repointé vers l'URL fabrique de prod.
